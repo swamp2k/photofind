@@ -65,3 +65,23 @@ export interface RepairResult {
   failed: number
   log: LogEntry[]
 }
+
+export type KeeperStatus = 'unset' | 'keep' | 'maybe' | 'reject'
+
+export interface LibraryItem {
+  path: string
+  name: string
+  kind: MediaKind
+  sizeBytes: number
+  confidence: MatchConfidence
+  sidecarPath: string | null
+  thumbnailPath: string | null
+  status: KeeperStatus
+}
+
+export interface ExportResult {
+  attempted: number
+  exported: number
+  failed: number
+  log: LogEntry[]
+}

@@ -1,22 +1,44 @@
 import { useState } from 'react'
-import type { LogEntry, RepairResult, ScanResult } from '../../../shared/types'
+import type { LibraryItem, LogEntry, RepairResult, ScanResult } from '../../../shared/types'
 import { DiagnosticsDrawer } from './DiagnosticsDrawer'
 
-export function ImportView(): JSX.Element {
+export function ImportView({ onLibraryBuilt }: { onLibraryBuilt: (items: LibraryItem[]) => void }): JSX.Element {
   const [sourcePath, setSourcePath] = useState<string | null>(null)
+  const [extractLog, setExtractLog] = useState<LogEntry[]>([])
+  const [extracting, setExtracting] = useState(false)
   const [scanning, setScanning] = useState(false)
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
   const [repairing, setRepairing] = useState(false)
   const [repairResult, setRepairResult] = useState<RepairResult | null>(null)
+  const [buildingLibrary, setBuildingLibrary] = useState(false)
 
-  const log: LogEntry[] = [...(scanResult?.log ?? []), ...(repairResult?.log ?? [])]
+  const log: LogEntry[] = [...extractLog, ...(scanResult?.log ?? []), ...(repairResult?.log ?? [])]
 
-  async function handleSelectSource(): Promise<void> {
+  function resetDownstream(): void {
+    setScanResult(null)
+    setRepairResult(null)
+  }
+
+  async function handleSelectFolder(): Promise<void> {
     const path = await window.api.selectFolder()
     if (path) {
       setSourcePath(path)
-      setScanResult(null)
-      setRepairResult(null)
+      setExtractLog([])
+      resetDownstream()
+    }
+  }
+
+  async function handleSelectZips(): Promise<void> {
+    const zipPaths = await window.api.selectZips()
+    if (!zipPaths || zipPaths.length === 0) return
+    setExtracting(true)
+    resetDownstream()
+    try {
+      const result = await window.api.extractZips(zipPaths)
+      setExtractLog(result.log)
+      setSourcePath(result.destDir)
+    } finally {
+      setExtracting(false)
     }
   }
 
@@ -43,13 +65,27 @@ export function ImportView(): JSX.Element {
     }
   }
 
+  async function handleBuildLibrary(): Promise<void> {
+    if (!scanResult) return
+    setBuildingLibrary(true)
+    try {
+      const items = await window.api.buildLibrary(scanResult.matches)
+      onLibraryBuilt(items)
+    } finally {
+      setBuildingLibrary(false)
+    }
+  }
+
   return (
     <div className="import-view">
       <div className="import-top">
         <h1>Import Google Takeout or local photo folder</h1>
-        <button onClick={handleSelectSource}>Choose folder&hellip;</button>
+        <button onClick={handleSelectFolder}>Choose folder&hellip;</button>
+        <button onClick={handleSelectZips} disabled={extracting}>
+          {extracting ? 'Extracting…' : 'Choose Takeout zip(s)…'}
+        </button>
         {sourcePath && <span className="source-path">{sourcePath}</span>}
-        <button className="primary" disabled={!sourcePath || scanning} onClick={handleScan}>
+        <button className="primary" disabled={!sourcePath || scanning || extracting} onClick={handleScan}>
           {scanning ? 'Scanning…' : 'Scan'}
         </button>
       </div>
@@ -102,8 +138,8 @@ export function ImportView(): JSX.Element {
         <button className="primary" disabled={!scanResult || repairing} onClick={() => handleRepair(false)}>
           {repairing ? 'Repairing…' : 'Repair metadata'}
         </button>
-        <button disabled title="Coming in a later milestone">
-          Build library
+        <button disabled={!scanResult || buildingLibrary} onClick={handleBuildLibrary}>
+          {buildingLibrary ? 'Building…' : 'Build library'}
         </button>
       </div>
 

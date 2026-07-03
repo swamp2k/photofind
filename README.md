@@ -15,12 +15,14 @@ truth; this app repairs metadata and curates locally.
 - A Python sidecar (FastAPI + InsightFace/ONNX) is planned for the
   people-recognition milestone only — not part of the current build.
 
-## Status: MVP 0.1 — Takeout Repair
+## Status: MVP 0.1 — Takeout Repair + Fast Viewer prototype
 
-The current build implements the first mockup: import a Takeout export or a
-local folder, scan it, match media files to their Google JSON sidecars, and
-repair EXIF/GPS metadata for confident matches. Nothing here is silent —
-uncertain and missing matches are always surfaced in the diagnostics log.
+**Import / Takeout Repair (Mockup 1).** Import a Takeout export (one or many
+zip parts — Takeout splits by size, not by folder, so parts are extracted
+into one shared tree before scanning) or a local folder, scan it, match media
+files to their Google JSON sidecars, and repair EXIF/GPS metadata for
+confident matches. Nothing here is silent — uncertain and missing matches,
+and zip name conflicts, are always surfaced in the diagnostics log.
 
 Sidecar matching handles the known Google Takeout quirks:
 
@@ -29,6 +31,18 @@ Sidecar matching handles the known Google Takeout quirks:
 - `-edited` copies, which reuse the original file's sidecar
 - truncated filenames on long names, matched by longest-prefix within a folder
   (flagged `uncertain` rather than assumed correct)
+
+**Fast Library Viewer (Mockup 2, prototype).** "Build library" persists the
+scan into a local SQLite index and generates thumbnails for images (RAW/video
+thumbnails are a later milestone). The viewer gives you a thumbnail grid,
+a status filter sidebar (Keep/Maybe/Reject/Unreviewed), an inspector panel,
+keyboard shortcuts (arrows to move, K/M/R to mark), and an "Export keepers"
+action that copies marked files to a folder you choose. Timeline/people/place
+filters and the templated export from Mockup 5 aren't built yet.
+
+better-sqlite3 is a native module and must be built against Electron's ABI,
+not plain Node's — a `postinstall` script (`electron-rebuild`) handles this
+automatically after `npm install`.
 
 ## Getting started
 
@@ -44,13 +58,13 @@ npm run build      # production build (main/preload/renderer)
 
 ```
 src/
-  shared/          # types shared between main and renderer
+  shared/          # types + media:// URL helper shared between main and renderer
   main/
-    services/      # scanner, sidecar matcher, metadata repair (pure logic, unit-tested)
+    services/      # scanner, sidecar matcher, zip import, metadata repair, library/db, thumbnails
     ipc.ts         # IPC handlers exposed to the renderer
-    index.ts       # Electron entry point
+    index.ts       # Electron entry point, registers the media:// protocol
   preload/         # contextBridge API surface
-  renderer/        # React UI (Vite)
+  renderer/        # React UI (Vite) - Import view and Viewer view
 ```
 
 ## Roadmap
