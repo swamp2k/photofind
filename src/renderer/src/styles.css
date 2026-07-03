@@ -1,0 +1,198 @@
+:root {
+  color-scheme: dark;
+  --bg: #1a1b1e;
+  --panel: #232427;
+  --border: #34363a;
+  --text: #e4e4e6;
+  --muted: #8b8d92;
+  --accent: #4f8cff;
+  --safe: #57c66f;
+  --uncertain: #e0a740;
+  --missing: #e05252;
+  --error: #ff6b6b;
+  --warn: #e0a740;
+  --info: #8b8d92;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+}
+
+.app-shell {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.import-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 16px;
+  gap: 12px;
+}
+
+.import-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.import-top h1 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.source-path {
+  color: var(--muted);
+  font-family: 'SF Mono', Consolas, monospace;
+  font-size: 12px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.import-panels {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  flex: 0 0 auto;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+}
+
+.panel h2 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.stat-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stat-safe {
+  color: var(--safe);
+}
+.stat-uncertain {
+  color: var(--uncertain);
+}
+.stat-missing {
+  color: var(--missing);
+}
+
+.repair-summary {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.import-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.diagnostics-drawer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #111214;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  min-height: 160px;
+}
+
+.diagnostics-header {
+  padding: 8px 12px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.diagnostics-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px;
+  font-family: 'SF Mono', Consolas, monospace;
+  font-size: 12px;
+}
+
+.diagnostics-empty {
+  color: var(--muted);
+}
+
+.log-line {
+  padding: 2px 0;
+  white-space: pre-wrap;
+}
+
+.log-level {
+  font-weight: 600;
+}
+
+.log-error .log-level {
+  color: var(--error);
+}
+.log-warn .log-level {
+  color: var(--warn);
+}
+.log-info .log-level {
+  color: var(--info);
+}
