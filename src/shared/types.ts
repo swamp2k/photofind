@@ -56,6 +56,8 @@ export interface ScanSummary {
 export interface ScanResult {
   summary: ScanSummary
   matches: SidecarMatch[]
+  thumbnails: ThumbnailResult
+  keepers: string[]
   log: LogEntry[]
 }
 
@@ -63,5 +65,43 @@ export interface RepairResult {
   attempted: number
   repaired: number
   failed: number
+  log: LogEntry[]
+}
+
+export interface ExportedFile {
+  sourcePath: string
+  outputPath: string | null
+  status: 'exported' | 'failed'
+  reason?: string
+}
+
+export interface ExportResult {
+  attempted: number
+  exported: number
+  failed: number
+  destinationRoot: string
+  reportPath: string
+  files: ExportedFile[]
+  log: LogEntry[]
+}
+
+export type ThumbnailStatus = 'ready' | 'failed' | 'skipped'
+
+export interface MediaThumbnail {
+  mediaPath: string
+  thumbnailPath: string | null
+  thumbnailUrl: string | null
+  status: ThumbnailStatus
+  reason?: string
+  width?: number
+  height?: number
+}
+
+export interface ThumbnailResult {
+  generated: number
+  reused: number
+  failed: number
+  skipped: number
+  items: MediaThumbnail[]
   log: LogEntry[]
 }

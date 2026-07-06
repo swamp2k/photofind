@@ -1,7 +1,22 @@
 import { join } from 'node:path'
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, protocol, shell } from 'electron'
 import { is } from './lib/env'
 import { registerIpcHandlers } from './ipc'
+import { registerThumbnailProtocol } from './services/thumbnailProtocol'
+import { THUMBNAIL_PROTOCOL } from './services/thumbnailUrl'
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: THUMBNAIL_PROTOCOL,
+    privileges: {
+      standard: true,
+      secure: true,
+      corsEnabled: true,
+      bypassCSP: true,
+      supportFetchAPI: true
+    }
+  }
+])
 
 function createWindow(): void {
   const window = new BrowserWindow({
@@ -29,6 +44,7 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
+  registerThumbnailProtocol()
   registerIpcHandlers()
   createWindow()
 

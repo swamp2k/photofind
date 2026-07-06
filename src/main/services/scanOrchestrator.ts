@@ -1,14 +1,36 @@
-import type { LogEntry, ScannedFile, ScanResult, ScanSummary, SidecarMatch } from '../../shared/types'
+import type { LogEntry, ScannedFile, ScanResult, ScanSummary, SidecarMatch, ThumbnailResult } from '../../shared/types'
 import { scanDirectory } from './scanner'
 import { matchSidecars } from './sidecarMatcher'
+import { generateThumbnails } from './thumbnails'
 
-export async function runScan(root: string): Promise<ScanResult> {
+export interface ScanOptions {
+  thumbnailCacheRoot?: string
+}
+
+export async function runScan(root: string, options: ScanOptions = {}): Promise<ScanResult> {
   const files = await scanDirectory(root)
   const matches = matchSidecars(files)
+  const thumbnails = options.thumbnailCacheRoot
+    ? await generateThumbnails(files, { cacheRoot: options.thumbnailCacheRoot })
+    : emptyThumbnailResult(files)
+
   return {
     summary: buildSummary(files, matches),
     matches,
-    log: buildLog(files, matches)
+    thumbnails,
+    keepers: [],
+    log: [...buildLog(files, matches), ...thumbnails.log]
+  }
+}
+
+function emptyThumbnailResult(files: ScannedFile[]): ThumbnailResult {
+  return {
+    generated: 0,
+    reused: 0,
+    failed: 0,
+    skipped: files.length,
+    items: [],
+    log: []
   }
 }
 

@@ -3,33 +3,67 @@
   "version": "0.1.0",
   "description": "Local AI Photo Curator - repair Google Takeout exports, browse, curate, and export photo libraries",
   "private": true,
+  "author": "Photofind",
+  "desktopName": "photofind.desktop",
   "type": "module",
+  "engines": {
+    "node": ">=20 <21",
+    "npm": ">=10"
+  },
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
+    "dev": "npm run rebuild:electron && electron-vite dev",
     "build": "electron-vite build",
+    "rebuild:node": "npm rebuild better-sqlite3",
+    "rebuild:electron": "electron-builder install-app-deps",
+    "pack:linux": "npm run build && electron-builder --linux dir && npm run rebuild:node",
+    "dist:linux": "npm run build && electron-builder --linux AppImage deb && npm run rebuild:node",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "test": "vitest run"
+    "test": "npm run rebuild:node && vitest run"
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
-    "better-sqlite3": "^11.10.0",
-    "exiftool-vendored": "^30.0.0",
+    "better-sqlite3": "^12.11.1",
+    "exiftool-vendored": "^35.21.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "sharp": "^0.33.5"
+    "sharp": "^0.35.3"
   },
   "devDependencies": {
+    "@swc/core": "^1.15.43",
     "@types/adm-zip": "^0.5.7",
     "@types/better-sqlite3": "^7.6.13",
-    "@types/node": "^22.15.0",
+    "@types/node": "^20.19.43",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
-    "@vitejs/plugin-react": "^4.3.4",
-    "electron": "^33.4.11",
-    "electron-vite": "^2.3.0",
-    "typescript": "^5.7.2",
-    "vite": "^5.4.11",
-    "vitest": "^2.1.8"
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^41.7.1",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.6",
+    "vitest": "^4.1.9"
+  },
+  "build": {
+    "appId": "dev.photofind.app",
+    "productName": "Photofind",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**",
+      "package.json"
+    ],
+    "asar": true,
+    "linux": {
+      "category": "Graphics",
+      "maintainer": "Photofind",
+      "syncDesktopName": true,
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    }
   }
 }
