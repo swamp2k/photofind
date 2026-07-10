@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import type { ExportResult, LogEntry, RepairResult, ScanResult } from '../../../shared/types'
-import { DiagnosticsDrawer } from './DiagnosticsDrawer'
-import { MediaGrid } from './MediaGrid'
-import { ScanReviewTable } from './ScanReviewTable'
+import { DiagnosticsDrawer } from '../components/DiagnosticsDrawer'
+import { MediaGrid } from '../components/MediaGrid'
+import { ScanReviewTable } from '../components/ScanReviewTable'
 
-export function ImportView(): JSX.Element {
+export function TakeoutView(): JSX.Element {
   const [sourcePath, setSourcePath] = useState<string | null>(null)
   const [scanning, setScanning] = useState(false)
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
@@ -113,7 +113,7 @@ export function ImportView(): JSX.Element {
   return (
     <div className="import-view">
       <div className="import-top">
-        <h1>Import Google Takeout or local photo folder</h1>
+        <h1>Google Takeout — import &amp; repair</h1>
         <button onClick={handleSelectSource}>Choose folder&hellip;</button>
         {sourcePath && <span className="source-path">{sourcePath}</span>}
         <button className="primary" disabled={!sourcePath || scanning} onClick={handleScan}>
