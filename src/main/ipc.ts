@@ -1,9 +1,11 @@
 import { join } from 'node:path'
 import { app, dialog, ipcMain } from 'electron'
-import type { SidecarMatch } from '../shared/types'
+import type { SidecarMatch, Verdict } from '../shared/types'
+import { runCurateScan } from './services/curateScan'
 import { exportKeepers } from './services/exportKeepers'
 import { LibraryStore } from './services/libraryStore'
 import { repairMetadata } from './services/metadataRepair'
+import { getPreview } from './services/previews'
 import { runScan } from './services/scanOrchestrator'
 
 export function registerIpcHandlers(): void {
@@ -26,6 +28,30 @@ export function registerIpcHandlers(): void {
     libraryStore.upsertScan(rootPath, result)
     result.keepers = libraryStore.listKeepers(result.matches.map((match) => match.media.path))
     return result
+  })
+
+  ipcMain.handle('curate:scan', async (event, rootPath: string) => {
+    const result = await runCurateScan(rootPath, {
+      thumbnailCacheRoot: join(app.getPath('userData'), 'thumbnails'),
+      onProgress: (progress) => {
+        if (!event.sender.isDestroyed()) event.sender.send('curate:scanProgress', progress)
+      }
+    })
+    libraryStore.upsertCurateScan(rootPath, result)
+    // Persisted overrides survive re-scans, mirroring the keeper merge above.
+    const verdicts = libraryStore.listUserVerdicts(result.photos.map((photo) => photo.media.path))
+    for (const photo of result.photos) {
+      photo.userVerdict = verdicts.get(photo.media.path) ?? null
+    }
+    return result
+  })
+
+  ipcMain.handle('verdict:set', async (_event, mediaPath: string, verdict: Verdict | null) => {
+    libraryStore.setUserVerdict(mediaPath, verdict)
+  })
+
+  ipcMain.handle('preview:get', async (_event, mediaPath: string) => {
+    return getPreview(mediaPath, join(app.getPath('userData'), 'previews'))
   })
 
   ipcMain.handle('repair:run', async (_event, matches: SidecarMatch[], dryRun: boolean) => {
