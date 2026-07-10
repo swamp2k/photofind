@@ -1,9 +1,9 @@
 # Photofind — Local AI Photo Curator
 
-A local desktop app for repairing Google Takeout photo exports, browsing large
-photo libraries quickly, identifying people, and exporting curated originals
-into plain folder structures. Original Google Photos remains the source of
-truth; this app repairs metadata and curates locally.
+A local desktop app that helps you sort years of unsorted photos: point it at
+a folder, let it analyze every photo, and be left with the ones worth keeping.
+It also repairs Google Takeout photo exports as a built-in tool. Original
+Google Photos remains the source of truth; everything happens locally.
 
 ## Stack
 
@@ -15,12 +15,28 @@ truth; this app repairs metadata and curates locally.
 - A Python sidecar (FastAPI + InsightFace/ONNX) is planned for the
   people-recognition milestone only — not part of the current build.
 
-## Status: MVP 0.1 — Takeout Repair
+## Status: Milestone 1 — Curation
 
-The current build implements the first mockup: import a Takeout export or a
-local folder, scan it, match media files to their Google JSON sidecars, and
-repair EXIF/GPS metadata for confident matches. Nothing here is silent —
-uncertain and missing matches are always surfaced in the diagnostics log.
+The app opens on the Curate view: choose a folder, hit Analyze, and Photofind
+scores every photo (focus via Laplacian variance, exposure via luma
+statistics), groups continuous-shot bursts by EXIF timestamp and camera, picks
+the sharpest frame of each burst, and pre-sorts everything into
+**keep / maybe / discard** piles with visible reasons ("blurry", "dark",
+"best of burst of 5"). You confirm or override with keyboard shortcuts
+(←/→ select, K/M/D verdict, U undo, Enter for a fast 1280px preview) and
+export the keepers. Discard never deletes anything — it only leaves photos
+out of the export. Verdicts persist in the local library index across scans.
+
+Analysis is plain pixel math (sharp) plus ExifTool metadata — no ML runtime
+yet. Face detection for finding the sentimental shots is the next milestone.
+
+### Google Takeout repair
+
+The original Takeout tooling lives in the sidebar under **Google Takeout**:
+import a Takeout export or local folder, match media files to their Google
+JSON sidecars, and repair EXIF/GPS metadata for confident matches. Nothing
+here is silent — uncertain and missing matches are always surfaced in the
+diagnostics log.
 
 Sidecar matching handles the known Google Takeout quirks:
 
@@ -54,11 +70,12 @@ after Linux packaging so tests continue to run.
 src/
   shared/          # types shared between main and renderer
   main/
-    services/      # scanner, sidecar matcher, metadata repair (pure logic, unit-tested)
+    services/      # scanner, quality analysis, burst grouping, verdicts,
+                   # sidecar matcher, metadata repair (pure logic, unit-tested)
     ipc.ts         # IPC handlers exposed to the renderer
     index.ts       # Electron entry point
   preload/         # contextBridge API surface
-  renderer/        # React UI (Vite)
+  renderer/        # React UI (Vite): sidebar shell, Curate + Takeout views
 ```
 
 ## Roadmap
@@ -89,24 +106,20 @@ family photos, and exporting curated originals into normal folder structures.
 - InsightFace + ONNX Runtime for face recognition.
 - CPU default, optional CUDA/DirectML/OpenVINO acceleration.
 
-### MVP 0.1: Takeout Repair + Fast Viewer
+### Done
 
-- Select Takeout ZIP/folder.
-- Scan media and JSON sidecars.
-- Match Google metadata to files.
-- Show safe/uncertain/failed matches.
-- Repair metadata in-place for safe matches.
-- Generate thumbnails.
-- Show fast timeline/grid viewer.
-- Mark keepers from any view.
-- Export keepers to chosen folder structure.
-- Include diagnostics log and export report.
+- Takeout repair: sidecar matching, metadata health, EXIF/GPS repair,
+  diagnostics log, export report.
+- Curation: folder analysis with progress, blur/exposure scoring, burst
+  grouping with best-frame pick, keep/maybe/discard suggestions with reasons,
+  keyboard-driven review, fast lightbox previews, keeper export.
 
 ### Later milestones
 
-- Face detection and person clusters.
+- Face detection and person clusters (onnxruntime-node planned).
 - Manual merge/split/rename people UI.
-- Duplicate and burst grouping.
-- Best photo scoring.
-- AI-assisted memory keeper suggestions.
-- Location/event-based curation.
+- AI-assisted memory keeper suggestions (the sentimental shots, even blurry).
+- Trip/event grouping from GPS clusters and user-entered special dates
+  (birthdays, weddings, vacations).
+- Configurable export layouts (e.g. year/month folders).
+- Duplicate detection beyond bursts; RAW and video support.
