@@ -8,6 +8,7 @@ import { thumbnailUrlForPath } from './thumbnailUrl'
 export interface ThumbnailOptions {
   cacheRoot: string
   size?: number
+  onProgress?: (processed: number, total: number, currentFile: string) => void
 }
 
 const DEFAULT_SIZE = 320
@@ -20,6 +21,7 @@ export async function generateThumbnails(files: ScannedFile[], options: Thumbnai
   let generated = 0
   let reused = 0
   let failed = 0
+  let processed = 0
 
   await mkdir(options.cacheRoot, { recursive: true })
 
@@ -36,25 +38,24 @@ export async function generateThumbnails(files: ScannedFile[], options: Thumbnai
           status: 'ready'
         })
         log.push(logEntry('INFO', `${file.name}: reused thumbnail`))
-        continue
+      } else {
+        const info = await sharp(file.path)
+          .rotate()
+          .resize({ width: size, height: size, fit: 'inside', withoutEnlargement: true })
+          .webp({ quality: 78 })
+          .toFile(thumbnailPath)
+
+        generated++
+        items.push({
+          mediaPath: file.path,
+          thumbnailPath,
+          thumbnailUrl: thumbnailUrlForPath(thumbnailPath),
+          status: 'ready',
+          width: info.width,
+          height: info.height
+        })
+        log.push(logEntry('INFO', `${file.name}: generated thumbnail`))
       }
-
-      const info = await sharp(file.path)
-        .rotate()
-        .resize({ width: size, height: size, fit: 'inside', withoutEnlargement: true })
-        .webp({ quality: 78 })
-        .toFile(thumbnailPath)
-
-      generated++
-      items.push({
-        mediaPath: file.path,
-        thumbnailPath,
-        thumbnailUrl: thumbnailUrlForPath(thumbnailPath),
-        status: 'ready',
-        width: info.width,
-        height: info.height
-      })
-      log.push(logEntry('INFO', `${file.name}: generated thumbnail`))
     } catch (err) {
       failed++
       items.push({
@@ -66,6 +67,8 @@ export async function generateThumbnails(files: ScannedFile[], options: Thumbnai
       })
       log.push(logEntry('WARN', `${file.name}: thumbnail failed: ${(err as Error).message}`))
     }
+    processed++
+    options.onProgress?.(processed, media.length, file.name)
   }
 
   return {

@@ -84,8 +84,10 @@ function noiseImage(width: number, height: number): { data: Buffer; info: { widt
   const data = Buffer.alloc(width * height * 3)
   let seed = 42
   for (let i = 0; i < data.length; i++) {
-    seed = (seed * 1103515245 + 12345) & 0x7fffffff
-    data[i] = seed % 256
+    // Math.imul keeps the LCG in 32-bit space; plain * overflows 2^53 and
+    // silently zeroes the low bits, skewing every pixel dark.
+    seed = (Math.imul(seed, 1103515245) + 12345) & 0x7fffffff
+    data[i] = (seed >>> 16) & 0xff
   }
   return { data, info: { width, height, channels: 3 } }
 }
