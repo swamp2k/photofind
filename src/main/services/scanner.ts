@@ -25,7 +25,8 @@ async function walk(dir: string, results: ScannedFile[]): Promise<void> {
         path: fullPath,
         name: entry.name,
         kind: classify(entry.name),
-        sizeBytes: stats.size
+        sizeBytes: stats.size,
+        mtimeMs: stats.mtimeMs
       })
     }
   }

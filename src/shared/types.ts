@@ -7,6 +7,8 @@ export interface ScannedFile {
   name: string
   kind: MediaKind
   sizeBytes: number
+  /** File modification time in epoch milliseconds; capture-time fallback when EXIF is absent */
+  mtimeMs: number
 }
 
 export type MatchConfidence = 'safe' | 'uncertain' | 'missing'
@@ -83,6 +85,88 @@ export interface ExportResult {
   reportPath: string
   files: ExportedFile[]
   log: LogEntry[]
+}
+
+export type CaptureTimeSource = 'exif' | 'mtime' | 'unknown'
+
+export interface CaptureMetadata {
+  mediaPath: string
+  /** Epoch milliseconds of the moment the photo was taken, or null when unknown */
+  captureTimeMs: number | null
+  source: CaptureTimeSource
+  cameraModel: string | null
+  width: number | null
+  height: number | null
+  status: 'ok' | 'failed'
+  reason?: string
+}
+
+export interface QualityScore {
+  mediaPath: string
+  /** Laplacian variance of the grayscale thumbnail; higher is sharper */
+  sharpness: number | null
+  /** Mean luma 0-255 */
+  exposureMean: number | null
+  /** Fraction (0-1) of pixels with luma < 10 */
+  clippedShadowsPct: number | null
+  /** Fraction (0-1) of pixels with luma > 245 */
+  clippedHighlightsPct: number | null
+  status: 'ok' | 'failed'
+  reason?: string
+}
+
+export type Verdict = 'keep' | 'maybe' | 'discard'
+
+export interface PhotoAnalysis {
+  media: ScannedFile
+  capture: CaptureMetadata
+  quality: QualityScore
+  burstId: string | null
+  burstSize: number
+  isBurstPick: boolean
+  suggestedVerdict: Verdict
+  /** Human-readable reasons behind the suggestion, e.g. "blurry", "best of burst of 5" */
+  reasons: string[]
+  /** User override; null means the suggestion stands */
+  userVerdict: Verdict | null
+}
+
+export interface BurstGroup {
+  id: string
+  mediaPaths: string[]
+  pickPath: string
+  startMs: number
+  endMs: number
+}
+
+export interface CurateSummary {
+  totalFiles: number
+  analyzed: number
+  keep: number
+  maybe: number
+  discard: number
+  bursts: number
+  failed: number
+}
+
+export interface CurateScanResult {
+  scanId: string
+  rootPath: string
+  summary: CurateSummary
+  photos: PhotoAnalysis[]
+  bursts: BurstGroup[]
+  thumbnails: ThumbnailResult
+  log: LogEntry[]
+}
+
+export type ScanPhase = 'scanning' | 'metadata' | 'thumbnails' | 'analyzing' | 'grouping' | 'done'
+
+export interface ScanProgressEvent {
+  scanId: string
+  phase: ScanPhase
+  processed: number
+  total: number
+  currentFile?: string
 }
 
 export type ThumbnailStatus = 'ready' | 'failed' | 'skipped'

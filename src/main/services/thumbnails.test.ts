@@ -69,5 +69,5 @@ describe('generateThumbnails', () => {
 })
 
 function file(path: string, name: string, sizeBytes: number): ScannedFile {
-  return { path, name, sizeBytes, kind: 'image' }
+  return { path, name, sizeBytes, kind: 'image', mtimeMs: 0 }
 }

@@ -3,7 +3,7 @@ import type { ScannedFile } from '../../shared/types'
 import { matchSidecars } from './sidecarMatcher'
 
 function file(name: string, kind: ScannedFile['kind'] = 'image'): ScannedFile {
-  return { path: `/lib/${name}`, name, kind, sizeBytes: 1000 }
+  return { path: `/lib/${name}`, name, kind, sizeBytes: 1000, mtimeMs: 0 }
 }
 
 describe('matchSidecars', () => {

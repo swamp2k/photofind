@@ -4,6 +4,8 @@ import type { ExportResult, ExportedFile, LogEntry } from '../../shared/types'
 
 export interface ExportOptions {
   destinationRoot: string
+  /** Output folder structure; only 'flat' exists today, date-based layouts come later */
+  layout?: 'flat'
 }
 
 export async function exportKeepers(mediaPaths: string[], options: ExportOptions): Promise<ExportResult> {
