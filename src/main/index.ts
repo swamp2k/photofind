@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { app, BrowserWindow, protocol, shell } from 'electron'
 import { is } from './lib/env'
 import { registerIpcHandlers } from './ipc'
+import { disposeExiftool } from './services/exiftoolClient'
 import { registerThumbnailProtocol } from './services/thumbnailProtocol'
 import { THUMBNAIL_PROTOCOL } from './services/thumbnailUrl'
 
@@ -55,4 +56,9 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('will-quit', (event) => {
+  event.preventDefault()
+  disposeExiftool().finally(() => app.exit())
 })
