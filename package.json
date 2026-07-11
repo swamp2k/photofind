@@ -22,6 +22,9 @@
     "test": "npm run rebuild:node && vitest run"
   },
   "dependencies": {
+    "@tensorflow/tfjs": "^4.22.0",
+    "@tensorflow/tfjs-backend-wasm": "^4.22.0",
+    "@vladmandic/face-api": "^1.7.15",
     "adm-zip": "^0.5.16",
     "better-sqlite3": "^12.11.1",
     "exiftool-vendored": "^35.21.0",
