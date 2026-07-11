@@ -3,10 +3,12 @@ import type {
   CurateScanResult,
   ExportResult,
   MediaThumbnail,
+  NewSpecialDate,
   RepairResult,
   ScanProgressEvent,
   ScanResult,
   SidecarMatch,
+  SpecialDate,
   Verdict
 } from '../shared/types'
 
@@ -23,6 +25,9 @@ const api = {
   setVerdict: (mediaPath: string, verdict: Verdict | null): Promise<void> =>
     ipcRenderer.invoke('verdict:set', mediaPath, verdict),
   getPreview: (mediaPath: string): Promise<MediaThumbnail> => ipcRenderer.invoke('preview:get', mediaPath),
+  listSpecialDates: (): Promise<SpecialDate[]> => ipcRenderer.invoke('specialDates:list'),
+  addSpecialDate: (date: NewSpecialDate): Promise<SpecialDate> => ipcRenderer.invoke('specialDates:add', date),
+  removeSpecialDate: (id: string): Promise<void> => ipcRenderer.invoke('specialDates:remove', id),
   onCurateScanProgress: (callback: (event: ScanProgressEvent) => void): (() => void) => {
     const listener = (_event: Electron.IpcRendererEvent, progress: ScanProgressEvent): void => callback(progress)
     ipcRenderer.on('curate:scanProgress', listener)

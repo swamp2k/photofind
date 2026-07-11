@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { app, dialog, ipcMain } from 'electron'
-import type { SidecarMatch, Verdict } from '../shared/types'
+import type { NewSpecialDate, SidecarMatch, Verdict } from '../shared/types'
 import { runCurateScan } from './services/curateScan'
 import { exportKeepers } from './services/exportKeepers'
 import { LibraryStore } from './services/libraryStore'
@@ -55,6 +55,19 @@ export function registerIpcHandlers(): void {
     return getPreview(mediaPath, join(app.getPath('userData'), 'previews'))
   })
 
+  ipcMain.handle('specialDates:list', async () => {
+    return libraryStore.listSpecialDates()
+  })
+
+  ipcMain.handle('specialDates:add', async (_event, date: NewSpecialDate) => {
+    validateSpecialDate(date)
+    return libraryStore.addSpecialDate(date)
+  })
+
+  ipcMain.handle('specialDates:remove', async (_event, id: string) => {
+    libraryStore.removeSpecialDate(id)
+  })
+
   ipcMain.handle('repair:run', async (_event, matches: SidecarMatch[], dryRun: boolean) => {
     return repairMetadata(matches, { dryRun })
   })
@@ -66,4 +79,18 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('export:keepers', async (_event, mediaPaths: string[], destinationRoot: string) => {
     return exportKeepers(mediaPaths, { destinationRoot })
   })
+}
+
+function validateSpecialDate(date: NewSpecialDate): void {
+  if (!date.label?.trim()) throw new Error('special date needs a label')
+  if (date.kind === 'recurring-yearly') {
+    if (!Number.isInteger(date.month) || date.month < 1 || date.month > 12) throw new Error('month must be 1-12')
+    if (!Number.isInteger(date.day) || date.day < 1 || date.day > 31) throw new Error('day must be 1-31')
+  } else if (date.kind === 'range') {
+    if (!Number.isFinite(date.startMs) || !Number.isFinite(date.endMs) || date.startMs > date.endMs) {
+      throw new Error('range needs startMs <= endMs')
+    }
+  } else {
+    throw new Error('unknown special date kind')
+  }
 }
