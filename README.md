@@ -15,20 +15,42 @@ Google Photos remains the source of truth; everything happens locally.
 - A Python sidecar (FastAPI + InsightFace/ONNX) is planned for the
   people-recognition milestone only — not part of the current build.
 
-## Status: Milestone 1 — Curation
+## Status: Milestone 2 — Curation with faces and events
 
 The app opens on the Curate view: choose a folder, hit Analyze, and Photofind
 scores every photo (focus via Laplacian variance, exposure via luma
-statistics), groups continuous-shot bursts by EXIF timestamp and camera, picks
-the sharpest frame of each burst, and pre-sorts everything into
-**keep / maybe / discard** piles with visible reasons ("blurry", "dark",
-"best of burst of 5"). You confirm or override with keyboard shortcuts
-(←/→ select, K/M/D verdict, U undo, Enter for a fast 1280px preview) and
-export the keepers. Discard never deletes anything — it only leaves photos
-out of the export. Verdicts persist in the local library index across scans.
+statistics), detects faces, groups continuous-shot bursts by EXIF timestamp
+and camera, picks the sharpest frame of each burst, and pre-sorts everything
+into **keep / maybe / discard** piles with visible reasons ("blurry", "dark",
+"best of burst of 5", "2 faces"). You confirm or override with keyboard
+shortcuts (←/→ select, K/M/D verdict, U undo, Enter for a fast 1280px
+preview) and export the keepers. Discard never deletes anything — it only
+leaves photos out of the export. Verdicts persist in the local library index
+across scans.
 
-Analysis is plain pixel math (sharp) plus ExifTool metadata — no ML runtime
-yet. Face detection for finding the sentimental shots is the next milestone.
+### Faces
+
+Face detection runs during analysis on the bundled
+`@vladmandic/face-api` models over the TensorFlow.js WASM backend — no
+native ML runtime, no downloads at runtime. Photos with faces are never
+auto-discarded for quality alone: a blurry shot with people in it lands in
+"maybe" with the reason "blurry, but has faces" (that last photo of grandma
+stays reviewable even out of focus). 128-d face embeddings are stored in the
+local SQLite index so a future People view can cluster and name people
+without re-scanning the library. If the models fail to load, the scan
+completes without face data and says so in the diagnostics log.
+
+Note: detector recall on real photos is tuned by `MIN_SCORE`/`DETECT_SIZE`
+in `src/main/services/faceEngine.ts`; verify against your own library —
+synthetic test images only cover the no-face and failure paths.
+
+### Events and special dates
+
+The Events view groups the last scan into events by capture time (4-hour
+gaps) and GPS distance (25km), showing date range, location centroid and a
+thumbnail strip per event. Enter special dates — recurring ones like
+birthdays, or ranges like vacations — and any event or photo overlapping
+them is labeled automatically, live, without re-scanning.
 
 ### Google Takeout repair
 
@@ -113,13 +135,14 @@ family photos, and exporting curated originals into normal folder structures.
 - Curation: folder analysis with progress, blur/exposure scoring, burst
   grouping with best-frame pick, keep/maybe/discard suggestions with reasons,
   keyboard-driven review, fast lightbox previews, keeper export.
+- Faces: detection during analysis, blurry-with-faces protection, face
+  embeddings stored for future people clustering.
+- Events: time+GPS clustering, special dates (recurring + ranges) with
+  automatic labeling.
 
 ### Later milestones
 
-- Face detection and person clusters (onnxruntime-node planned).
-- Manual merge/split/rename people UI.
+- People view: cluster the stored face embeddings, name/merge/split people.
 - AI-assisted memory keeper suggestions (the sentimental shots, even blurry).
-- Trip/event grouping from GPS clusters and user-entered special dates
-  (birthdays, weddings, vacations).
-- Configurable export layouts (e.g. year/month folders).
+- Configurable export layouts (e.g. year/month folders, by event).
 - Duplicate detection beyond bursts; RAW and video support.

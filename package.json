@@ -58,6 +58,10 @@
       "package.json"
     ],
     "asar": true,
+    "asarUnpack": [
+      "node_modules/@vladmandic/face-api/model/**",
+      "node_modules/@tensorflow/tfjs-backend-wasm/dist/*.wasm"
+    ],
     "linux": {
       "category": "Graphics",
       "maintainer": "Photofind",

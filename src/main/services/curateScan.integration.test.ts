@@ -2,8 +2,9 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { afterAll, describe, expect, it } from 'vitest'
-import type { ScanProgressEvent } from '../../shared/types'
-import { createCurateFixture } from '../test/curateFixture'
+import { clusterEvents } from '../../shared/events'
+import type { ScanProgressEvent, SpecialDate } from '../../shared/types'
+import { createCurateFixture, FIXTURE_GPS_LA, FIXTURE_GPS_SF } from '../test/curateFixture'
 import { runCurateScan } from './curateScan'
 import { disposeExiftool } from './exiftoolClient'
 import { disposeFaceEngine } from './faceEngine'
@@ -70,6 +71,29 @@ describe('runCurateScan', () => {
         const counts = events.filter((event) => event.phase === phase).map((event) => event.processed)
         expect([...counts].sort((a, b) => a - b)).toEqual(counts)
       }
+
+      // Events over the scan: the June 1 SF morning (burst + control shot)
+      // labeled by a recurring birthday, and the July 4 LA vacation pair —
+      // split by both the time gap and the 25km rule.
+      const birthday: SpecialDate = { id: 'b', label: 'Birthday', kind: 'recurring-yearly', month: 6, day: 1 }
+      const clustering = clusterEvents(
+        result.photos.map((photo) => ({
+          mediaPath: photo.media.path,
+          captureTimeMs: photo.capture.captureTimeMs,
+          gps: photo.capture.gps
+        })),
+        [birthday]
+      )
+      const sfEvent = clustering.events.find((event) => event.mediaPaths.includes(fixture.paths.burst[0]))!
+      expect(sfEvent.mediaPaths).toEqual([...fixture.paths.burst, fixture.paths.afterBurst])
+      expect(sfEvent.labels).toEqual(['Birthday'])
+      expect(sfEvent.centroid!.lat).toBeCloseTo(FIXTURE_GPS_SF.lat, 2)
+
+      const laEvent = clustering.events.find((event) => event.mediaPaths.includes(fixture.paths.vacation[0]))!
+      expect(laEvent.mediaPaths).toEqual(fixture.paths.vacation)
+      expect(laEvent.labels).toEqual([])
+      expect(laEvent.centroid!.lon).toBeCloseTo(FIXTURE_GPS_LA.lon, 2)
+      expect(laEvent.id).not.toBe(sfEvent.id)
     } finally {
       await rm(cacheRoot, { recursive: true, force: true })
       await fixture.cleanup()
