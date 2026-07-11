@@ -5,6 +5,7 @@ const PHASE_LABELS: Record<ScanProgressEvent['phase'], string> = {
   metadata: 'Reading photo metadata',
   thumbnails: 'Generating thumbnails',
   analyzing: 'Analyzing quality',
+  faces: 'Detecting faces',
   grouping: 'Grouping bursts',
   done: 'Done'
 }

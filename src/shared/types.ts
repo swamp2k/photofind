@@ -187,6 +187,10 @@ export interface CurateSummary {
   discard: number
   bursts: number
   failed: number
+  /** Photos with at least one detected face */
+  withFaces: number
+  /** Photos where face detection itself failed (skipped-not-run excluded) */
+  faceFailed: number
 }
 
 export interface CurateScanResult {
@@ -199,7 +203,7 @@ export interface CurateScanResult {
   log: LogEntry[]
 }
 
-export type ScanPhase = 'scanning' | 'metadata' | 'thumbnails' | 'analyzing' | 'grouping' | 'done'
+export type ScanPhase = 'scanning' | 'metadata' | 'thumbnails' | 'analyzing' | 'faces' | 'grouping' | 'done'
 
 export interface ScanProgressEvent {
   scanId: string

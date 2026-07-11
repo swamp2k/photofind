@@ -31,13 +31,14 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('curate:scan', async (event, rootPath: string) => {
-    const result = await runCurateScan(rootPath, {
+    const { faceData, ...result } = await runCurateScan(rootPath, {
       thumbnailCacheRoot: join(app.getPath('userData'), 'thumbnails'),
       onProgress: (progress) => {
         if (!event.sender.isDestroyed()) event.sender.send('curate:scanProgress', progress)
       }
     })
-    libraryStore.upsertCurateScan(rootPath, result)
+    // Embeddings are persisted here and never cross the IPC boundary.
+    libraryStore.upsertCurateScan(rootPath, result, faceData)
     // Persisted overrides survive re-scans, mirroring the keeper merge above.
     const verdicts = libraryStore.listUserVerdicts(result.photos.map((photo) => photo.media.path))
     for (const photo of result.photos) {

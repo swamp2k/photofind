@@ -6,9 +6,10 @@ import type { ScanProgressEvent } from '../../shared/types'
 import { createCurateFixture } from '../test/curateFixture'
 import { runCurateScan } from './curateScan'
 import { disposeExiftool } from './exiftoolClient'
+import { disposeFaceEngine } from './faceEngine'
 
 afterAll(async () => {
-  await disposeExiftool()
+  await Promise.allSettled([disposeExiftool(), disposeFaceEngine()])
 })
 
 describe('runCurateScan', () => {
@@ -46,12 +47,21 @@ describe('runCurateScan', () => {
       expect(result.summary.failed).toBeGreaterThan(0)
       expect(result.log.some((entry) => entry.level === 'WARN' && entry.message.includes(fixture.paths.corrupt))).toBe(true)
 
+      // Faces ran (or were skipped visibly); noise fixtures contain no faces.
+      const faceStatuses = new Set(result.photos.map((photo) => photo.faces.status))
+      expect([...faceStatuses].every((status) => ['ok', 'failed', 'skipped'].includes(status))).toBe(true)
+      if (faceStatuses.has('ok')) {
+        expect(byPath.get(fixture.paths.sharpNoise)!.faces.count).toBe(0)
+        expect(result.faceData.has(fixture.paths.sharpNoise)).toBe(true)
+      }
+      expect(result.summary.withFaces).toBe(0)
+
       // Progress: all events share the scan id, phases run in order and end done.
       expect(events.length).toBeGreaterThan(0)
       expect(new Set(events.map((event) => event.scanId)).size).toBe(1)
       const phases = events.map((event) => event.phase)
       expect(phases[phases.length - 1]).toBe('done')
-      const order = ['scanning', 'metadata', 'thumbnails', 'analyzing', 'grouping', 'done']
+      const order = ['scanning', 'metadata', 'thumbnails', 'analyzing', 'faces', 'grouping', 'done']
       expect([...new Set(phases)].sort((a, b) => order.indexOf(a) - order.indexOf(b))).toEqual(
         order.filter((phase) => phases.includes(phase as ScanProgressEvent['phase']))
       )

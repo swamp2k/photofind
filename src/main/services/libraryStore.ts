@@ -97,8 +97,13 @@ export class LibraryStore {
     write()
   }
 
-  upsertCurateScan(sourceRoot: string, result: CurateScanResult): void {
+  upsertCurateScan(sourceRoot: string, result: CurateScanResult, faceData?: Map<string, StoredFace[]>): void {
     const thumbnailByPath = new Map(result.thumbnails.items.map((item) => [item.mediaPath, item]))
+    const deleteFaces = this.db.prepare('DELETE FROM faces WHERE media_path = ?')
+    const insertFace = this.db.prepare(`
+      INSERT INTO faces (media_path, box_x, box_y, box_w, box_h, score, embedding)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `)
     const upsert = this.db.prepare(`
       INSERT INTO media_items (
         path,
@@ -118,6 +123,9 @@ export class LibraryStore {
         height,
         gps_lat,
         gps_lon,
+        face_count,
+        face_status,
+        largest_face_fraction,
         sharpness,
         exposure_mean,
         clipped_shadows,
@@ -147,6 +155,9 @@ export class LibraryStore {
         @height,
         @gpsLat,
         @gpsLon,
+        @faceCount,
+        @faceStatus,
+        @largestFaceFraction,
         @sharpness,
         @exposureMean,
         @clippedShadows,
@@ -173,6 +184,9 @@ export class LibraryStore {
         height = excluded.height,
         gps_lat = excluded.gps_lat,
         gps_lon = excluded.gps_lon,
+        face_count = excluded.face_count,
+        face_status = excluded.face_status,
+        largest_face_fraction = excluded.largest_face_fraction,
         sharpness = excluded.sharpness,
         exposure_mean = excluded.exposure_mean,
         clipped_shadows = excluded.clipped_shadows,
@@ -206,6 +220,9 @@ export class LibraryStore {
           height: photo.capture.height,
           gpsLat: photo.capture.gps?.lat ?? null,
           gpsLon: photo.capture.gps?.lon ?? null,
+          faceCount: photo.faces.count,
+          faceStatus: photo.faces.status,
+          largestFaceFraction: photo.faces.largestFraction,
           sharpness: photo.quality.sharpness,
           exposureMean: photo.quality.exposureMean,
           clippedShadows: photo.quality.clippedShadowsPct,
@@ -217,6 +234,23 @@ export class LibraryStore {
           verdictReasons: JSON.stringify(photo.reasons),
           updatedAt
         })
+
+        // Only overwrite stored faces when detection actually ran: a scan
+        // with the engine unavailable must not wipe earlier results.
+        if (photo.faces.status === 'ok') {
+          deleteFaces.run(photo.media.path)
+          for (const face of faceData?.get(photo.media.path) ?? []) {
+            insertFace.run(
+              photo.media.path,
+              face.box.x,
+              face.box.y,
+              face.box.width,
+              face.box.height,
+              face.score,
+              Buffer.from(face.embedding.buffer, face.embedding.byteOffset, face.embedding.byteLength)
+            )
+          }
+        }
       }
     })
 

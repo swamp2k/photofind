@@ -9,6 +9,8 @@ import type {
 } from '../../shared/types'
 import { extractCaptureMetadata } from './captureMetadata'
 import { groupBursts } from './burstGrouping'
+import { detectFaces } from './faceDetection'
+import type { DetectedFace, FaceEngine } from './faceEngine'
 import { analyzeQuality } from './quality'
 import { scanDirectory } from './scanner'
 import { generateThumbnails } from './thumbnails'
@@ -17,6 +19,13 @@ import { suggestVerdicts } from './verdicts'
 export interface CurateScanOptions {
   thumbnailCacheRoot: string
   onProgress?: (event: ScanProgressEvent) => void
+  /** Injectable for tests; undefined loads the real engine, null disables faces */
+  faceEngine?: FaceEngine | null
+}
+
+export interface InternalCurateScanResult extends CurateScanResult {
+  /** Per-photo detections incl. embeddings — persisted by the caller, never sent over IPC */
+  faceData: Map<string, DetectedFace[]>
 }
 
 const PROGRESS_INTERVAL_MS = 100
@@ -27,7 +36,7 @@ const PROGRESS_EVERY_ITEMS = 25
  * thumbnails, score quality, group bursts, suggest verdicts. Progress events
  * are throttled but always fire on phase boundaries so the UI never stalls.
  */
-export async function runCurateScan(root: string, options: CurateScanOptions): Promise<CurateScanResult> {
+export async function runCurateScan(root: string, options: CurateScanOptions): Promise<InternalCurateScanResult> {
   const scanId = randomUUID()
   const progress = makeProgressEmitter(scanId, options.onProgress)
 
@@ -52,9 +61,15 @@ export async function runCurateScan(root: string, options: CurateScanOptions): P
     progress.tick('analyzing', processed, total, currentFile)
   )
 
+  progress.phase('faces', 0, media.length)
+  const faces = await detectFaces(files, {
+    engine: options.faceEngine,
+    onProgress: (processed, total, currentFile) => progress.tick('faces', processed, total, currentFile)
+  })
+
   progress.phase('grouping', 0, media.length)
   const bursts = groupBursts(captures.items, quality.items)
-  const photos = suggestVerdicts(media, captures.items, quality.items, bursts.groups)
+  const photos = suggestVerdicts(media, captures.items, quality.items, bursts.groups, faces.items)
   progress.phase('grouping', media.length, media.length)
 
   const log: LogEntry[] = [
@@ -62,17 +77,19 @@ export async function runCurateScan(root: string, options: CurateScanOptions): P
     ...captures.log,
     ...thumbnails.log,
     ...quality.log,
+    ...faces.log,
     ...bursts.log
   ]
 
-  const result: CurateScanResult = {
+  const result: InternalCurateScanResult = {
     scanId,
     rootPath: root,
     summary: buildSummary(files.length, photos, bursts.groups.length),
     photos,
     bursts: bursts.groups,
     thumbnails,
-    log
+    log,
+    faceData: faces.detections
   }
 
   progress.phase('done', media.length, media.length)
@@ -89,7 +106,9 @@ function buildSummary(totalFiles: number, photos: PhotoAnalysis[], bursts: numbe
     maybe: count('maybe'),
     discard: count('discard'),
     bursts,
-    failed: photos.filter((photo) => photo.quality.status === 'failed').length
+    failed: photos.filter((photo) => photo.quality.status === 'failed').length,
+    withFaces: photos.filter((photo) => photo.faces.status === 'ok' && photo.faces.count > 0).length,
+    faceFailed: photos.filter((photo) => photo.faces.status === 'failed').length
   }
 }
 

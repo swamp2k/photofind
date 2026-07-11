@@ -3,6 +3,7 @@ import { app, BrowserWindow, protocol, shell } from 'electron'
 import { is } from './lib/env'
 import { registerIpcHandlers } from './ipc'
 import { disposeExiftool } from './services/exiftoolClient'
+import { disposeFaceEngine } from './services/faceEngine'
 import { registerThumbnailProtocol } from './services/thumbnailProtocol'
 import { THUMBNAIL_PROTOCOL } from './services/thumbnailUrl'
 
@@ -60,5 +61,5 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', (event) => {
   event.preventDefault()
-  disposeExiftool().finally(() => app.exit())
+  Promise.allSettled([disposeExiftool(), disposeFaceEngine()]).finally(() => app.exit())
 })
