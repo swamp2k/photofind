@@ -853,6 +853,154 @@ button:disabled {
   font-size: 9px;
 }
 
+.events-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  padding: 16px;
+  gap: 12px;
+}
+
+.event-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.event-card-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.event-card-header h2 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.event-label {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.event-strip {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+
+.event-thumb {
+  flex: 0 0 108px;
+  height: 81px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: #111214;
+}
+
+.event-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.special-dates {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.special-dates-toggle {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 0;
+  padding: 10px 12px;
+  font-weight: 600;
+}
+
+.special-dates-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.special-dates-body > .muted {
+  margin: 0;
+  font-size: 12px;
+}
+
+.special-dates-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.special-dates-form input[type='text'] {
+  flex: 1;
+  min-width: 180px;
+}
+
+.special-dates-form input,
+.special-dates-form select {
+  background: #111214;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.special-dates-error {
+  margin: 0;
+  color: var(--error);
+  font-size: 12px;
+}
+
+.special-dates-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.special-dates-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #1c1d20;
+  font-size: 13px;
+}
+
+.special-date-label {
+  font-weight: 600;
+}
+
+.special-dates-list li button {
+  margin-left: auto;
+  padding: 3px 10px;
+  font-size: 12px;
+}
+
 .lightbox-backdrop {
   padding: 32px;
 }

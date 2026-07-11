@@ -1,4 +1,4 @@
-export type AppView = 'curate' | 'takeout'
+export type AppView = 'curate' | 'events' | 'takeout'
 
 interface SidebarProps {
   view: AppView
@@ -17,6 +17,12 @@ export function Sidebar({ view, onNavigate }: SidebarProps): JSX.Element {
           onClick={() => onNavigate('curate')}
         >
           Curate
+        </button>
+        <button
+          className={view === 'events' ? 'sidebar-item active' : 'sidebar-item'}
+          onClick={() => onNavigate('events')}
+        >
+          Events
         </button>
       </div>
 

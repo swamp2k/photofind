@@ -4,12 +4,11 @@ import { CurateProgress } from '../components/CurateProgress'
 import { DiagnosticsDrawer } from '../components/DiagnosticsDrawer'
 import { Lightbox } from '../components/Lightbox'
 import { VerdictBoard } from '../components/VerdictBoard'
-import { useCurateSession } from '../hooks/useCurateSession'
+import type { CurateSession } from '../hooks/useCurateSession'
 
 const VERDICT_ORDER: Verdict[] = ['keep', 'maybe', 'discard']
 
-export function CurateView(): JSX.Element {
-  const session = useCurateSession()
+export function CurateView({ session }: { session: CurateSession }): JSX.Element {
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [lightboxOpen, setLightboxOpen] = useState(false)
 
@@ -120,8 +119,9 @@ export function CurateView(): JSX.Element {
               {result.photos.filter((p) => effectiveVerdict(p.media.path) === 'discard').length} discard
             </span>
             <span className="muted">
-              {result.summary.analyzed} photos · {result.summary.bursts} bursts
+              {result.summary.analyzed} photos · {result.summary.bursts} bursts · {result.summary.withFaces} with faces
               {result.summary.failed > 0 && ` · ${result.summary.failed} could not be analyzed`}
+              {result.summary.faceFailed > 0 && ` · ${result.summary.faceFailed} face scans failed`}
             </span>
             <span className="curate-keyhint muted">←/→ select · K/M/D verdict · U undo · Enter preview</span>
             <button className="primary" disabled={session.keepCount === 0 || session.exporting} onClick={session.exportKeeps}>
