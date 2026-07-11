@@ -124,6 +124,38 @@ export interface QualityScore {
 
 export type Verdict = 'keep' | 'maybe' | 'discard'
 
+/** Face bounding box as 0-1 fractions of the analyzed image dimensions */
+export interface FaceBox {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface FaceDetection {
+  box: FaceBox
+  score: number
+}
+
+export type FaceStatus = 'ok' | 'failed' | 'skipped'
+
+export interface PhotoFaces {
+  mediaPath: string
+  status: FaceStatus
+  reason?: string
+  count: number
+  faces: FaceDetection[]
+  /** Area fraction of the largest detected face, 0 when none */
+  largestFraction: number
+}
+
+export type NewSpecialDate = { label: string } & (
+  | { kind: 'recurring-yearly'; month: number; day: number }
+  | { kind: 'range'; startMs: number; endMs: number }
+)
+
+export type SpecialDate = NewSpecialDate & { id: string }
+
 export interface PhotoAnalysis {
   media: ScannedFile
   capture: CaptureMetadata

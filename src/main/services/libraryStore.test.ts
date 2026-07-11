@@ -91,4 +91,58 @@ describe('LibraryStore', () => {
       await rm(dbDir, { recursive: true, force: true })
     }
   })
+
+  it('round-trips face embeddings and boxes through the faces table', async () => {
+    const dbDir = await mkdtemp(join(tmpdir(), 'photofind-library-'))
+    const store = new LibraryStore(join(dbDir, 'photofind.db'))
+    try {
+      const fixture = await createTakeoutFixture()
+      try {
+        const scan = await runScan(fixture.root, {})
+        store.upsertScan(fixture.root, scan)
+        const mediaPath = scan.matches[0].media.path
+
+        const embedding = new Float32Array(128).map((_, i) => Math.sin(i) * 0.5)
+        store.replaceFaces(mediaPath, [
+          { box: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 }, score: 0.98, embedding }
+        ])
+
+        const faces = store.listFaces(mediaPath)
+        expect(faces).toHaveLength(1)
+        expect(faces[0].box).toEqual({ x: 0.1, y: 0.2, width: 0.3, height: 0.4 })
+        expect(faces[0].score).toBeCloseTo(0.98, 5)
+        expect(faces[0].embedding).toHaveLength(128)
+        expect(Array.from(faces[0].embedding)).toEqual(Array.from(embedding))
+
+        // Replace wipes previous rows rather than accumulating.
+        store.replaceFaces(mediaPath, [])
+        expect(store.listFaces(mediaPath)).toHaveLength(0)
+      } finally {
+        await fixture.cleanup()
+      }
+    } finally {
+      store.close()
+      await rm(dbDir, { recursive: true, force: true })
+    }
+  })
+
+  it('stores and removes special dates of both kinds', async () => {
+    const dbDir = await mkdtemp(join(tmpdir(), 'photofind-library-'))
+    const store = new LibraryStore(join(dbDir, 'photofind.db'))
+    try {
+      const birthday = store.addSpecialDate({ label: 'Birthday', kind: 'recurring-yearly', month: 6, day: 1 })
+      const trip = store.addSpecialDate({ label: 'Rome trip', kind: 'range', startMs: 1000, endMs: 2000 })
+
+      const listed = store.listSpecialDates()
+      expect(listed).toEqual([birthday, trip])
+      expect(listed[0]).toMatchObject({ kind: 'recurring-yearly', month: 6, day: 1 })
+      expect(listed[1]).toMatchObject({ kind: 'range', startMs: 1000, endMs: 2000 })
+
+      store.removeSpecialDate(birthday.id)
+      expect(store.listSpecialDates()).toEqual([trip])
+    } finally {
+      store.close()
+      await rm(dbDir, { recursive: true, force: true })
+    }
+  })
 })

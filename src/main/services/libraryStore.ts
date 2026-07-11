@@ -1,6 +1,11 @@
+import { randomUUID } from 'node:crypto'
 import Database from 'better-sqlite3'
 import type { Database as DatabaseConnection } from 'better-sqlite3'
-import type { CurateScanResult, ScanResult, Verdict } from '../../shared/types'
+import type { CurateScanResult, FaceDetection, NewSpecialDate, ScanResult, SpecialDate, Verdict } from '../../shared/types'
+
+export interface StoredFace extends FaceDetection {
+  embedding: Float32Array
+}
 
 /**
  * Sidecar-match columns are NOT NULL from the original schema; curate scans
@@ -111,6 +116,8 @@ export class LibraryStore {
         camera_model,
         width,
         height,
+        gps_lat,
+        gps_lon,
         sharpness,
         exposure_mean,
         clipped_shadows,
@@ -138,6 +145,8 @@ export class LibraryStore {
         @cameraModel,
         @width,
         @height,
+        @gpsLat,
+        @gpsLon,
         @sharpness,
         @exposureMean,
         @clippedShadows,
@@ -162,6 +171,8 @@ export class LibraryStore {
         camera_model = excluded.camera_model,
         width = excluded.width,
         height = excluded.height,
+        gps_lat = excluded.gps_lat,
+        gps_lon = excluded.gps_lon,
         sharpness = excluded.sharpness,
         exposure_mean = excluded.exposure_mean,
         clipped_shadows = excluded.clipped_shadows,
@@ -193,6 +204,8 @@ export class LibraryStore {
           cameraModel: photo.capture.cameraModel,
           width: photo.capture.width,
           height: photo.capture.height,
+          gpsLat: photo.capture.gps?.lat ?? null,
+          gpsLon: photo.capture.gps?.lon ?? null,
           sharpness: photo.quality.sharpness,
           exposureMean: photo.quality.exposureMean,
           clippedShadows: photo.quality.clippedShadowsPct,
@@ -208,6 +221,80 @@ export class LibraryStore {
     })
 
     write()
+  }
+
+  /** Replaces all stored faces for a photo; embeddings stay main-process-only. */
+  replaceFaces(mediaPath: string, faces: StoredFace[]): void {
+    const remove = this.db.prepare('DELETE FROM faces WHERE media_path = ?')
+    const insert = this.db.prepare(`
+      INSERT INTO faces (media_path, box_x, box_y, box_w, box_h, score, embedding)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `)
+    const write = this.db.transaction(() => {
+      remove.run(mediaPath)
+      for (const face of faces) {
+        insert.run(
+          mediaPath,
+          face.box.x,
+          face.box.y,
+          face.box.width,
+          face.box.height,
+          face.score,
+          Buffer.from(face.embedding.buffer, face.embedding.byteOffset, face.embedding.byteLength)
+        )
+      }
+    })
+    write()
+  }
+
+  listFaces(mediaPath: string): StoredFace[] {
+    const rows = this.db
+      .prepare('SELECT box_x, box_y, box_w, box_h, score, embedding FROM faces WHERE media_path = ? ORDER BY rowid')
+      .all(mediaPath) as { box_x: number; box_y: number; box_w: number; box_h: number; score: number; embedding: Buffer }[]
+    return rows.map((row) => ({
+      box: { x: row.box_x, y: row.box_y, width: row.box_w, height: row.box_h },
+      score: row.score,
+      // Copy: the Buffer's underlying ArrayBuffer may be pooled/offset.
+      embedding: new Float32Array(new Uint8Array(row.embedding).buffer)
+    }))
+  }
+
+  listSpecialDates(): SpecialDate[] {
+    const rows = this.db
+      .prepare('SELECT id, label, kind, month, day, start_ms, end_ms FROM special_dates ORDER BY created_at')
+      .all() as { id: string; label: string; kind: string; month: number | null; day: number | null; start_ms: number | null; end_ms: number | null }[]
+    return rows.map((row) =>
+      row.kind === 'recurring-yearly'
+        ? { id: row.id, label: row.label, kind: 'recurring-yearly', month: row.month!, day: row.day! }
+        : { id: row.id, label: row.label, kind: 'range', startMs: row.start_ms!, endMs: row.end_ms! }
+    )
+  }
+
+  addSpecialDate(date: NewSpecialDate): SpecialDate {
+    const id = randomUUID()
+    const full: SpecialDate = { ...date, id }
+    this.db
+      .prepare(
+        `
+        INSERT INTO special_dates (id, label, kind, month, day, start_ms, end_ms, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `
+      )
+      .run(
+        id,
+        full.label,
+        full.kind,
+        full.kind === 'recurring-yearly' ? full.month : null,
+        full.kind === 'recurring-yearly' ? full.day : null,
+        full.kind === 'range' ? full.startMs : null,
+        full.kind === 'range' ? full.endMs : null,
+        Date.now()
+      )
+    return full
+  }
+
+  removeSpecialDate(id: string): void {
+    this.db.prepare('DELETE FROM special_dates WHERE id = ?').run(id)
   }
 
   setUserVerdict(mediaPath: string, verdict: Verdict | null): void {
@@ -309,6 +396,35 @@ export class LibraryStore {
       ALTER TABLE media_items ADD COLUMN verdict_reasons TEXT;
       ALTER TABLE media_items ADD COLUMN user_verdict TEXT;
       CREATE INDEX IF NOT EXISTS idx_media_items_capture_time ON media_items(source_root, capture_time_ms);
+      `,
+      // v2: GPS + face summary columns, face embeddings, special dates.
+      `
+      ALTER TABLE media_items ADD COLUMN gps_lat REAL;
+      ALTER TABLE media_items ADD COLUMN gps_lon REAL;
+      ALTER TABLE media_items ADD COLUMN face_count INTEGER;
+      ALTER TABLE media_items ADD COLUMN face_status TEXT;
+      ALTER TABLE media_items ADD COLUMN largest_face_fraction REAL;
+      CREATE TABLE IF NOT EXISTS faces (
+        id INTEGER PRIMARY KEY,
+        media_path TEXT NOT NULL REFERENCES media_items(path) ON DELETE CASCADE,
+        box_x REAL NOT NULL,
+        box_y REAL NOT NULL,
+        box_w REAL NOT NULL,
+        box_h REAL NOT NULL,
+        score REAL NOT NULL,
+        embedding BLOB NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_faces_media_path ON faces(media_path);
+      CREATE TABLE IF NOT EXISTS special_dates (
+        id TEXT PRIMARY KEY,
+        label TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        month INTEGER,
+        day INTEGER,
+        start_ms INTEGER,
+        end_ms INTEGER,
+        created_at INTEGER NOT NULL
+      );
       `
     ]
 
