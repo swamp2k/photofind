@@ -89,6 +89,12 @@ export interface ExportResult {
 
 export type CaptureTimeSource = 'exif' | 'mtime' | 'unknown'
 
+export interface GpsCoordinates {
+  /** Signed decimal degrees, south/west negative */
+  lat: number
+  lon: number
+}
+
 export interface CaptureMetadata {
   mediaPath: string
   /** Epoch milliseconds of the moment the photo was taken, or null when unknown */
@@ -97,6 +103,7 @@ export interface CaptureMetadata {
   cameraModel: string | null
   width: number | null
   height: number | null
+  gps: GpsCoordinates | null
   status: 'ok' | 'failed'
   reason?: string
 }

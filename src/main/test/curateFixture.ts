@@ -14,11 +14,17 @@ export interface CurateFixture {
     blown: string
     burst: string[]
     afterBurst: string
+    vacation: string[]
     noExif: string
     corrupt: string
   }
   cleanup: () => Promise<void>
 }
+
+/** San Francisco — burst + control shot */
+export const FIXTURE_GPS_SF = { lat: 37.7749, lon: -122.4194 }
+/** Los Angeles — the July 4 vacation pair */
+export const FIXTURE_GPS_LA = { lat: 34.0522, lon: -118.2437 }
 
 const BURST_CAMERA = 'PixelTest'
 const BURST_BASE = '2024:06:01 12:00:05'
@@ -58,13 +64,22 @@ export async function createCurateFixture(): Promise<CurateFixture> {
     const path = join(root, `burst_${i}.jpg`)
     const pipeline = sharp(noise.data, { raw: noise.info })
     await (burstBlur[i] > 0 ? pipeline.blur(burstBlur[i]) : pipeline).jpeg({ quality: 95 }).toFile(path)
-    await stampExif(path, `${BURST_BASE}.${String(i * 20).padStart(2, '0')}0`, BURST_CAMERA)
+    await stampExif(path, `${BURST_BASE}.${String(i * 20).padStart(2, '0')}0`, BURST_CAMERA, FIXTURE_GPS_SF)
     burst.push(path)
   }
 
   const afterBurst = join(root, 'after_burst.jpg')
   await sharp(noise.data, { raw: noise.info }).jpeg({ quality: 95 }).toFile(afterBurst)
-  await stampExif(afterBurst, '2024:06:01 12:10:05', BURST_CAMERA)
+  await stampExif(afterBurst, '2024:06:01 12:10:05', BURST_CAMERA, FIXTURE_GPS_SF)
+
+  // A separate trip a month later, far away: its own event in date/GPS clustering.
+  const vacation: string[] = []
+  for (let i = 0; i < 2; i++) {
+    const path = join(root, `vacation_${i}.jpg`)
+    await sharp(noise.data, { raw: noise.info }).jpeg({ quality: 95 }).toFile(path)
+    await stampExif(path, `2024:07:04 15:0${i}:00`, BURST_CAMERA, FIXTURE_GPS_LA)
+    vacation.push(path)
+  }
 
   const noExif = join(root, 'no_exif.jpg')
   await sharp(noise.data, { raw: noise.info }).jpeg({ quality: 95 }).toFile(noExif)
@@ -74,7 +89,7 @@ export async function createCurateFixture(): Promise<CurateFixture> {
 
   return {
     root,
-    paths: { sharpNoise, blurred, dark, blown, burst, afterBurst, noExif, corrupt },
+    paths: { sharpNoise, blurred, dark, blown, burst, afterBurst, vacation, noExif, corrupt },
     cleanup: () => rm(root, { recursive: true, force: true })
   }
 }
@@ -92,7 +107,12 @@ function noiseImage(width: number, height: number): { data: Buffer; info: { widt
   return { data, info: { width, height, channels: 3 } }
 }
 
-async function stampExif(path: string, dateTimeOriginal: string, model: string): Promise<void> {
+async function stampExif(
+  path: string,
+  dateTimeOriginal: string,
+  model: string,
+  gps?: { lat: number; lon: number }
+): Promise<void> {
   const [datePart, subsec] = splitSubsec(dateTimeOriginal)
   await getExiftool().write(
     path,
@@ -100,7 +120,10 @@ async function stampExif(path: string, dateTimeOriginal: string, model: string):
       DateTimeOriginal: datePart,
       ...(subsec ? { SubSecTimeOriginal: subsec } : {}),
       Make: 'Photofind',
-      Model: model
+      Model: model,
+      // Signed decimals: exiftool-vendored derives the N/S/E/W refs itself
+      // (explicit refs get overridden and lose west/south signs).
+      ...(gps ? { GPSLatitude: gps.lat, GPSLongitude: gps.lon } : {})
     } as never,
     { writeArgs: ['-overwrite_original'] }
   )

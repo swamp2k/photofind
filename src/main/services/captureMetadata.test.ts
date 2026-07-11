@@ -1,6 +1,6 @@
 import { stat } from 'node:fs/promises'
 import { afterAll, describe, expect, it } from 'vitest'
-import { createCurateFixture } from '../test/curateFixture'
+import { createCurateFixture, FIXTURE_GPS_LA, FIXTURE_GPS_SF } from '../test/curateFixture'
 import { extractCaptureMetadata } from './captureMetadata'
 import { disposeExiftool } from './exiftoolClient'
 import { scanDirectory } from './scanner'
@@ -32,6 +32,15 @@ describe('extractCaptureMetadata', () => {
       expect(noExif.source).toBe('mtime')
       const stats = await stat(fixture.paths.noExif)
       expect(noExif.captureTimeMs).toBe(stats.mtimeMs)
+      expect(noExif.gps).toBeNull()
+
+      // GPS round-trips with correct signs (west longitude must come back negative).
+      const burstGps = byPath.get(fixture.paths.burst[0])!.gps
+      expect(burstGps?.lat).toBeCloseTo(FIXTURE_GPS_SF.lat, 3)
+      expect(burstGps?.lon).toBeCloseTo(FIXTURE_GPS_SF.lon, 3)
+      const vacationGps = byPath.get(fixture.paths.vacation[0])!.gps
+      expect(vacationGps?.lat).toBeCloseTo(FIXTURE_GPS_LA.lat, 3)
+      expect(vacationGps?.lon).toBeCloseTo(FIXTURE_GPS_LA.lon, 3)
 
       expect(result.log.some((entry) => entry.message.includes('no EXIF capture time'))).toBe(true)
     } finally {

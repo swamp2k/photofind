@@ -10,6 +10,7 @@ function capture(path: string, timeMs: number | null, overrides: Partial<Capture
     cameraModel: 'PixelTest',
     width: 320,
     height: 240,
+    gps: null,
     status: 'ok',
     ...overrides
   }

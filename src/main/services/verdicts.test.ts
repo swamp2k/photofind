@@ -14,6 +14,7 @@ function capture(path: string): CaptureMetadata {
     cameraModel: 'PixelTest',
     width: 320,
     height: 240,
+    gps: null,
     status: 'ok'
   }
 }

@@ -1,5 +1,5 @@
 import { ExifDateTime, type Tags } from 'exiftool-vendored'
-import type { CaptureMetadata, LogEntry, ScannedFile } from '../../shared/types'
+import type { CaptureMetadata, GpsCoordinates, LogEntry, ScannedFile } from '../../shared/types'
 import { getExiftool } from './exiftoolClient'
 
 export interface CaptureMetadataResult {
@@ -58,6 +58,7 @@ async function readOne(file: ScannedFile): Promise<CaptureMetadata> {
       cameraModel: cameraModelFrom(tags),
       width: tags.ImageWidth ?? null,
       height: tags.ImageHeight ?? null,
+      gps: gpsFrom(tags),
       status: 'ok'
     }
   } catch (err) {
@@ -68,10 +69,19 @@ async function readOne(file: ScannedFile): Promise<CaptureMetadata> {
       cameraModel: null,
       width: null,
       height: null,
+      gps: null,
       status: 'failed',
       reason: (err as Error).message
     }
   }
+}
+
+function gpsFrom(tags: Tags): GpsCoordinates | null {
+  // exiftool-vendored applies the N/S/E/W refs, so these are signed decimals.
+  const lat = tags.GPSLatitude
+  const lon = tags.GPSLongitude
+  if (typeof lat !== 'number' || typeof lon !== 'number' || !Number.isFinite(lat) || !Number.isFinite(lon)) return null
+  return { lat, lon }
 }
 
 function captureTimeFrom(tags: Tags): number | null {
