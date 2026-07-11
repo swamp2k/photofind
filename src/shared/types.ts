@@ -149,6 +149,17 @@ export interface PhotoFaces {
   largestFraction: number
 }
 
+export interface EventGroup {
+  id: string
+  mediaPaths: string[]
+  startMs: number
+  endMs: number
+  /** Mean position of members with GPS, or null when none have coordinates */
+  centroid: GpsCoordinates | null
+  /** Labels of special dates this event overlaps */
+  labels: string[]
+}
+
 export type NewSpecialDate = { label: string } & (
   | { kind: 'recurring-yearly'; month: number; day: number }
   | { kind: 'range'; startMs: number; endMs: number }
