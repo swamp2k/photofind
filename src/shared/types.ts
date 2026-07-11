@@ -160,6 +160,7 @@ export interface PhotoAnalysis {
   media: ScannedFile
   capture: CaptureMetadata
   quality: QualityScore
+  faces: PhotoFaces
   burstId: string | null
   burstSize: number
   isBurstPick: boolean

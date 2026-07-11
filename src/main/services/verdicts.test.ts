@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { BurstGroup, CaptureMetadata, QualityScore, ScannedFile } from '../../shared/types'
+import type { BurstGroup, CaptureMetadata, PhotoFaces, QualityScore, ScannedFile } from '../../shared/types'
 import { suggestVerdicts } from './verdicts'
 
 function file(path: string): ScannedFile {
@@ -31,8 +31,18 @@ function quality(path: string, overrides: Partial<QualityScore> = {}): QualitySc
   }
 }
 
-function analyze(paths: string[], qualities: QualityScore[], bursts: BurstGroup[] = []) {
-  return suggestVerdicts(paths.map(file), paths.map(capture), qualities, bursts)
+function faces(path: string, count: number): PhotoFaces {
+  return {
+    mediaPath: path,
+    status: 'ok',
+    count,
+    faces: Array.from({ length: count }, () => ({ box: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 }, score: 0.9 })),
+    largestFraction: count > 0 ? 0.04 : 0
+  }
+}
+
+function analyze(paths: string[], qualities: QualityScore[], bursts: BurstGroup[] = [], photoFaces: PhotoFaces[] = []) {
+  return suggestVerdicts(paths.map(file), paths.map(capture), qualities, bursts, photoFaces)
 }
 
 describe('suggestVerdicts', () => {
@@ -82,5 +92,61 @@ describe('suggestVerdicts', () => {
     expect(analyses[1].reasons).toContain('best of burst of 3')
     expect(analyses[1].isBurstPick).toBe(true)
     expect(analyses[1].burstSize).toBe(3)
+  })
+
+  it('protects blurry photos with faces from discard', () => {
+    const [analysis] = analyze(
+      ['/grandma.jpg'],
+      [quality('/grandma.jpg', { sharpness: 5 })],
+      [],
+      [faces('/grandma.jpg', 1)]
+    )
+    expect(analysis.suggestedVerdict).toBe('maybe')
+    expect(analysis.reasons).toEqual(['blurry, but has faces', '1 face'])
+  })
+
+  it('still discards blurry photos without faces when detection ran', () => {
+    const [analysis] = analyze(['/blur.jpg'], [quality('/blur.jpg', { sharpness: 5 })], [], [faces('/blur.jpg', 0)])
+    expect(analysis.suggestedVerdict).toBe('discard')
+    expect(analysis.reasons).toEqual(['blurry'])
+  })
+
+  it('does not let faces rescue burst siblings', () => {
+    const burst: BurstGroup = {
+      id: 'burst-x',
+      mediaPaths: ['/b0.jpg', '/b1.jpg'],
+      pickPath: '/b1.jpg',
+      startMs: 1000,
+      endMs: 1500
+    }
+    const analyses = analyze(
+      ['/b0.jpg', '/b1.jpg'],
+      [quality('/b0.jpg'), quality('/b1.jpg')],
+      [burst],
+      [faces('/b0.jpg', 2), faces('/b1.jpg', 2)]
+    )
+    expect(analyses[0].suggestedVerdict).toBe('discard')
+    expect(analyses[0].reasons).toEqual(['similar to best of burst of 2'])
+  })
+
+  it('adds a face-count chip to keeps and maybes', () => {
+    const [keep] = analyze(['/good.jpg'], [quality('/good.jpg')], [], [faces('/good.jpg', 2)])
+    expect(keep.suggestedVerdict).toBe('keep')
+    expect(keep.reasons).toContain('2 faces')
+
+    const [maybe] = analyze(
+      ['/soft.jpg'],
+      [quality('/soft.jpg', { sharpness: 60 })],
+      [],
+      [faces('/soft.jpg', 1)]
+    )
+    expect(maybe.suggestedVerdict).toBe('maybe')
+    expect(maybe.reasons).toEqual(['slightly soft focus', '1 face'])
+  })
+
+  it('behaves exactly like before when face detection was skipped', () => {
+    const withoutFaces = analyze(['/blur.jpg'], [quality('/blur.jpg', { sharpness: 5 })])
+    expect(withoutFaces[0].suggestedVerdict).toBe('discard')
+    expect(withoutFaces[0].faces.status).toBe('skipped')
   })
 })
