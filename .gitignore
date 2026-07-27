@@ -1,5 +1,8 @@
 node_modules/
 out/
+/out-server/
+/webapp-dist/
+/src/renderer/webapp-dist/
 dist/
 dist-electron/
 release/

@@ -1,7 +1,7 @@
 export type MediaKind = 'image' | 'raw' | 'video' | 'sidecar' | 'unknown'
 
 export interface ScannedFile {
-  /** Absolute path on disk */
+  /** Absolute internal path, or a scoped browser URI at adapter boundaries. Electron IPC retains absolute paths. */
   path: string
   /** File name including extension */
   name: string

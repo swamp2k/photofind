@@ -15,9 +15,10 @@ The current Electron prototype scans folders, matches Takeout sidecars, generate
 thumbnails, reports diagnostics, persists keeper marks, performs explicitly confirmed
 metadata repair, and exports selected originals without silent overwrite.
 
-Milestone 0 establishes reusable application, service, persistence, migration, and
-renderer-client boundaries. Similarity grouping, the full Keep/Maybe/Reject workflow,
-HTTP/container deployment, background jobs, and multiuser review remain planned.
+Milestone 0 established reusable application, service, persistence, migration, and
+renderer-client boundaries. Milestone 1 adds browser/server builds and a trusted-LAN
+container foundation. Scanning remains request-bound; durable jobs, similarity
+grouping, the full Keep/Maybe/Reject workflow and multiuser review remain planned.
 
 ## Development
 
@@ -29,8 +30,14 @@ npm run dev
 npm run typecheck
 npm test
 npm run build
+npm run build:webapp
+npm run start:web # after build:webapp
 npm run pack:linux # optional when Linux packaging tooling is available
 ```
+
+See [Unraid deployment](docs/deployment/unraid.md) and [compose.yaml](compose.yaml)
+for container usage. Set `PHOTOFIND_STATIC_DIR` to the built browser directory when
+running the standalone server outside the image.
 
 `better-sqlite3` is a native dependency. The existing scripts rebuild it for the
 active Node or Electron ABI when required.

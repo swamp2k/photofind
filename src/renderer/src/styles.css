@@ -65,6 +65,60 @@ body {
   white-space: nowrap;
 }
 
+.mounted-picker-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.picker-roots,
+.directory-breadcrumbs,
+.picker-create {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+
+.directory-browser {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  margin-top: 8px;
+}
+
+.directory-browser ul {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.directory-browser li + li {
+  margin-top: 4px;
+}
+
+.picker-selection {
+  display: block;
+  margin-top: 6px;
+  color: var(--safe);
+  font-family: 'SF Mono', Consolas, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.picker-create input {
+  min-width: 0;
+  flex: 1;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
 button {
   background: var(--panel);
   color: var(--text);

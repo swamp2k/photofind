@@ -1,6 +1,6 @@
 import type { ExportResult, RepairResult, ScanResult, SidecarMatch } from '../shared/types'
 import { LibraryStore } from '../persistence/libraryStore'
-import { exportKeepers } from '../services/exportKeepers'
+import { exportKeepers, type ExportOptions } from '../services/exportKeepers'
 import { repairMetadata } from '../services/metadataRepair'
 import { runScan } from '../services/scanOrchestrator'
 
@@ -33,8 +33,8 @@ export class PhotoFindApplication {
     this.store.setKeeper(mediaPath, kept)
   }
 
-  exportKeepers(mediaPaths: string[], destinationRoot: string): Promise<ExportResult> {
-    return exportKeepers(mediaPaths, { destinationRoot })
+  exportKeepers(mediaPaths: string[], destinationRoot: string, options: Omit<ExportOptions, 'destinationRoot'> = {}): Promise<ExportResult> {
+    return exportKeepers(mediaPaths, { destinationRoot, ...options })
   }
 
   close(): void {

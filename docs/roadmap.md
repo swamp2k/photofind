@@ -1,9 +1,14 @@
 # PhotoFind roadmap
 
-Only Milestone 0 is represented as implemented here. Later milestone descriptions
-state product direction, not current capability.
+Milestone 0 is represented as implemented here. The Milestone 1 code foundation
+is present, but its Node 20, container, browser and Electron acceptance checks
+must be completed in a suitable environment before it is treated as released.
+Later milestone descriptions state product direction, not current capability.
 
 ## Foundation release
+
+Milestone 1 web and container foundation is implemented in code; later milestones
+remain planned.
 
 - **Milestone 0 — Product and architecture reset:** curation-first documentation,
   reusable application/services, renderer client boundary, and safe SQLite migrations.

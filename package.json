@@ -14,17 +14,23 @@
   "scripts": {
     "dev": "npm run rebuild:electron && electron-vite dev",
     "build": "electron-vite build",
+    "build:web": "vite build --config vite.web.config.ts",
+    "build:server": "vite build --config vite.server.config.ts",
+    "build:webapp": "npm run build:web && npm run build:server",
     "rebuild:node": "npm rebuild better-sqlite3",
     "rebuild:electron": "electron-builder install-app-deps",
     "pack:linux": "npm run build && electron-builder --linux dir && npm run rebuild:node",
     "dist:linux": "npm run build && electron-builder --linux AppImage deb && npm run rebuild:node",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "test": "npm run rebuild:node && vitest run"
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.server.json",
+    "test": "npm run rebuild:node && vitest run",
+    "start:web": "node out-server/index.js"
   },
   "dependencies": {
+    "@fastify/static": "^10.1.2",
     "adm-zip": "^0.5.16",
     "better-sqlite3": "^12.11.1",
     "exiftool-vendored": "^35.21.0",
+    "fastify": "^5.10.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "sharp": "^0.35.3"

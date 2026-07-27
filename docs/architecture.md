@@ -74,7 +74,16 @@ The custom protocol decodes only its own URL shape and serves files only when th
 resolved path is inside the configured thumbnail cache. A future HTTP adapter can map
 the same internal reference to a scoped HTTP route.
 
-## Container-first future
+## Browser and container foundation
+
+Milestone 1 builds the shared React renderer as static browser assets and bundles
+the HTTP adapter as `out-server/index.js`. The standalone server serves those assets
+when `PHOTOFIND_STATIC_DIR` is configured (the container uses `/app/webapp-dist`) and
+keeps configurable `/config`, `/cache`, `/photos`, `/inbox`, and `/exports` roots.
+Operations are request-bound in this foundation; durable jobs and uploads are later
+work.
+
+## Container-first deployment
 
 The intended self-hosted deployment uses configurable mounts rather than hard-coded
 paths:
@@ -87,7 +96,6 @@ paths:
 /exports  completed exports and reports
 ```
 
-A future backend HTTP adapter and persistent job runner will sit beside the Electron
-adapters. Electron is transitional: it remains the working desktop shell during the
-migration and can later wrap the same API and web interface. Milestone 0 does not add
-the server, container files, uploads, background queue, or media intelligence.
+Electron is transitional: it remains the working desktop shell during the migration
+and can later wrap the same API and web interface. Authentication, durable jobs,
+uploads and media intelligence remain later milestones.

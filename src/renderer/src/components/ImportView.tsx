@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ExportResult, LogEntry, RepairResult, ScanResult } from '../../../shared/types'
 import { DiagnosticsDrawer } from './DiagnosticsDrawer'
 import { MediaGrid } from './MediaGrid'
 import { ScanReviewTable } from './ScanReviewTable'
 import type { FolderPicker, PhotoFindClient } from '../client'
+import { formatDirectoryDisplay, MountedDirectoryPicker } from './MountedDirectoryPicker'
 
 export function ImportView({ client, picker }: { client: PhotoFindClient; picker: FolderPicker }): JSX.Element {
   const [sourcePath, setSourcePath] = useState<string | null>(null)
@@ -17,8 +18,13 @@ export function ImportView({ client, picker }: { client: PhotoFindClient; picker
   const [keepers, setKeepers] = useState<Set<string>>(() => new Set())
   const [exporting, setExporting] = useState(false)
   const [exportResult, setExportResult] = useState<ExportResult | null>(null)
+  const [exportPath, setExportPath] = useState<string | null>(null)
+  const [repairEnabled, setRepairEnabled] = useState(true)
+  const [uiErrors, setUiErrors] = useState<LogEntry[]>([])
+  const browserPicker = picker.directoryApi
+  useEffect(() => { if (browserPicker) void browserPicker.capabilities().then((value) => setRepairEnabled(value.repair)).catch((error) => setUiErrors((current) => [...current, errorLog(error)])) }, [browserPicker])
 
-  const log: LogEntry[] = [...(scanResult?.log ?? []), ...(repairResult?.log ?? []), ...(exportResult?.log ?? [])]
+  const log: LogEntry[] = [...(scanResult?.log ?? []), ...(repairResult?.log ?? []), ...(exportResult?.log ?? []), ...uiErrors]
   const safeMatches = scanResult?.summary.safeMatches ?? 0
   const skippedMatches = scanResult ? scanResult.summary.uncertainMatches + scanResult.summary.missingMatches : 0
   const canRepair = Boolean(scanResult && dryRunComplete && safeMatches > 0 && !repairing)
@@ -47,9 +53,8 @@ export function ImportView({ client, picker }: { client: PhotoFindClient; picker
     setKeepers(new Set())
     setExportResult(null)
     try {
-      const result = await client.runScan(sourcePath)
-      setScanResult(result)
-      setKeepers(new Set(result.keepers))
+      try { const result = await client.runScan(sourcePath); setScanResult(result); setKeepers(new Set(result.keepers)) }
+      catch (error) { setUiErrors((current) => [...current, errorLog(error)]) }
     } finally {
       setScanning(false)
     }
@@ -57,13 +62,13 @@ export function ImportView({ client, picker }: { client: PhotoFindClient; picker
 
   async function handleExportKeepers(): Promise<void> {
     if (keepers.size === 0) return
-    const destination = await picker.selectExportFolder()
+    const destination = exportPath ?? await picker.selectExportFolder()
     if (!destination) return
 
     setExporting(true)
     try {
-      const result = await client.exportKeepers(Array.from(keepers), destination)
-      setExportResult(result)
+      try { const result = await client.exportKeepers(Array.from(keepers), destination); setExportResult(result) }
+      catch (error) { setUiErrors((current) => [...current, errorLog(error)]) }
     } finally {
       setExporting(false)
     }
@@ -75,9 +80,8 @@ export function ImportView({ client, picker }: { client: PhotoFindClient; picker
     setRepairMode(dryRun ? 'dry-run' : 'write')
     if (!dryRun) setConfirmRepairOpen(false)
     try {
-      const result = await client.runRepair(scanResult.matches, dryRun)
-      setRepairResult(result)
-      if (dryRun) setDryRunComplete(true)
+      try { const result = await client.runRepair(scanResult.matches, dryRun, !dryRun); setRepairResult(result); if (dryRun) setDryRunComplete(true) }
+      catch (error) { setUiErrors((current) => [...current, errorLog(error)]) }
     } finally {
       setRepairing(false)
       setRepairMode(null)
@@ -107,7 +111,7 @@ export function ImportView({ client, picker }: { client: PhotoFindClient; picker
         }
         return next
       })
-      console.error('Failed to persist keeper state', err)
+      setUiErrors((current) => [...current, errorLog(err)])
     }
   }
 
@@ -115,17 +119,19 @@ export function ImportView({ client, picker }: { client: PhotoFindClient; picker
     <div className="import-view">
       <div className="import-top">
         <h1>Import Google Takeout or local photo folder</h1>
-        <button onClick={handleSelectSource}>Choose folder&hellip;</button>
-        {sourcePath && <span className="source-path">{sourcePath}</span>}
+        {!browserPicker && <button onClick={handleSelectSource}>Choose folder…</button>}
+        {sourcePath && <span className="source-path">{browserPicker ? formatDirectoryDisplay(sourcePath) : sourcePath}</span>}
         <button className="primary" disabled={!sourcePath || scanning} onClick={handleScan}>
           {scanning ? 'Scanning…' : 'Scan'}
         </button>
       </div>
 
+      {browserPicker && <MountedDirectoryPicker api={browserPicker} onSource={(uri) => { setSourcePath(uri); setExportPath(null); setScanResult(null); setRepairResult(null); setDryRunComplete(false) }} onDestination={setExportPath} onError={(message) => setUiErrors((current) => [...current, errorLog(message)])} />}
+
       <div className="import-panels">
         <section className="panel">
           <h2>Source</h2>
-          {sourcePath ? <p>{sourcePath}</p> : <p className="muted">No source selected yet.</p>}
+          {sourcePath ? <p>{browserPicker ? formatDirectoryDisplay(sourcePath) : sourcePath}</p> : <p className="muted">No source selected yet.</p>}
         </section>
 
         <section className="panel">
@@ -171,18 +177,20 @@ export function ImportView({ client, picker }: { client: PhotoFindClient; picker
         <button disabled={!scanResult || repairing} onClick={() => handleRepair(true)}>
           {repairMode === 'dry-run' ? 'Dry running...' : 'Dry run'}
         </button>
-        <button className="primary" disabled={!canRepair} onClick={() => setConfirmRepairOpen(true)}>
+        <button className="primary" disabled={!repairEnabled || !canRepair} onClick={() => setConfirmRepairOpen(true)}>
           {repairMode === 'write' ? 'Repairing...' : 'Repair metadata'}
         </button>
         {scanResult && !dryRunComplete && <span className="action-note">Run dry run before writing metadata.</span>}
-        <button disabled={!scanResult || keepers.size === 0 || exporting} onClick={handleExportKeepers}>
+        {!repairEnabled && <span className="action-note">Metadata writing is disabled by server capability.</span>}
+        <button disabled={!scanResult || keepers.size === 0 || exporting || (Boolean(browserPicker) && !exportPath)} onClick={handleExportKeepers}>
           {exporting ? 'Exporting...' : `Export keepers (${keepers.size})`}
         </button>
+        {browserPicker && !exportPath && <span className="action-note">Select an export destination in the mounted picker first.</span>}
       </div>
 
       {exportResult && (
         <div className={exportResult.failed > 0 ? 'export-summary export-summary-warn' : 'export-summary'}>
-          Exported {exportResult.exported} of {exportResult.attempted} keepers to {exportResult.destinationRoot}. Report: {exportResult.reportPath}
+          Exported {exportResult.exported} of {exportResult.attempted} keepers to {browserPicker ? formatDirectoryDisplay(exportResult.destinationRoot) : exportResult.destinationRoot}. Report: {browserPicker ? formatDirectoryDisplay(exportResult.reportPath) : exportResult.reportPath}
         </div>
       )}
 
@@ -225,7 +233,7 @@ export function ImportView({ client, picker }: { client: PhotoFindClient; picker
               <button disabled={repairing} onClick={() => setConfirmRepairOpen(false)}>
                 Cancel
               </button>
-              <button className="primary danger" disabled={!canRepair} onClick={() => handleRepair(false)}>
+              <button className="primary danger" disabled={!repairEnabled || !canRepair} onClick={() => handleRepair(false)}>
                 Write metadata
               </button>
             </div>
@@ -234,4 +242,8 @@ export function ImportView({ client, picker }: { client: PhotoFindClient; picker
       )}
     </div>
   )
+}
+
+function errorLog(error: unknown): LogEntry {
+  return { level: 'ERROR', message: error instanceof Error ? error.message : String(error), timestamp: Date.now() }
 }

@@ -1,13 +1,16 @@
-import { copyFile, mkdir, stat, writeFile } from 'node:fs/promises'
+import { copyFile, lstat, mkdir, writeFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
 import { basename, extname, join } from 'node:path'
 import type { ExportResult, ExportedFile, LogEntry } from '../shared/types'
 
 export interface ExportOptions {
   destinationRoot: string
+  validateOutputPath?: (path: string) => void | Promise<void>
 }
 
 export async function exportKeepers(mediaPaths: string[], options: ExportOptions): Promise<ExportResult> {
   const originalsDir = join(options.destinationRoot, 'keepers')
+  await options.validateOutputPath?.(originalsDir)
   await mkdir(originalsDir, { recursive: true })
 
   const files: ExportedFile[] = []
@@ -17,8 +20,7 @@ export async function exportKeepers(mediaPaths: string[], options: ExportOptions
 
   for (const sourcePath of mediaPaths) {
     try {
-      const outputPath = await uniqueOutputPath(originalsDir, basename(sourcePath))
-      await copyFile(sourcePath, outputPath)
+      const outputPath = await copyUnique(sourcePath, originalsDir, options.validateOutputPath)
       exported++
       files.push({ sourcePath, outputPath, status: 'exported' })
       log.push(logEntry('INFO', `${basename(sourcePath)}: exported`))
@@ -29,7 +31,7 @@ export async function exportKeepers(mediaPaths: string[], options: ExportOptions
     }
   }
 
-  const reportPath = join(options.destinationRoot, 'photofind-export-report.json')
+  const reportPath = await uniqueOutputPath(options.destinationRoot, 'photofind-export-report.json')
   const result: ExportResult = {
     attempted: mediaPaths.length,
     exported,
@@ -40,8 +42,23 @@ export async function exportKeepers(mediaPaths: string[], options: ExportOptions
     log
   }
 
-  await writeFile(reportPath, `${JSON.stringify(result, null, 2)}\n`)
+  await options.validateOutputPath?.(reportPath)
+
+  await writeFile(reportPath, `${JSON.stringify(result, null, 2)}\n`, { flag: 'wx' })
   return result
+}
+
+async function copyUnique(sourcePath: string, directory: string, validateOutputPath?: ExportOptions['validateOutputPath']): Promise<string> {
+  for (;;) {
+    const outputPath = await uniqueOutputPath(directory, basename(sourcePath))
+    await validateOutputPath?.(outputPath)
+    try {
+      await copyFile(sourcePath, outputPath, constants.COPYFILE_EXCL)
+      return outputPath
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    }
+  }
 }
 
 async function uniqueOutputPath(dir: string, fileName: string): Promise<string> {
@@ -60,7 +77,7 @@ async function uniqueOutputPath(dir: string, fileName: string): Promise<string> 
 
 async function exists(path: string): Promise<boolean> {
   try {
-    await stat(path)
+    await lstat(path)
     return true
   } catch {
     return false
