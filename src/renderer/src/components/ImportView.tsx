@@ -3,8 +3,9 @@ import type { ExportResult, LogEntry, RepairResult, ScanResult } from '../../../
 import { DiagnosticsDrawer } from './DiagnosticsDrawer'
 import { MediaGrid } from './MediaGrid'
 import { ScanReviewTable } from './ScanReviewTable'
+import type { FolderPicker, PhotoFindClient } from '../client'
 
-export function ImportView(): JSX.Element {
+export function ImportView({ client, picker }: { client: PhotoFindClient; picker: FolderPicker }): JSX.Element {
   const [sourcePath, setSourcePath] = useState<string | null>(null)
   const [scanning, setScanning] = useState(false)
   const [scanResult, setScanResult] = useState<ScanResult | null>(null)
@@ -23,7 +24,7 @@ export function ImportView(): JSX.Element {
   const canRepair = Boolean(scanResult && dryRunComplete && safeMatches > 0 && !repairing)
 
   async function handleSelectSource(): Promise<void> {
-    const path = await window.api.selectFolder()
+    const path = await picker.selectFolder()
     if (path) {
       setSourcePath(path)
       setScanResult(null)
@@ -46,7 +47,7 @@ export function ImportView(): JSX.Element {
     setKeepers(new Set())
     setExportResult(null)
     try {
-      const result = await window.api.runScan(sourcePath)
+      const result = await client.runScan(sourcePath)
       setScanResult(result)
       setKeepers(new Set(result.keepers))
     } finally {
@@ -56,12 +57,12 @@ export function ImportView(): JSX.Element {
 
   async function handleExportKeepers(): Promise<void> {
     if (keepers.size === 0) return
-    const destination = await window.api.selectExportFolder()
+    const destination = await picker.selectExportFolder()
     if (!destination) return
 
     setExporting(true)
     try {
-      const result = await window.api.exportKeepers(Array.from(keepers), destination)
+      const result = await client.exportKeepers(Array.from(keepers), destination)
       setExportResult(result)
     } finally {
       setExporting(false)
@@ -74,7 +75,7 @@ export function ImportView(): JSX.Element {
     setRepairMode(dryRun ? 'dry-run' : 'write')
     if (!dryRun) setConfirmRepairOpen(false)
     try {
-      const result = await window.api.runRepair(scanResult.matches, dryRun)
+      const result = await client.runRepair(scanResult.matches, dryRun)
       setRepairResult(result)
       if (dryRun) setDryRunComplete(true)
     } finally {
@@ -95,7 +96,7 @@ export function ImportView(): JSX.Element {
       return next
     })
     try {
-      await window.api.setKeeper(mediaPath, kept)
+      await client.setKeeper(mediaPath, kept)
     } catch (err) {
       setKeepers((current) => {
         const next = new Set(current)

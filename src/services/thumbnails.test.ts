@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import sharp from 'sharp'
 import { describe, expect, it } from 'vitest'
-import type { ScannedFile } from '../../shared/types'
+import type { ScannedFile } from '../shared/types'
 import { generateThumbnails } from './thumbnails'
 
 describe('generateThumbnails', () => {
@@ -31,7 +31,7 @@ describe('generateThumbnails', () => {
       expect(first.failed).toBe(0)
       expect(first.items[0].status).toBe('ready')
       expect(first.items[0].thumbnailPath).toMatch(/\.webp$/)
-      expect(first.items[0].thumbnailUrl).toMatch(/^photofind-thumb:\/\//)
+      expect(first.items[0].thumbnailUrl).toBeNull()
       expect(first.items[0].width).toBeLessThanOrEqual(160)
       expect(first.items[0].height).toBeLessThanOrEqual(160)
 

@@ -1,6 +1,6 @@
 import { readdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { ScannedFile } from '../../shared/types'
+import type { ScannedFile } from '../shared/types'
 import { classify } from './classify'
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.DS_Store'])

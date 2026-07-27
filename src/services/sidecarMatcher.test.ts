@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { ScannedFile } from '../../shared/types'
+import type { ScannedFile } from '../shared/types'
 import { matchSidecars } from './sidecarMatcher'
 
 function file(name: string, kind: ScannedFile['kind'] = 'image'): ScannedFile {

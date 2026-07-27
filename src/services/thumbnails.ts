@@ -2,8 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import sharp from 'sharp'
-import type { LogEntry, MediaThumbnail, ScannedFile, ThumbnailResult } from '../../shared/types'
-import { thumbnailUrlForPath } from './thumbnailUrl'
+import type { LogEntry, MediaThumbnail, ScannedFile, ThumbnailResult } from '../shared/types'
 
 export interface ThumbnailOptions {
   cacheRoot: string
@@ -32,7 +31,7 @@ export async function generateThumbnails(files: ScannedFile[], options: Thumbnai
         items.push({
           mediaPath: file.path,
           thumbnailPath,
-          thumbnailUrl: thumbnailUrlForPath(thumbnailPath),
+          thumbnailUrl: null,
           status: 'ready'
         })
         log.push(logEntry('INFO', `${file.name}: reused thumbnail`))
@@ -49,7 +48,7 @@ export async function generateThumbnails(files: ScannedFile[], options: Thumbnai
       items.push({
         mediaPath: file.path,
         thumbnailPath,
-        thumbnailUrl: thumbnailUrlForPath(thumbnailPath),
+        thumbnailUrl: null,
         status: 'ready',
         width: info.width,
         height: info.height

@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { ExifTool } from 'exiftool-vendored'
-import type { LogEntry, RepairResult, SidecarMatch, TakeoutMetadata } from '../../shared/types'
+import type { LogEntry, RepairResult, SidecarMatch, TakeoutMetadata } from '../shared/types'
 
 export interface RepairOptions {
   dryRun: boolean

@@ -1,6 +1,6 @@
 import { copyFile, mkdir, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
-import type { ExportResult, ExportedFile, LogEntry } from '../../shared/types'
+import type { ExportResult, ExportedFile, LogEntry } from '../shared/types'
 
 export interface ExportOptions {
   destinationRoot: string

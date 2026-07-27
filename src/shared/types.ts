@@ -89,7 +89,9 @@ export type ThumbnailStatus = 'ready' | 'failed' | 'skipped'
 
 export interface MediaThumbnail {
   mediaPath: string
+  /** Canonical internal cache identity. Never persist thumbnailUrl instead of this value. */
   thumbnailPath: string | null
+  /** Adapter-specific presentation URL. Reusable services leave this null. */
   thumbnailUrl: string | null
   status: ThumbnailStatus
   reason?: string

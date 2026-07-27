@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { describe, expect, it } from 'vitest'
 import { createTakeoutFixture } from '../test/takeoutFixture'
 import { LibraryStore } from './libraryStore'
-import { runScan } from './scanOrchestrator'
+import { runScan } from '../services/scanOrchestrator'
 
 describe('LibraryStore', () => {
   it('persists keeper marks across scan upserts', async () => {

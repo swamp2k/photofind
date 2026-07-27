@@ -1,4 +1,4 @@
-import type { LogEntry, ScannedFile, ScanResult, ScanSummary, SidecarMatch, ThumbnailResult } from '../../shared/types'
+import type { LogEntry, ScannedFile, ScanResult, ScanSummary, SidecarMatch, ThumbnailResult } from '../shared/types'
 import { scanDirectory } from './scanner'
 import { matchSidecars } from './sidecarMatcher'
 import { generateThumbnails } from './thumbnails'

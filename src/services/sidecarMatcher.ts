@@ -1,5 +1,5 @@
 import { dirname } from 'node:path'
-import type { ScannedFile, SidecarMatch } from '../../shared/types'
+import type { ScannedFile, SidecarMatch } from '../shared/types'
 
 const EDITED_SUFFIXES = ['-edited', '-EDITED', '(edited)', '-modified', '-effects']
 

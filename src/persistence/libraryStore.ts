@@ -1,19 +1,25 @@
 import Database from 'better-sqlite3'
 import type { Database as DatabaseConnection } from 'better-sqlite3'
-import type { ScanResult } from '../../shared/types'
+import type { ScanResult } from '../shared/types'
+import { runMigrations } from './migrations'
 
 export class LibraryStore {
   private readonly db: DatabaseConnection
 
   constructor(dbPath: string) {
     this.db = new Database(dbPath)
-    this.db.pragma('journal_mode = WAL')
-    this.db.pragma('foreign_keys = ON')
-    this.initialize()
+    try {
+      this.db.pragma('journal_mode = WAL')
+      this.db.pragma('foreign_keys = ON')
+      runMigrations(this.db)
+    } catch (error) {
+      this.db.close()
+      throw error
+    }
   }
 
   close(): void {
-    this.db.close()
+    if (this.db.open) this.db.close()
   }
 
   upsertScan(sourceRoot: string, result: ScanResult): void {
@@ -74,7 +80,7 @@ export class LibraryStore {
           matchConfidence: match.confidence,
           matchReason: match.reason,
           thumbnailPath: thumbnail?.thumbnailPath ?? null,
-          thumbnailUrl: thumbnail?.thumbnailUrl ?? null,
+          thumbnailUrl: null,
           thumbnailStatus: thumbnail?.status ?? null,
           updatedAt
         })
@@ -107,32 +113,5 @@ export class LibraryStore {
     }
 
     this.db.prepare('DELETE FROM keepers WHERE media_path = ?').run(mediaPath)
-  }
-
-  private initialize(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS media_items (
-        path TEXT PRIMARY KEY,
-        source_root TEXT NOT NULL,
-        name TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        size_bytes INTEGER NOT NULL,
-        sidecar_path TEXT,
-        match_confidence TEXT NOT NULL,
-        match_reason TEXT NOT NULL,
-        thumbnail_path TEXT,
-        thumbnail_url TEXT,
-        thumbnail_status TEXT,
-        updated_at INTEGER NOT NULL
-      );
-
-      CREATE TABLE IF NOT EXISTS keepers (
-        media_path TEXT PRIMARY KEY,
-        kept_at INTEGER NOT NULL
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_media_items_source_root ON media_items(source_root);
-      CREATE INDEX IF NOT EXISTS idx_keepers_kept_at ON keepers(kept_at);
-    `)
   }
 }

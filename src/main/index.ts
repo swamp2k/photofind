@@ -1,9 +1,12 @@
 import { join } from 'node:path'
 import { app, BrowserWindow, protocol, shell } from 'electron'
+import { PhotoFindApplication } from '../application/PhotoFindApplication'
 import { is } from './lib/env'
 import { registerIpcHandlers } from './ipc'
-import { registerThumbnailProtocol } from './services/thumbnailProtocol'
-import { THUMBNAIL_PROTOCOL } from './services/thumbnailUrl'
+import { registerThumbnailProtocol } from './thumbnailProtocol'
+import { THUMBNAIL_PROTOCOL } from './thumbnailUrl'
+
+let application: PhotoFindApplication | null = null
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -44,13 +47,27 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  registerThumbnailProtocol()
-  registerIpcHandlers()
+  const userDataRoot = app.getPath('userData')
+  const thumbnailCacheRoot = join(userDataRoot, 'thumbnails')
+  application = new PhotoFindApplication({
+    databasePath: join(userDataRoot, 'photofind.db'),
+    thumbnailCacheRoot
+  })
+  registerThumbnailProtocol(thumbnailCacheRoot)
+  registerIpcHandlers(application)
   createWindow()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+}).catch((error: unknown) => {
+  console.error('PhotoFind failed to start:', error)
+  app.quit()
+})
+
+app.on('before-quit', () => {
+  application?.close()
+  application = null
 })
 
 app.on('window-all-closed', () => {
