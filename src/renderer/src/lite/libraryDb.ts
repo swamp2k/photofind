@@ -80,6 +80,23 @@ export async function replaceLibrary(library: LiteLibraryRecord, media: LiteMedi
   }
 }
 
+export async function putMediaRecords(media: LiteMediaRecord[]): Promise<void> {
+  if (media.length === 0) return
+  const db = await openDb()
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(MEDIA_STORE, 'readwrite')
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error ?? new Error('Failed to save PhotoFind analysis'))
+      transaction.onabort = () => reject(transaction.error ?? new Error('PhotoFind analysis transaction was aborted'))
+      const store = transaction.objectStore(MEDIA_STORE)
+      for (const item of media) store.put(item)
+    })
+  } finally {
+    db.close()
+  }
+}
+
 export async function deleteLibrary(libraryId: string): Promise<void> {
   const db = await openDb()
   try {
