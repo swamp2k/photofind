@@ -76,11 +76,13 @@ export interface LiteGeoBounds {
 }
 
 export type LiteLocationFilter = 'all' | 'located' | 'missing'
+export type LiteDateMetadataFilter = 'all' | 'captured' | 'file-only'
 
 export interface LitePhotoFilters {
   year: number | null
   fromTime: number | null
   toTime: number | null
   location: LiteLocationFilter
+  dateMetadata: LiteDateMetadataFilter
   mapBounds: LiteGeoBounds | null
 }
