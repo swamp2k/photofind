@@ -9,6 +9,9 @@ export function filterPhotos(items: LiteMediaRecord[], filters: LitePhotoFilters
     if (filters.fromTime !== null && captureTime < filters.fromTime) return false
     if (filters.toTime !== null && captureTime > filters.toTime) return false
 
+    if (filters.dateMetadata === 'captured' && item.captureTimeSource === 'file') return false
+    if (filters.dateMetadata === 'file-only' && item.captureTimeSource !== 'file') return false
+
     const located = hasLocation(item)
     if (filters.location === 'located' && !located) return false
     if (filters.location === 'missing' && located) return false
