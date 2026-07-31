@@ -1,10 +1,5 @@
-import { ImportView } from './components/ImportView'
-import type { FolderPicker, PhotoFindClient } from './client'
+import { LiteApp } from './lite/LiteApp'
 
-export default function App({ client, picker }: { client: PhotoFindClient; picker: FolderPicker }): JSX.Element {
-  return (
-    <div className="app-shell">
-      <ImportView client={client} picker={picker} />
-    </div>
-  )
+export default function App(): JSX.Element {
+  return <LiteApp />
 }
