@@ -1,4 +1,4 @@
-import exifr from 'exifr/dist/lite.esm.js'
+import exifr from 'exifr'
 import type { LiteMediaRecord, LiteMetadataStatus } from './types'
 import type { LiteTakeoutMatch, ParsedTakeoutMetadata } from './takeout'
 import { readTakeoutMetadata } from './takeout'
@@ -51,9 +51,7 @@ export async function enrichMediaMetadata(input: MetadataInput): Promise<LiteMed
   const location = chooseLocation(takeout, exif)
   const takeoutMatch = input.takeoutMatch
 
-  if (takeoutMatch?.confidence === 'uncertain') {
-    diagnostics.push(`Takeout sidecar match is uncertain: ${takeoutMatch.reason}`)
-  }
+  if (takeoutMatch?.confidence === 'uncertain') diagnostics.push(`Takeout sidecar match is uncertain: ${takeoutMatch.reason}`)
 
   return {
     ...input.media,
@@ -61,18 +59,14 @@ export async function enrichMediaMetadata(input: MetadataInput): Promise<LiteMed
     metadataStatus: status,
     effectiveCaptureTime: capture.time,
     captureTimeSource: capture.source,
-    ...(location ? {
-      latitude: location.latitude,
-      longitude: location.longitude,
-      locationSource: location.source
-    } : {}),
+    ...(location ? { latitude: location.latitude, longitude: location.longitude, locationSource: location.source } : {}),
     ...(exif.width ? { width: exif.width } : {}),
     ...(exif.height ? { height: exif.height } : {}),
     ...(exif.cameraMake ? { cameraMake: exif.cameraMake } : {}),
     ...(exif.cameraModel ? { cameraModel: exif.cameraModel } : {}),
     ...(takeoutMatch?.sidecar ? { takeoutSidecarPath: takeoutMatch.sidecar.relativePath } : {}),
     ...(takeoutMatch ? { takeoutMatchConfidence: takeoutMatch.confidence } : {}),
-    ...(diagnostics.length > 0 ? { diagnostics } : { diagnostics: [] })
+    diagnostics
   }
 }
 
@@ -90,12 +84,10 @@ export function chooseLocation(
   takeout: Pick<ParsedTakeoutMetadata, 'latitude' | 'longitude'>,
   exif: Pick<ParsedExifMetadata, 'latitude' | 'longitude'>
 ): { latitude: number; longitude: number; source: 'takeout' | 'exif' } | undefined {
-  if (isValidCoordinatePair(takeout.latitude, takeout.longitude)) {
-    return { latitude: takeout.latitude, longitude: takeout.longitude, source: 'takeout' }
-  }
-  if (isValidCoordinatePair(exif.latitude, exif.longitude)) {
-    return { latitude: exif.latitude, longitude: exif.longitude, source: 'exif' }
-  }
+  const takeoutPair = validCoordinatePair(takeout.latitude, takeout.longitude)
+  if (takeoutPair) return { ...takeoutPair, source: 'takeout' }
+  const exifPair = validCoordinatePair(exif.latitude, exif.longitude)
+  if (exifPair) return { ...exifPair, source: 'exif' }
   return undefined
 }
 
@@ -124,14 +116,11 @@ async function readExifMetadata(file: File): Promise<ParsedExifMetadata> {
   const result = await exifr.parse(file)
   if (!result || typeof result !== 'object') return {}
   const record = result as Record<string, unknown>
-
   const captureTime = normalizeExifTime(record.DateTimeOriginal)
     ?? normalizeExifTime(record.CreateDate)
     ?? normalizeExifTime(record.MediaCreateDate)
     ?? normalizeExifTime(record.ModifyDate)
-
-  const latitude = numberOrUndefined(record.latitude)
-  const longitude = numberOrUndefined(record.longitude)
+  const coordinatePair = validCoordinatePair(numberOrUndefined(record.latitude), numberOrUndefined(record.longitude))
   const width = positiveInteger(record.ExifImageWidth) ?? positiveInteger(record.ImageWidth) ?? positiveInteger(record.PixelXDimension)
   const height = positiveInteger(record.ExifImageHeight) ?? positiveInteger(record.ImageHeight) ?? positiveInteger(record.PixelYDimension)
   const cameraMake = stringOrUndefined(record.Make)
@@ -139,7 +128,7 @@ async function readExifMetadata(file: File): Promise<ParsedExifMetadata> {
 
   return {
     ...(captureTime !== undefined ? { captureTime } : {}),
-    ...(isValidCoordinatePair(latitude, longitude) ? { latitude, longitude } : {}),
+    ...(coordinatePair ?? {}),
     ...(width ? { width } : {}),
     ...(height ? { height } : {}),
     ...(cameraMake ? { cameraMake } : {}),
@@ -157,16 +146,12 @@ function normalizeExifTime(value: unknown): number | undefined {
     return isValidTime(milliseconds) ? milliseconds : undefined
   }
   if (typeof value !== 'string' || !value.trim()) return undefined
-
   const direct = Date.parse(value)
   if (Number.isFinite(direct)) return direct
-
   const exifMatch = value.match(/^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/)
   if (!exifMatch) return undefined
   const [, year, month, day, hour, minute, second] = exifMatch
-  const time = new Date(
-    Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)
-  ).getTime()
+  const time = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second)).getTime()
   return Number.isFinite(time) ? time : undefined
 }
 
@@ -174,14 +159,12 @@ function isValidTime(value: number | undefined): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
 }
 
-function isValidCoordinatePair(latitude: number | undefined, longitude: number | undefined): latitude is number {
-  return typeof latitude === 'number'
-    && typeof longitude === 'number'
-    && Number.isFinite(latitude)
-    && Number.isFinite(longitude)
-    && latitude >= -90 && latitude <= 90
-    && longitude >= -180 && longitude <= 180
-    && !(Math.abs(latitude) < 1e-9 && Math.abs(longitude) < 1e-9)
+function validCoordinatePair(latitude: number | undefined, longitude: number | undefined): { latitude: number; longitude: number } | undefined {
+  if (typeof latitude !== 'number' || typeof longitude !== 'number') return undefined
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return undefined
+  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return undefined
+  if (Math.abs(latitude) < 1e-9 && Math.abs(longitude) < 1e-9) return undefined
+  return { latitude, longitude }
 }
 
 function numberOrUndefined(value: unknown): number | undefined {
