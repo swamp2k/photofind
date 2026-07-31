@@ -22,9 +22,13 @@ Cloudflare's Git integration creates preview deployments for non-production bran
 
 ## Browser requirements
 
-The local-folder workflow currently targets desktop Chrome and Edge. The site must be served over HTTPS, which Cloudflare Pages provides by default.
+The local-folder workflow targets desktop browsers that expose the File System Access API and IndexedDB. In practice this means many Chromium-based browsers, including Chrome, Edge and Brave, with support determined by capability rather than browser brand or user-agent string.
+
+The site must be served over HTTPS, which Cloudflare Pages provides by default.
 
 Users explicitly choose a local directory through the File System Access API. The application then stores the directory handle and index metadata in IndexedDB on that browser profile.
+
+A Chromium-based browser may still disable or restrict the API through browser settings, enterprise policy, private-browsing behaviour or implementation differences. PhotoFind therefore checks for the required API at runtime instead of assuming every Chromium fork supports it identically.
 
 The browser can require the user to grant folder permission again after a browser restart, permission reset or other security boundary. PhotoFind must treat reconnecting a folder as normal rather than as data loss.
 
