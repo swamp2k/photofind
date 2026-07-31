@@ -127,7 +127,7 @@ export function LiteApp(): JSX.Element {
 
       {!supported && (
         <div className="notice warning">
-          Local folder access is not available in this browser. PhotoFind Lite currently targets desktop Chrome and Edge.
+          Local folder access is not available in this browser. PhotoFind Lite requires a desktop browser that exposes the File System Access API, supported by many Chromium-based browsers such as Chrome, Edge and Brave.
         </div>
       )}
       {error && <div className="notice error">{error}</div>}
