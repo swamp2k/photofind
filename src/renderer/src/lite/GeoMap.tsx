@@ -13,7 +13,6 @@ interface GeoMapProps {
 
 const SOURCE_ID = 'photofind-photos'
 const CLUSTERS_LAYER = 'photofind-clusters'
-const CLUSTER_COUNT_LAYER = 'photofind-cluster-count'
 const POINTS_LAYER = 'photofind-points'
 
 const OSM_STYLE: StyleSpecification = {
@@ -61,6 +60,10 @@ export function GeoMap({ items, filterToViewport, onBoundsChange, onSelect }: Ge
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
     mapRef.current = map
 
+    const emitCurrentBounds = (): void => {
+      emitBounds(map, viewportEnabledRef.current, boundsCallbackRef.current)
+    }
+
     map.on('load', () => {
       map.addSource(SOURCE_ID, {
         type: 'geojson',
@@ -80,14 +83,6 @@ export function GeoMap({ items, filterToViewport, onBoundsChange, onSelect }: Ge
           'circle-stroke-width': 2,
           'circle-stroke-color': '#dbe9ff'
         }
-      })
-      map.addLayer({
-        id: CLUSTER_COUNT_LAYER,
-        type: 'symbol',
-        source: SOURCE_ID,
-        filter: ['has', 'point_count'],
-        layout: { 'text-field': ['get', 'point_count_abbreviated'], 'text-size': 12 },
-        paint: { 'text-color': '#ffffff' }
       })
       map.addLayer({
         id: POINTS_LAYER,
@@ -119,14 +114,10 @@ export function GeoMap({ items, filterToViewport, onBoundsChange, onSelect }: Ge
 
       initializedRef.current = true
       fitMapToItems(map, latestItemsRef.current)
-      emitCurrentBounds(map)
+      emitCurrentBounds()
     })
 
-    const emitCurrentBounds = (currentMap: MapLibreMap): void => {
-      emitBounds(currentMap, viewportEnabledRef.current, boundsCallbackRef.current)
-    }
-    map.on('moveend', () => emitCurrentBounds(map))
-
+    map.on('moveend', emitCurrentBounds)
     return () => {
       initializedRef.current = false
       map.remove()
