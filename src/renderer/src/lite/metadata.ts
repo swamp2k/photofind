@@ -3,7 +3,7 @@ import type { LiteMediaRecord, LiteMetadataStatus } from './types'
 import type { LiteTakeoutMatch, ParsedTakeoutMetadata } from './takeout'
 import { readTakeoutMetadata } from './takeout'
 
-export const LITE_METADATA_VERSION = 1
+export const LITE_METADATA_VERSION = 2
 
 export interface MetadataInput {
   media: LiteMediaRecord
@@ -50,7 +50,6 @@ export async function enrichMediaMetadata(input: MetadataInput): Promise<LiteMed
   const capture = chooseCaptureTime(takeout.captureTime, exif.captureTime, input.media.lastModified)
   const location = chooseLocation(takeout, exif)
   const takeoutMatch = input.takeoutMatch
-
   if (takeoutMatch?.confidence === 'uncertain') diagnostics.push(`Takeout sidecar match is uncertain: ${takeoutMatch.reason}`)
 
   return {
@@ -64,7 +63,7 @@ export async function enrichMediaMetadata(input: MetadataInput): Promise<LiteMed
     ...(exif.height ? { height: exif.height } : {}),
     ...(exif.cameraMake ? { cameraMake: exif.cameraMake } : {}),
     ...(exif.cameraModel ? { cameraModel: exif.cameraModel } : {}),
-    ...(takeoutMatch?.sidecar ? { takeoutSidecarPath: takeoutMatch.sidecar.relativePath } : {}),
+    ...(input.takeoutFile && takeoutMatch?.sidecar ? { takeoutSidecarPath: takeoutMatch.sidecar.relativePath } : {}),
     ...(takeoutMatch ? { takeoutMatchConfidence: takeoutMatch.confidence } : {}),
     diagnostics
   }
