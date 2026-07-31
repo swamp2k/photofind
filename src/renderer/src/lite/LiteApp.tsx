@@ -1,11 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { BrowseFilters } from './BrowseFilters'
 import { ensureReadPermission, localFolderAccessMode, pickLocalDirectory, pickLocalDirectoryFiles } from './fileAccess'
+import { availableYears, dateInputToEnd, dateInputToStart, filterPhotos, hasLocation } from './filters'
 import { deleteLibrary, listLibraries, loadMedia, replaceLibrary } from './libraryDb'
-import { LocalThumbnail } from './LocalThumbnail'
+import { MapResults } from './MapResults'
+import { PhotoResults } from './PhotoResults'
 import { scanDirectory, scanFileSelection } from './scanner'
-import type { LiteLibraryAccessMode, LiteLibraryRecord, LiteMediaRecord, LiteScanProgress } from './types'
+import type { LiteDateMetadataFilter, LiteGeoBounds, LiteLibraryAccessMode, LiteLibraryRecord, LiteLocationFilter, LiteMediaRecord, LitePhotoFilters, LiteScanProgress } from './types'
 
 const PAGE_SIZE = 120
+type BrowseView = 'photos' | 'map'
 
 export function LiteApp(): JSX.Element {
   const [libraries, setLibraries] = useState<LiteLibraryRecord[]>([])
@@ -16,43 +20,52 @@ export function LiteApp(): JSX.Element {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [view, setView] = useState<BrowseView>('photos')
+  const [year, setYear] = useState<number | null>(null)
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [locationFilter, setLocationFilter] = useState<LiteLocationFilter>('all')
+  const [dateMetadataFilter, setDateMetadataFilter] = useState<LiteDateMetadataFilter>('all')
+  const [filterToViewport, setFilterToViewport] = useState(false)
+  const [mapBounds, setMapBounds] = useState<LiteGeoBounds | null>(null)
+  const [selectedMapId, setSelectedMapId] = useState<string | null>(null)
   const folderMode = localFolderAccessMode()
   const supported = folderMode !== 'unsupported'
 
-  useEffect(() => {
-    void refreshLibraries()
-  }, [])
+  useEffect(() => { void refreshLibraries() }, [])
 
   const images = useMemo(() => media.filter((item) => item.kind === 'image'), [media])
-  const visibleImages = images.slice(0, visibleCount)
+  const years = useMemo(() => availableYears(images), [images])
+  const baseFilters = useMemo<LitePhotoFilters>(() => ({
+    year,
+    fromTime: dateInputToStart(fromDate),
+    toTime: dateInputToEnd(toDate),
+    location: locationFilter,
+    dateMetadata: dateMetadataFilter,
+    mapBounds: null
+  }), [year, fromDate, toDate, locationFilter, dateMetadataFilter])
+  const mapItems = useMemo(() => filterPhotos(images, baseFilters), [images, baseFilters])
+  const filteredImages = useMemo(() => filterPhotos(images, { ...baseFilters, mapBounds: filterToViewport ? mapBounds : null }), [images, baseFilters, filterToViewport, mapBounds])
   const unknown = useMemo(() => media.filter((item) => item.kind === 'unknown'), [media])
+  const locatedCount = useMemo(() => images.filter(hasLocation).length, [images])
+  const fileTimeOnlyCount = useMemo(() => images.filter((item) => item.captureTimeSource === 'file').length, [images])
+  const diagnostics = useMemo(() => collectDiagnostics(media), [media])
   const reconnectRequired = activeLibrary !== null && libraryMode(activeLibrary) === 'selection' && sessionFiles.size === 0
+  const selectedMapItem = selectedMapId ? images.find((item) => item.id === selectedMapId) ?? null : null
+  const handleMapBounds = useCallback((bounds: LiteGeoBounds | null) => { setMapBounds(bounds); setVisibleCount(PAGE_SIZE) }, [])
 
   async function refreshLibraries(): Promise<void> {
-    try {
-      setLibraries(await listLibraries())
-    } catch (cause) {
-      setError(messageOf(cause))
-    }
+    try { setLibraries(await listLibraries()) } catch (cause) { setError(messageOf(cause)) }
   }
 
   async function addFolder(): Promise<void> {
     setError(null)
     try {
-      if (folderMode === 'handle') {
-        const handle = await pickLocalDirectory()
-        await indexHandle(handle, null)
-        return
-      }
-      if (folderMode === 'selection') {
-        const files = await pickLocalDirectoryFiles()
-        await indexFiles(files, null)
-        return
-      }
+      if (folderMode === 'handle') return await indexHandle(await pickLocalDirectory(), null)
+      if (folderMode === 'selection') return await indexFiles(await pickLocalDirectoryFiles(), null)
       setError('This browser does not expose a usable local-folder selection API.')
     } catch (cause) {
-      if (isAbort(cause)) return
-      setError(messageOf(cause))
+      if (!isAbort(cause)) setError(messageOf(cause))
     }
   }
 
@@ -60,272 +73,155 @@ export function LiteApp(): JSX.Element {
     setError(null)
     try {
       if (libraryMode(library) === 'handle') {
-        if (!library.rootHandle) {
-          setError('This saved folder handle is unavailable. Forget the index and choose the folder again.')
-          return
-        }
-        if (!(await ensureReadPermission(library.rootHandle))) {
-          setError('PhotoFind needs permission to read this folder again. Click the library to reconnect it.')
-          return
-        }
+        if (!library.rootHandle) throw new Error('This saved folder handle is unavailable. Forget the index and choose the folder again.')
+        if (!(await ensureReadPermission(library.rootHandle))) throw new Error('PhotoFind needs permission to read this folder again.')
       }
-
       setBusy(true)
-      const rows = await loadMedia(library.id)
       setActiveLibrary(library)
-      setMedia(rows)
+      setMedia(await loadMedia(library.id))
       setSessionFiles(new Map())
-      setVisibleCount(PAGE_SIZE)
-    } catch (cause) {
-      setError(messageOf(cause))
-    } finally {
-      setBusy(false)
-    }
+      resetBrowseState()
+    } catch (cause) { setError(messageOf(cause)) } finally { setBusy(false) }
   }
 
   async function rescanActive(): Promise<void> {
     if (!activeLibrary) return
     setError(null)
     try {
-      if (libraryMode(activeLibrary) === 'selection') {
-        const files = await pickLocalDirectoryFiles()
-        await indexFiles(files, activeLibrary)
-        return
-      }
-
-      if (!activeLibrary.rootHandle) {
-        setError('The saved folder handle is unavailable.')
-        return
-      }
-      if (!(await ensureReadPermission(activeLibrary.rootHandle))) {
-        setError('Folder permission was not granted.')
-        return
-      }
+      if (libraryMode(activeLibrary) === 'selection') return await indexFiles(await pickLocalDirectoryFiles(), activeLibrary)
+      if (!activeLibrary.rootHandle) throw new Error('The saved folder handle is unavailable.')
+      if (!(await ensureReadPermission(activeLibrary.rootHandle))) throw new Error('Folder permission was not granted.')
       await indexHandle(activeLibrary.rootHandle, activeLibrary)
     } catch (cause) {
-      if (isAbort(cause)) return
-      setError(messageOf(cause))
+      if (!isAbort(cause)) setError(messageOf(cause))
     }
   }
 
   async function indexHandle(handle: FileSystemDirectoryHandle, existing: LiteLibraryRecord | null): Promise<void> {
     setBusy(true)
-    setProgress({ scannedFiles: 0, currentPath: '' })
+    setProgress({ phase: 'files', scannedFiles: 0, currentPath: '' })
     try {
-      const result = await scanDirectory(
-        handle,
-        existing ? { id: existing.id, createdAt: existing.createdAt } : null,
-        setProgress
-      )
+      const previous = existing ? await loadMedia(existing.id) : []
+      const result = await scanDirectory(handle, existing ? { id: existing.id, createdAt: existing.createdAt } : null, previous, setProgress)
       await replaceLibrary(result.library, result.media)
       setActiveLibrary(result.library)
       setMedia(result.media)
       setSessionFiles(new Map())
-      setVisibleCount(PAGE_SIZE)
+      resetBrowseState()
       await refreshLibraries()
-    } finally {
-      setBusy(false)
-      setProgress(null)
-    }
+    } finally { setBusy(false); setProgress(null) }
   }
 
   async function indexFiles(files: File[], existing: LiteLibraryRecord | null): Promise<void> {
     setBusy(true)
-    setProgress({ scannedFiles: 0, currentPath: '' })
+    setProgress({ phase: 'files', scannedFiles: 0, currentPath: '' })
     try {
-      const result = await scanFileSelection(
-        files,
-        existing ? { id: existing.id, createdAt: existing.createdAt } : null,
-        setProgress
-      )
-      if (existing && result.library.name !== existing.name) {
-        throw new Error(`Selected “${result.library.name}”, but this index belongs to “${existing.name}”. Choose the original folder.`)
-      }
+      const previous = existing ? await loadMedia(existing.id) : []
+      const result = await scanFileSelection(files, existing ? { id: existing.id, createdAt: existing.createdAt } : null, previous, setProgress)
+      if (existing && result.library.name !== existing.name) throw new Error(`Selected “${result.library.name}”, but this index belongs to “${existing.name}”. Choose the original folder.`)
       await replaceLibrary(result.library, result.media)
       setActiveLibrary(result.library)
       setMedia(result.media)
       setSessionFiles(result.sessionFiles)
-      setVisibleCount(PAGE_SIZE)
+      resetBrowseState()
       await refreshLibraries()
-    } finally {
-      setBusy(false)
-      setProgress(null)
-    }
+    } finally { setBusy(false); setProgress(null) }
   }
 
   async function forgetLibrary(library: LiteLibraryRecord): Promise<void> {
     if (!window.confirm(`Forget the local PhotoFind index for “${library.name}”? No photo files will be deleted.`)) return
-    setError(null)
     try {
       await deleteLibrary(library.id)
-      if (activeLibrary?.id === library.id) {
-        setActiveLibrary(null)
-        setMedia([])
-        setSessionFiles(new Map())
-      }
+      if (activeLibrary?.id === library.id) { setActiveLibrary(null); setMedia([]); setSessionFiles(new Map()); resetBrowseState() }
       await refreshLibraries()
-    } catch (cause) {
-      setError(messageOf(cause))
-    }
+    } catch (cause) { setError(messageOf(cause)) }
+  }
+
+  function resetBrowseState(): void {
+    setVisibleCount(PAGE_SIZE); setView('photos'); setYear(null); setFromDate(''); setToDate(''); setLocationFilter('all'); setDateMetadataFilter('all'); setFilterToViewport(false); setMapBounds(null); setSelectedMapId(null)
+  }
+
+  function clearFilters(): void {
+    setYear(null); setFromDate(''); setToDate(''); setLocationFilter('all'); setDateMetadataFilter('all'); setFilterToViewport(false); setMapBounds(null); setVisibleCount(PAGE_SIZE)
   }
 
   return (
     <div className="lite-shell">
       <header className="topbar">
-        <div>
-          <div className="eyebrow">PhotoFind Lite</div>
-          <h1>Find the photos worth keeping.</h1>
-          <p>Choose a folder on this computer. PhotoFind indexes it locally in your browser; your photos are not uploaded.</p>
-        </div>
-        <button className="primary" disabled={!supported || busy} onClick={() => void addFolder()}>
-          {busy ? 'Working…' : 'Choose local folder'}
-        </button>
+        <div><div className="eyebrow">PhotoFind Lite</div><h1>Find the photos worth keeping.</h1><p>Choose a folder on this computer. Dates, GPS and Google Takeout sidecars are read locally; your photos and index are not uploaded.</p></div>
+        <button className="primary" disabled={!supported || busy} onClick={() => void addFolder()}>{busy ? 'Working…' : 'Choose local folder'}</button>
       </header>
 
-      {!supported && (
-        <div className="notice warning">
-          Local folder access is not available in this browser. Use a desktop browser with folder-selection support.
-        </div>
-      )}
-      {folderMode === 'selection' && (
-        <div className="notice">
-          This browser uses reconnect mode. Your PhotoFind index persists locally, but you must reselect the folder after a refresh or browser restart to preview or rescan its files.
-        </div>
-      )}
+      {!supported && <div className="notice warning">Local folder access is not available in this browser.</div>}
+      {folderMode === 'selection' && <div className="notice">This browser uses reconnect mode. The index persists locally, but reselect the folder after refresh to restore file previews.</div>}
       {error && <div className="notice error">{error}</div>}
-      {progress && (
-        <div className="notice progress">
-          Indexed {progress.scannedFiles.toLocaleString()} files{progress.currentPath ? ` — ${progress.currentPath}` : ''}
-        </div>
-      )}
+      {progress && <ProgressNotice progress={progress} />}
 
       <div className="workspace">
         <aside className="library-sidebar">
-          <div className="sidebar-heading">
-            <h2>Local indexes</h2>
-            <span>{libraries.length}</span>
-          </div>
-          {libraries.length === 0 ? (
-            <p className="muted">No folders indexed in this browser yet.</p>
-          ) : (
-            <div className="library-list">
-              {libraries.map((library) => (
-                <div className={activeLibrary?.id === library.id ? 'library-card active' : 'library-card'} key={library.id}>
-                  <button className="library-open" onClick={() => void openLibrary(library)}>
-                    <strong>{library.name}</strong>
-                    <span>{library.fileCount.toLocaleString()} files · {library.imageCount.toLocaleString()} photos</span>
-                  </button>
-                  <button className="icon-button" title="Forget index" onClick={() => void forgetLibrary(library)}>×</button>
-                </div>
-              ))}
+          <div className="sidebar-heading"><h2>Local indexes</h2><span>{libraries.length}</span></div>
+          {libraries.length === 0 ? <p className="muted">No folders indexed in this browser yet.</p> : <div className="library-list">{libraries.map((library) => (
+            <div className={activeLibrary?.id === library.id ? 'library-card active' : 'library-card'} key={library.id}>
+              <button className="library-open" onClick={() => void openLibrary(library)}><strong>{library.name}</strong><span>{library.fileCount.toLocaleString()} files · {library.imageCount.toLocaleString()} photos</span></button>
+              <button className="icon-button" title="Forget index" onClick={() => void forgetLibrary(library)}>×</button>
             </div>
-          )}
+          ))}</div>}
         </aside>
 
         <main className="library-main">
-          {!activeLibrary ? (
-            <section className="empty-state">
-              <h2>Start with a pile of photos</h2>
-              <p>Select a local folder or an extracted Google Photos Takeout folder. The first step builds a private local index.</p>
-              <div className="privacy-grid">
-                <div><strong>Local files</strong><span>The hosted site receives no photo bytes.</span></div>
-                <div><strong>Local index</strong><span>Folder references and file metadata stay in IndexedDB on this device.</span></div>
-                <div><strong>Refresh to update</strong><span>The application itself can be centrally updated without reinstalling anything.</span></div>
-              </div>
+          {!activeLibrary ? <EmptyState /> : <>
+            <section className="library-summary">
+              <div><div className="eyebrow">Indexed folder</div><h2>{activeLibrary.name}</h2><p className="muted">Last indexed {new Date(activeLibrary.updatedAt).toLocaleString()}</p>{reconnectRequired && <p className="muted">Reselect this folder to restore previews.</p>}</div>
+              <button disabled={busy} onClick={() => void rescanActive()}>{libraryMode(activeLibrary) === 'selection' ? (reconnectRequired ? 'Reconnect folder' : 'Reselect & rescan') : 'Rescan folder'}</button>
             </section>
-          ) : (
-            <>
-              <section className="library-summary">
-                <div>
-                  <div className="eyebrow">Indexed folder</div>
-                  <h2>{activeLibrary.name}</h2>
-                  <p className="muted">Last indexed {new Date(activeLibrary.updatedAt).toLocaleString()}</p>
-                  {reconnectRequired && <p className="muted">Reselect this folder to restore previews in this browser session.</p>}
-                </div>
-                <button disabled={busy} onClick={() => void rescanActive()}>
-                  {libraryMode(activeLibrary) === 'selection' ? (reconnectRequired ? 'Reconnect folder' : 'Reselect & rescan') : 'Rescan folder'}
-                </button>
-              </section>
 
-              <section className="stat-grid">
-                <Stat label="Photos" value={activeLibrary.imageCount} />
-                <Stat label="RAW" value={activeLibrary.rawCount} />
-                <Stat label="Videos" value={activeLibrary.videoCount} />
-                <Stat label="Sidecars" value={activeLibrary.sidecarCount} />
-                <Stat label="Unknown" value={activeLibrary.unknownCount} warn={activeLibrary.unknownCount > 0} />
-              </section>
+            <section className="stat-grid stat-grid-six">
+              <Stat label="Photos" value={activeLibrary.imageCount} />
+              <Stat label="Located" value={locatedCount} />
+              <Stat label="File time only" value={fileTimeOnlyCount} warn={fileTimeOnlyCount > 0} />
+              <Stat label="RAW" value={activeLibrary.rawCount} />
+              <Stat label="Videos" value={activeLibrary.videoCount} />
+              <Stat label="Unknown" value={activeLibrary.unknownCount} warn={activeLibrary.unknownCount > 0} />
+            </section>
 
-              <section className="viewer-section">
-                <div className="section-heading">
-                  <div>
-                    <div className="eyebrow">Viewer</div>
-                    <h2>{images.length.toLocaleString()} indexed photos</h2>
-                  </div>
-                  <span className="muted">Showing {Math.min(visibleCount, images.length).toLocaleString()}</span>
-                </div>
-                {images.length === 0 ? (
-                  <p className="muted">No browser-viewable image files were found.</p>
-                ) : (
-                  <div className="photo-grid">
-                    {visibleImages.map((item) => (
-                      <article className="photo-card" key={item.id}>
-                        <div className="photo-preview"><LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} /></div>
-                        <div className="photo-meta">
-                          <strong title={item.relativePath}>{item.name}</strong>
-                          <span>{formatBytes(item.sizeBytes)}</span>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                )}
-                {visibleCount < images.length && (
-                  <button className="load-more" onClick={() => setVisibleCount((count) => count + PAGE_SIZE)}>
-                    Show {Math.min(PAGE_SIZE, images.length - visibleCount)} more
-                  </button>
-                )}
-              </section>
+            <BrowseFilters years={years} year={year} fromDate={fromDate} toDate={toDate} location={locationFilter} dateMetadata={dateMetadataFilter} matchingCount={filteredImages.length} totalCount={images.length} viewportActive={filterToViewport && mapBounds !== null}
+              onYear={(value) => { setYear(value); setVisibleCount(PAGE_SIZE) }} onFromDate={(value) => { setFromDate(value); setVisibleCount(PAGE_SIZE) }} onToDate={(value) => { setToDate(value); setVisibleCount(PAGE_SIZE) }} onLocation={(value) => { setLocationFilter(value); setVisibleCount(PAGE_SIZE) }} onDateMetadata={(value) => { setDateMetadataFilter(value); setVisibleCount(PAGE_SIZE) }} onClear={clearFilters} />
 
-              <section className="diagnostics-section">
-                <div className="section-heading">
-                  <div>
-                    <div className="eyebrow">Diagnostics</div>
-                    <h2>Nothing disappears silently</h2>
-                  </div>
-                </div>
-                {unknown.length === 0 ? (
-                  <p className="muted">No unknown file types in this index.</p>
-                ) : (
-                  <ul className="diagnostic-list">
-                    {unknown.slice(0, 12).map((item) => <li key={item.id}>[INFO] {item.relativePath}: unrecognized file type</li>)}
-                    {unknown.length > 12 && <li>[INFO] …and {(unknown.length - 12).toLocaleString()} more unknown files</li>}
-                  </ul>
-                )}
-              </section>
-            </>
-          )}
+            <div className="view-tabs" role="tablist" aria-label="Library view"><button className={view === 'photos' ? 'active' : ''} onClick={() => setView('photos')}>Photos</button><button className={view === 'map' ? 'active' : ''} onClick={() => setView('map')}>Map <span>{locatedCount.toLocaleString()}</span></button></div>
+
+            {view === 'map' ? <MapResults items={mapItems} filterToViewport={filterToViewport} selected={selectedMapItem} sessionFiles={sessionFiles} onFilterToViewport={setFilterToViewport} onBoundsChange={handleMapBounds} onSelect={setSelectedMapId} onShowSelected={() => { setView('photos'); setVisibleCount(PAGE_SIZE) }} /> : <PhotoResults items={filteredImages} visibleCount={visibleCount} selectedId={selectedMapId} sessionFiles={sessionFiles} onShowMore={() => setVisibleCount((count) => count + PAGE_SIZE)} />}
+
+            <Diagnostics unknown={unknown} diagnostics={diagnostics} />
+          </>}
         </main>
       </div>
     </div>
   )
 }
 
-function libraryMode(library: LiteLibraryRecord): LiteLibraryAccessMode {
-  return library.accessMode ?? (library.rootHandle ? 'handle' : 'selection')
+function EmptyState(): JSX.Element {
+  return <section className="empty-state"><h2>Start with a pile of photos</h2><p>Select a local folder or extracted Google Photos Takeout folder. PhotoFind builds a private local index with usable time and location metadata.</p><div className="privacy-grid"><div><strong>Local files</strong><span>No photo bytes or sidecar contents are uploaded.</span></div><div><strong>Local index</strong><span>EXIF, GPS and derived metadata stay in IndexedDB on this device.</span></div><div><strong>Map privacy</strong><span>Map tiles are fetched externally and reveal the approximate map area you view.</span></div></div></section>
 }
 
-function Stat({ label, value, warn = false }: { label: string; value: number; warn?: boolean }): JSX.Element {
-  return <div className={warn ? 'stat-card warn' : 'stat-card'}><span>{label}</span><strong>{value.toLocaleString()}</strong></div>
+function ProgressNotice({ progress }: { progress: LiteScanProgress }): JSX.Element {
+  if (progress.phase === 'metadata') {
+    const complete = (progress.metadataParsed ?? 0) + (progress.metadataReused ?? 0)
+    return <div className="notice progress">Reading local metadata {complete.toLocaleString()} / {(progress.metadataTotal ?? 0).toLocaleString()}{progress.metadataReused ? ` · ${progress.metadataReused.toLocaleString()} unchanged reused` : ''}{progress.currentPath ? ` — ${progress.currentPath}` : ''}</div>
+  }
+  return <div className="notice progress">Indexed {progress.scannedFiles.toLocaleString()} files{progress.currentPath ? ` — ${progress.currentPath}` : ''}</div>
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+function Diagnostics({ unknown, diagnostics }: { unknown: LiteMediaRecord[]; diagnostics: Array<{ path: string; message: string }> }): JSX.Element {
+  return <section className="diagnostics-section"><div className="section-heading"><div><div className="eyebrow">Diagnostics</div><h2>Nothing disappears silently</h2></div><span className="muted">{(unknown.length + diagnostics.length).toLocaleString()} notices</span></div>{unknown.length === 0 && diagnostics.length === 0 ? <p className="muted">No metadata or unknown-file diagnostics in this index.</p> : <ul className="diagnostic-list">{unknown.slice(0, 20).map((item) => <li key={`unknown-${item.id}`}>[INFO] {item.relativePath}: unrecognized file type</li>)}{diagnostics.slice(0, 40).map((entry, index) => <li key={`${entry.path}-${index}`}>[WARN] {entry.path}: {entry.message}</li>)}</ul>}</section>
 }
 
-function messageOf(cause: unknown): string {
-  return cause instanceof Error ? cause.message : 'Something went wrong.'
+function collectDiagnostics(items: LiteMediaRecord[]): Array<{ path: string; message: string }> {
+  const output: Array<{ path: string; message: string }> = []
+  for (const item of items) for (const message of item.diagnostics ?? []) output.push({ path: item.relativePath, message })
+  return output
 }
 
-function isAbort(cause: unknown): boolean {
-  return cause instanceof DOMException && cause.name === 'AbortError'
-}
+function libraryMode(library: LiteLibraryRecord): LiteLibraryAccessMode { return library.accessMode ?? (library.rootHandle ? 'handle' : 'selection') }
+function Stat({ label, value, warn = false }: { label: string; value: number; warn?: boolean }): JSX.Element { return <div className={warn ? 'stat-card warn' : 'stat-card'}><span>{label}</span><strong>{value.toLocaleString()}</strong></div> }
+function messageOf(cause: unknown): string { return cause instanceof Error ? cause.message : 'Something went wrong.' }
+function isAbort(cause: unknown): boolean { return cause instanceof DOMException && cause.name === 'AbortError' }
