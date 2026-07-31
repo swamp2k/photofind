@@ -55,7 +55,7 @@ export function GeoMap({ items, filterToViewport, onBoundsChange, onSelect }: Ge
       style: OSM_STYLE,
       center: [10.5, 56.2],
       zoom: 5,
-      attributionControl: true
+      attributionControl: {}
     })
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
     mapRef.current = map
