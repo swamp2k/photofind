@@ -1,48 +1,102 @@
-# PhotoFind roadmap
+# PhotoFind Lite roadmap
 
-Milestone 0 is represented as implemented here. The Milestone 1 code foundation
-is present, but its Node 20, container, browser and Electron acceptance checks
-must be completed in a suitable environment before it is treated as released.
-Later milestone descriptions state product direction, not current capability.
+The active roadmap is browser-native and local-first. The previous Electron/server/container work is frozen on `archive/container-milestone-1`.
 
-## Foundation release
+## Lite 0 — Browser foundation
 
-Milestone 1 web and container foundation is implemented in code; later milestones
-remain planned.
+Goal: prove the hosted/no-upload architecture.
 
-- **Milestone 0 — Product and architecture reset:** curation-first documentation,
-  reusable application/services, renderer client boundary, and safe SQLite migrations.
-- **Milestone 1 — Web and container foundation:** add an HTTP adapter and initial
-  container packaging around the same application facade.
-- **Milestone 2 — Durable ingestion jobs:** introduce mounted inbox/browser ingestion
-  choices and persistent, observable background processing.
+- Static React/Vite app.
+- Desktop Chrome/Edge local folder picker.
+- Recursive local indexing.
+- Persistent IndexedDB libraries and file handles.
+- Reopen and rescan indexed folders.
+- Local image previews.
+- File-type counts and Diagnostics.
+- Cloudflare Pages deployment.
 
-## Quick Sort release
+## Lite 1 — Takeout metadata and timeline
 
-- **Milestone 3 — Four-state review:** implement `unreviewed`, `keep`, `maybe`, and
-  `reject` for temporary jobs without automatic destructive actions.
-- **Milestone 4 — Exact duplicates and bursts:** group exact copies and obvious bursts
-  while preserving all originals.
-- **Milestone 5 — Similarity and technical signals:** add near-identical grouping and
-  explainable quality measurements.
-- **Milestone 6 — Recommendations and export:** recommend technically stronger
-  candidates, preserve memory-keeper judgment, and harden standalone export.
+Goal: turn a folder dump into a useful searchable library.
 
-## Library and household release
+- Parse EXIF where browser-compatible.
+- Match Google Takeout JSON/XMP sidecars.
+- Normalize effective capture date/time without modifying originals.
+- Normalize GPS data.
+- Incremental rescans using size/mtime fingerprints.
+- Timeline filters by year/month/day and arbitrary date range.
+- Filters for media type and missing metadata.
+- Move heavy parsing into Web Workers where appropriate.
 
-- **Milestone 7 — Long-lived Library:** index configured read-only sources and provide
-  timeline-oriented archive browsing.
-- **Milestone 8 — People, places, and events:** add optional organisation signals with
-  explicit privacy and correction controls.
-- **Milestone 9 — Shared household review:** store per-user opinions separately from a
-  final collection decision while keeping solo mode simple.
+## Lite 2 — Map and location search
 
-## Production release
+Goal: make geographic browsing a first-class way to find photos.
 
-- **Milestone 10 — Scale and operations:** improve cache lifecycle, job recovery,
-  observability, performance, and optional separated heavy-media workers.
-- **Milestone 11 — Release hardening:** complete security, backup/restore, migration,
-  packaging, accessibility, and end-to-end acceptance for supported deployments.
+- Map view for photos with GPS.
+- Cluster dense markers.
+- Rectangle/polygon or viewport-area selection.
+- Filter to photos inside the selected geographic area.
+- Combine map selection with date and media filters.
+- Show photos with missing location.
+- Keep coordinates local; document map-tile privacy implications.
 
-Sequencing may be refined by later handovers. Each milestone must preserve media
-safety, explicit diagnostics, and exports that remain useful without PhotoFind.
+## Lite 3 — Duplicates, bursts, and similarity
+
+Goal: reduce thousands of files into actual photographic moments.
+
+- Exact duplicate hashing.
+- Perceptual similarity fingerprints/embeddings.
+- Near-duplicate grouping.
+- Burst grouping using time and visual similarity.
+- Compare strip for each group.
+- Preserve every source file; groups are derived index data only.
+
+## Lite 4 — Find the good ones
+
+Goal: rank and explain technical photo quality.
+
+- Sharpness/focus signals.
+- Motion-blur detection.
+- Exposure signals.
+- Resolution/usable detail.
+- Face detection and face-quality signals where practical locally.
+- Explainable recommendation reasons.
+- Quality filters and “best from each group”.
+- Keep technical quality separate from memory value.
+
+## Lite 5 — Curation and export
+
+Goal: turn search results into useful finished selections.
+
+- `unreviewed`, `keep`, `maybe`, `reject`.
+- Keeper tray.
+- Bulk and visible-result actions.
+- Export selected originals with collision safety.
+- Optional folder templates.
+- Optional sidecar/report export.
+- Explicit metadata-normalised export without modifying sources.
+
+## Lite 6 — People, events, and richer local intelligence
+
+Goal: find meaningful family moments beyond dates and locations.
+
+- Local face detection and clustering.
+- Rename, merge, split, and ignore person clusters.
+- Event grouping from time, place, similarity, and people.
+- Rare-person and rare-combination discovery.
+- Memory-keeper suggestions separate from technical scoring.
+- Natural-language local search only if it adds clear value.
+
+## Optional later services
+
+These are not required by the core product:
+
+- account/login;
+- preference sync;
+- encrypted index sync;
+- shared/multi-review;
+- PWA/offline application caching;
+- optional home-server edition;
+- private remote access.
+
+Every milestone must preserve the no-silent-failure rule and keep original media safe.
