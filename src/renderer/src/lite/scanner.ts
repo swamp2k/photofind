@@ -3,6 +3,10 @@ import { copyReusableMetadata, enrichMediaMetadata, LITE_METADATA_VERSION } from
 import { matchTakeoutSidecars, type LiteTakeoutMatch } from './takeout'
 import type { LiteLibraryRecord, LiteMediaRecord, LiteScanProgress, LiteScanResult, LiteSelectionScanResult } from './types'
 
+interface DirectoryHandleWithEntries extends FileSystemDirectoryHandle {
+  entries(): AsyncIterableIterator<[string, FileSystemHandle]>
+}
+
 export interface ExistingLibraryIdentity {
   id: string
   createdAt: number
@@ -21,12 +25,13 @@ export async function scanDirectory(
   let scannedFiles = 0
 
   async function walk(directory: FileSystemDirectoryHandle, parentSegments: string[]): Promise<void> {
-    for await (const [name, handle] of directory.entries()) {
+    const iterableDirectory = directory as DirectoryHandleWithEntries
+    for await (const [name, handle] of iterableDirectory.entries()) {
       if (name === '.DS_Store') continue
       const segments = [...parentSegments, name]
       const relativePath = segments.join('/')
       if (handle.kind === 'directory') {
-        await walk(handle, segments)
+        await walk(handle as FileSystemDirectoryHandle, segments)
         continue
       }
 
