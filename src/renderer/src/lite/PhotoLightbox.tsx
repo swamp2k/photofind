@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { formatCapture, formatLocation } from './formatters'
 import { hasLocation } from './filters'
+import { qualityTierLabel } from './quality'
 import type { LiteMediaRecord } from './types'
 
 interface PhotoLightboxProps {
@@ -46,7 +47,17 @@ export function PhotoLightbox({ items, index, sessionFiles, onIndex, onClose }: 
           {item.width && item.height && <span>{item.width} × {item.height}</span>}
           {(item.cameraMake || item.cameraModel) && <span>{[item.cameraMake, item.cameraModel].filter(Boolean).join(' ')}</span>}
           {item.similarityStatus === 'ready' && <span>{item.perceptualHash ? 'Visual fingerprint ready' : 'Exact hash only'}</span>}
+          {item.qualityStatus === 'ready' && item.qualityTier && <span className={`quality-inline ${item.qualityTier}`}>Technical {item.qualityScore}/100 · {qualityTierLabel(item.qualityTier)}</span>}
         </div>
+        {item.qualityStatus === 'ready' && (
+          <div className="lightbox-quality">
+            <div><span>Sharpness</span><strong>{item.sharpnessScore ?? '–'}</strong></div>
+            <div><span>Exposure</span><strong>{item.exposureScore ?? '–'}</strong></div>
+            <div><span>Resolution</span><strong>{item.resolutionScore ?? '–'}</strong></div>
+            <div><span>Blur risk</span><strong>{item.motionBlurRisk ?? '–'}</strong></div>
+            <p>{(item.qualityReasons ?? []).join(' · ')}</p>
+          </div>
+        )}
       </div>
     </div>
   )
