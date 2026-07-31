@@ -4,6 +4,8 @@ export type LiteCaptureTimeSource = 'takeout' | 'exif' | 'file'
 export type LiteLocationSource = 'takeout' | 'exif'
 export type LiteMetadataStatus = 'parsed' | 'reused' | 'not-applicable' | 'failed'
 export type LiteTakeoutMatchConfidence = 'safe' | 'uncertain' | 'missing'
+export type LiteSimilarityStatus = 'ready' | 'failed'
+export type LiteSimilarityGroupKind = 'exact' | 'burst' | 'similar'
 
 export interface LiteMediaRecord {
   id: string
@@ -30,6 +32,13 @@ export interface LiteMediaRecord {
   takeoutMatchConfidence?: LiteTakeoutMatchConfidence
   sidecarFingerprint?: string
   diagnostics?: string[]
+  similarityVersion?: number
+  similarityStatus?: LiteSimilarityStatus
+  contentHash?: string
+  perceptualHash?: string
+  similarityFingerprint?: string
+  similarityError?: string
+  similarityAnalyzedAt?: number
 }
 
 export interface LiteLibraryRecord {
@@ -85,4 +94,20 @@ export interface LitePhotoFilters {
   location: LiteLocationFilter
   dateMetadata: LiteDateMetadataFilter
   mapBounds: LiteGeoBounds | null
+}
+
+export interface LiteSimilarityProgress {
+  complete: number
+  total: number
+  reused: number
+  currentPath: string
+}
+
+export interface LiteSimilarityGroup {
+  id: string
+  kind: LiteSimilarityGroupKind
+  itemIds: string[]
+  reason: string
+  maxPerceptualDistance?: number
+  timeSpanMs?: number
 }
