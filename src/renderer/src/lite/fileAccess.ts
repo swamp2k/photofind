@@ -35,16 +35,27 @@ export function pickLocalDirectoryFiles(): Promise<File[]> {
     input.setAttribute('directory', '')
     input.style.display = 'none'
 
+    let settled = false
     const cleanup = (): void => input.remove()
-    input.addEventListener('change', () => {
-      const files = Array.from(input.files ?? [])
+    const abort = (): void => {
+      if (settled) return
+      settled = true
       cleanup()
+      reject(new DOMException('No folder selected', 'AbortError'))
+    }
+
+    input.addEventListener('change', () => {
+      if (settled) return
+      const files = Array.from(input.files ?? [])
       if (files.length === 0) {
-        reject(new DOMException('No folder selected', 'AbortError'))
+        abort()
         return
       }
+      settled = true
+      cleanup()
       resolve(files)
     }, { once: true })
+    input.addEventListener('cancel', abort, { once: true })
 
     document.body.appendChild(input)
     input.click()
