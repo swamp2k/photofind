@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import { formatCapture } from './formatters'
 import { LocalThumbnail } from './LocalThumbnail'
 import { PhotoLightbox } from './PhotoLightbox'
+import { qualityTierLabel } from './quality'
+import { bestTechnicalCandidate } from './qualityRanking'
 import type { LiteMediaRecord, LiteSimilarityGroup, LiteSimilarityProgress } from './types'
 
 interface SimilarityGroupsProps {
@@ -74,16 +76,25 @@ export function SimilarityGroups({ items, groups, sessionFiles, progress, busy, 
           <div className="similarity-groups">
             {visibleGroups.slice(0, 100).map((group) => {
               const groupItems = group.itemIds.map((id) => byId.get(id)).filter(isMediaRecord)
+              const best = bestTechnicalCandidate(groupItems)
+              const bestIndex = best ? groupItems.findIndex((item) => item.id === best.id) : 0
               return (
                 <article className="similarity-group" key={group.id}>
                   <div className="similarity-group-head">
-                    <div><span className={`group-kind ${group.kind}`}>{groupLabel(group.kind)}</span><strong>{groupItems.length} photos</strong><p>{group.reason}</p></div>
-                    <button type="button" onClick={() => { setOpenGroupId(group.id); setOpenIndex(0) }}>Compare</button>
+                    <div>
+                      <span className={`group-kind ${group.kind}`}>{groupLabel(group.kind)}</span><strong>{groupItems.length} photos</strong><p>{group.reason}</p>
+                      {best?.qualityTier && <p className="group-best">Best technical candidate: <strong>{best.name}</strong> · {best.qualityScore}/100 {qualityTierLabel(best.qualityTier).toLowerCase()}</p>}
+                    </div>
+                    <button type="button" onClick={() => { setOpenGroupId(group.id); setOpenIndex(Math.max(0, bestIndex)) }}>Compare</button>
                   </div>
                   <div className="compare-strip">
                     {groupItems.slice(0, 10).map((item, index) => (
-                      <button type="button" className="compare-thumb" key={item.id} onClick={() => { setOpenGroupId(group.id); setOpenIndex(index) }}>
-                        <div className="compare-image"><LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} /></div>
+                      <button type="button" className={best?.id === item.id ? 'compare-thumb best' : 'compare-thumb'} key={item.id} onClick={() => { setOpenGroupId(group.id); setOpenIndex(index) }}>
+                        <div className="compare-image">
+                          <LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} />
+                          {best?.id === item.id && <span className="best-badge">Best technical</span>}
+                          {item.qualityStatus === 'ready' && <span className={`mini-quality ${item.qualityTier ?? 'okay'}`}>{item.qualityScore}</span>}
+                        </div>
                         <span>{formatCapture(item)}</span>
                       </button>
                     ))}
