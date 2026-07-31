@@ -8,25 +8,26 @@ The core idea is simple:
 2. Choose a local photo folder or an extracted Google Photos Takeout folder.
 3. PhotoFind recursively indexes the collection in the browser.
 4. Reopen the local index later without uploading the collection anywhere.
-5. Use time, location, similarity and quality signals to find the photos worth keeping.
+5. Use time, location, similarity and later quality signals to find the photos worth keeping.
 
-The active Lite 2 work adds local EXIF/Google Takeout metadata interpretation, date filtering and geographic browsing on top of the persistent Lite 0 browser index.
+The current Lite app can interpret local EXIF/Google Takeout metadata, filter by date and location, browse geotagged photos on a map, open photos full-size, and locally analyze image content for exact duplicates, bursts and visually similar scenes.
 
 ## Browser folder access
 
 PhotoFind uses progressive enhancement rather than checking browser brand:
 
 - Browsers exposing `showDirectoryPicker()` get durable File System Access handles. PhotoFind can reopen the saved index and request folder permission again when necessary.
-- Other Chromium-style desktop browsers may fall back to a directory file picker (`webkitdirectory`). The index still persists in IndexedDB, but the user must reselect the source folder after a refresh/browser restart before PhotoFind can preview or rescan the files.
+- Other Chromium-style desktop browsers may fall back to a directory file picker (`webkitdirectory`). The index still persists in IndexedDB, but the user must reselect the source folder after a refresh/browser restart before PhotoFind can preview, rescan or analyze the files.
 
 Fallback file objects are kept only in memory for the current browser session. PhotoFind does not duplicate an entire selected photo collection into IndexedDB merely to work around a missing durable directory handle.
 
 ## Privacy model
 
 - Photo bytes and Google Takeout sidecars are read directly by the browser from an explicitly selected local folder.
-- PhotoFind does not upload originals, EXIF, GPS, filenames, paths or the local index to its hosting server.
+- PhotoFind does not upload originals, EXIF, GPS, filenames, paths, hashes, visual fingerprints or the local index to its hosting server.
 - Index metadata and available persistent file/folder handles are stored locally in IndexedDB.
-- Map tiles are requested from OpenStreetMap in Lite 2; those requests reveal the approximate map area being viewed to the tile provider, but do not contain PhotoFind photo records.
+- Similarity analysis runs in a browser Web Worker. SHA-256 hashes and perceptual fingerprints are derived and stored locally.
+- Map tiles are requested from OpenStreetMap; those requests reveal the approximate map area being viewed to the tile provider, but do not contain PhotoFind photo records.
 - Reconnect-mode browsers require the source folder to be selected again after a refresh or browser restart.
 - Forgetting a PhotoFind index never deletes the source photos.
 
