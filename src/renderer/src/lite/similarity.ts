@@ -63,10 +63,13 @@ function visualGroups(items: LiteMediaRecord[]): LiteSimilarityGroup[] {
   const candidatePairs = new Set<string>()
   const buckets = new Map<string, string[]>()
 
+  // A 64-bit dHash is stored as 16 hex nibbles. If two hashes differ by at
+  // most eight bits, at least one nibble must remain identical, so nibble
+  // buckets avoid an all-pairs scan without dropping ordinary near matches.
   for (const item of items) {
     const hash = item.perceptualHash!
-    for (let byte = 0; byte < Math.floor(hash.length / 2); byte += 1) {
-      const bucketKey = `${byte}:${hash.slice(byte * 2, byte * 2 + 2)}`
+    for (let nibble = 0; nibble < hash.length; nibble += 1) {
+      const bucketKey = `${nibble}:${hash[nibble]}`
       const previous = buckets.get(bucketKey) ?? []
       for (const previousId of previous) candidatePairs.add(pairKey(previousId, item.id))
       previous.push(item.id)
