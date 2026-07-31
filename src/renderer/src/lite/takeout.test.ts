@@ -42,7 +42,7 @@ describe('Takeout sidecar matching', () => {
   it('keeps ambiguous truncated matches uncertain', () => {
     const photo = record('Trip/a-very-long-photo-name.jpg', 'image')
     const first = record('Trip/a-very-long-photo.json', 'sidecar')
-    const second = record('Trip/a-very-long-photo-name-.json', 'sidecar')
+    const second = record('Trip/a-very-long-photo-name.json', 'sidecar')
     const match = matchTakeoutSidecars([photo, first, second]).get(photo.id)
     expect(match?.confidence).toBe('uncertain')
     expect(match?.alternateSidecars?.length).toBe(1)
