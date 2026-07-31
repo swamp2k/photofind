@@ -6,6 +6,8 @@ export type LiteMetadataStatus = 'parsed' | 'reused' | 'not-applicable' | 'faile
 export type LiteTakeoutMatchConfidence = 'safe' | 'uncertain' | 'missing'
 export type LiteSimilarityStatus = 'ready' | 'failed'
 export type LiteSimilarityGroupKind = 'exact' | 'burst' | 'similar'
+export type LiteQualityStatus = 'ready' | 'failed'
+export type LiteQualityTier = 'great' | 'good' | 'okay' | 'weak'
 
 export interface LiteMediaRecord {
   id: string
@@ -39,6 +41,21 @@ export interface LiteMediaRecord {
   similarityFingerprint?: string
   similarityError?: string
   similarityAnalyzedAt?: number
+  qualityVersion?: number
+  qualityStatus?: LiteQualityStatus
+  qualityFingerprint?: string
+  qualityScore?: number
+  qualityTier?: LiteQualityTier
+  sharpnessScore?: number
+  exposureScore?: number
+  resolutionScore?: number
+  motionBlurRisk?: number
+  meanLuminance?: number
+  shadowClipFraction?: number
+  highlightClipFraction?: number
+  qualityReasons?: string[]
+  qualityError?: string
+  qualityAnalyzedAt?: number
 }
 
 export interface LiteLibraryRecord {
@@ -110,4 +127,23 @@ export interface LiteSimilarityGroup {
   reason: string
   maxPerceptualDistance?: number
   timeSpanMs?: number
+}
+
+export interface LiteQualityProgress {
+  complete: number
+  total: number
+  reused: number
+  currentPath: string
+}
+
+export interface LiteQualityMeasurements {
+  width: number
+  height: number
+  meanLuminance: number
+  luminanceStdDev: number
+  shadowClipFraction: number
+  highlightClipFraction: number
+  laplacianMeanAbs: number
+  horizontalGradient: number
+  verticalGradient: number
 }
