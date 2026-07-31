@@ -8,9 +8,9 @@ The core idea is simple:
 2. Choose a local photo folder or an extracted Google Photos Takeout folder.
 3. PhotoFind recursively indexes the collection in the browser.
 4. Reopen the local index later without uploading the collection anywhere.
-5. Use time, location, similarity and later quality signals to find the photos worth keeping.
+5. Use time, location, similarity and technical-quality signals to find the photos worth keeping.
 
-The current Lite app can interpret local EXIF/Google Takeout metadata, filter by date and location, browse geotagged photos on a map, open photos full-size, and locally analyze image content for exact duplicates, bursts and visually similar scenes.
+The current Lite app can interpret local EXIF/Google Takeout metadata, filter by date and location, browse geotagged photos on a map, open photos full-size, find exact duplicates/bursts/visually similar scenes, and rank photos by explainable technical-quality signals.
 
 ## Browser folder access
 
@@ -24,12 +24,14 @@ Fallback file objects are kept only in memory for the current browser session. P
 ## Privacy model
 
 - Photo bytes and Google Takeout sidecars are read directly by the browser from an explicitly selected local folder.
-- PhotoFind does not upload originals, EXIF, GPS, filenames, paths, hashes, visual fingerprints or the local index to its hosting server.
+- PhotoFind does not upload originals, EXIF, GPS, filenames, paths, hashes, visual fingerprints, quality measurements or the local index to its hosting server.
 - Index metadata and available persistent file/folder handles are stored locally in IndexedDB.
-- Similarity analysis runs in a browser Web Worker. SHA-256 hashes and perceptual fingerprints are derived and stored locally.
+- Similarity and technical-quality analysis run in browser Web Workers. Derived hashes, perceptual fingerprints and scores are stored locally.
 - Map tiles are requested from OpenStreetMap; those requests reveal the approximate map area being viewed to the tile provider, but do not contain PhotoFind photo records.
 - Reconnect-mode browsers require the source folder to be selected again after a refresh or browser restart.
 - Forgetting a PhotoFind index never deletes the source photos.
+
+Technical quality is deliberately separate from memory value. A low technical score is never a recommendation to delete a unique or meaningful photo.
 
 ## Development
 
