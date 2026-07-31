@@ -5,14 +5,16 @@ import { availableYears, dateInputToEnd, dateInputToStart, filterPhotos, hasLoca
 import { deleteLibrary, listLibraries, loadMedia, putMediaRecords, replaceLibrary } from './libraryDb'
 import { MapResults } from './MapResults'
 import { PhotoResults } from './PhotoResults'
+import { analyzeQuality } from './qualityAnalysis'
+import { QualityPanel } from './QualityPanel'
 import { scanDirectory, scanFileSelection } from './scanner'
 import { buildSimilarityGroups } from './similarity'
 import { analyzeSimilarity } from './similarityAnalysis'
 import { SimilarityGroups } from './SimilarityGroups'
-import type { LiteDateMetadataFilter, LiteGeoBounds, LiteLibraryAccessMode, LiteLibraryRecord, LiteLocationFilter, LiteMediaRecord, LitePhotoFilters, LiteScanProgress, LiteSimilarityProgress } from './types'
+import type { LiteDateMetadataFilter, LiteGeoBounds, LiteLibraryAccessMode, LiteLibraryRecord, LiteLocationFilter, LiteMediaRecord, LitePhotoFilters, LiteQualityProgress, LiteScanProgress, LiteSimilarityProgress } from './types'
 
 const PAGE_SIZE = 120
-type BrowseView = 'photos' | 'map' | 'groups'
+type BrowseView = 'photos' | 'map' | 'groups' | 'quality'
 
 export function LiteApp(): JSX.Element {
   const [libraries, setLibraries] = useState<LiteLibraryRecord[]>([])
@@ -21,8 +23,10 @@ export function LiteApp(): JSX.Element {
   const [sessionFiles, setSessionFiles] = useState<Map<string, File>>(new Map())
   const [progress, setProgress] = useState<LiteScanProgress | null>(null)
   const [similarityProgress, setSimilarityProgress] = useState<LiteSimilarityProgress | null>(null)
+  const [qualityProgress, setQualityProgress] = useState<LiteQualityProgress | null>(null)
   const [busy, setBusy] = useState(false)
   const [similarityBusy, setSimilarityBusy] = useState(false)
+  const [qualityBusy, setQualityBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [view, setView] = useState<BrowseView>('photos')
@@ -36,12 +40,14 @@ export function LiteApp(): JSX.Element {
   const [selectedMapId, setSelectedMapId] = useState<string | null>(null)
   const folderMode = localFolderAccessMode()
   const supported = folderMode !== 'unsupported'
-  const working = busy || similarityBusy
+  const working = busy || similarityBusy || qualityBusy
 
   useEffect(() => { void refreshLibraries() }, [])
 
   const images = useMemo(() => media.filter((item) => item.kind === 'image'), [media])
   const similarityGroups = useMemo(() => buildSimilarityGroups(images), [images])
+  const qualityReadyCount = useMemo(() => images.filter((item) => item.qualityStatus === 'ready').length, [images])
+  const greatQualityCount = useMemo(() => images.filter((item) => item.qualityTier === 'great').length, [images])
   const years = useMemo(() => availableYears(images), [images])
   const baseFilters = useMemo<LitePhotoFilters>(() => ({
     year,
@@ -105,7 +111,7 @@ export function LiteApp(): JSX.Element {
   }
 
   async function runSimilarityAnalysis(): Promise<void> {
-    if (!activeLibrary || reconnectRequired || similarityBusy) return
+    if (!activeLibrary || reconnectRequired || working) return
     setError(null)
     setSimilarityBusy(true)
     setSimilarityProgress({ complete: 0, total: images.length, reused: 0, currentPath: '' })
@@ -121,6 +127,26 @@ export function LiteApp(): JSX.Element {
     } finally {
       setSimilarityBusy(false)
       setSimilarityProgress(null)
+    }
+  }
+
+  async function runQualityAnalysis(): Promise<void> {
+    if (!activeLibrary || reconnectRequired || working) return
+    setError(null)
+    setQualityBusy(true)
+    setQualityProgress({ complete: 0, total: images.length, reused: 0, currentPath: '' })
+    try {
+      const updated = await analyzeQuality(media, {
+        resolveFile: resolveLocalFile,
+        onProgress: setQualityProgress,
+        persistBatch: putMediaRecords
+      })
+      setMedia(updated)
+    } catch (cause) {
+      setError(`Quality analysis stopped: ${messageOf(cause)}`)
+    } finally {
+      setQualityBusy(false)
+      setQualityProgress(null)
     }
   }
 
@@ -175,7 +201,7 @@ export function LiteApp(): JSX.Element {
   }
 
   function resetBrowseState(): void {
-    setVisibleCount(PAGE_SIZE); setView('photos'); setYear(null); setFromDate(''); setToDate(''); setLocationFilter('all'); setDateMetadataFilter('all'); setFilterToViewport(false); setMapBounds(null); setSelectedMapId(null); setSimilarityProgress(null)
+    setVisibleCount(PAGE_SIZE); setView('photos'); setYear(null); setFromDate(''); setToDate(''); setLocationFilter('all'); setDateMetadataFilter('all'); setFilterToViewport(false); setMapBounds(null); setSelectedMapId(null); setSimilarityProgress(null); setQualityProgress(null)
   }
 
   function clearFilters(): void {
@@ -185,7 +211,7 @@ export function LiteApp(): JSX.Element {
   return (
     <div className="lite-shell">
       <header className="topbar">
-        <div><div className="eyebrow">PhotoFind Lite</div><h1>Find the photos worth keeping.</h1><p>Choose a folder on this computer. Dates, GPS, Takeout metadata and similarity analysis stay local; your photos and index are not uploaded.</p></div>
+        <div><div className="eyebrow">PhotoFind Lite</div><h1>Find the photos worth keeping.</h1><p>Choose a folder on this computer. Dates, GPS, similarity and technical quality analysis stay local; your photos and index are not uploaded.</p></div>
         <button className="primary" disabled={!supported || working} onClick={() => void addFolder()}>{working ? 'Working…' : 'Choose local folder'}</button>
       </header>
 
@@ -217,7 +243,7 @@ export function LiteApp(): JSX.Element {
               <Stat label="Located" value={locatedCount} />
               <Stat label="File time only" value={fileTimeOnlyCount} warn={fileTimeOnlyCount > 0} />
               <Stat label="Groups" value={similarityGroups.length} />
-              <Stat label="Videos" value={activeLibrary.videoCount} />
+              <Stat label="Great quality" value={greatQualityCount} />
               <Stat label="Unknown" value={activeLibrary.unknownCount} warn={activeLibrary.unknownCount > 0} />
             </section>
 
@@ -228,11 +254,13 @@ export function LiteApp(): JSX.Element {
               <button className={view === 'photos' ? 'active' : ''} onClick={() => setView('photos')}>Photos</button>
               <button className={view === 'map' ? 'active' : ''} onClick={() => setView('map')}>Map <span>{locatedCount.toLocaleString()}</span></button>
               <button className={view === 'groups' ? 'active' : ''} onClick={() => setView('groups')}>Groups <span>{similarityGroups.length.toLocaleString()}</span></button>
+              <button className={view === 'quality' ? 'active' : ''} onClick={() => setView('quality')}>Quality <span>{qualityReadyCount.toLocaleString()}</span></button>
             </div>
 
             {view === 'map' && <MapResults items={mapItems} filterToViewport={filterToViewport} selected={selectedMapItem} sessionFiles={sessionFiles} onFilterToViewport={setFilterToViewport} onBoundsChange={handleMapBounds} onSelect={setSelectedMapId} onShowSelected={() => { setView('photos'); setVisibleCount(PAGE_SIZE) }} />}
             {view === 'photos' && <PhotoResults items={filteredImages} visibleCount={visibleCount} selectedId={selectedMapId} sessionFiles={sessionFiles} onShowMore={() => setVisibleCount((count) => count + PAGE_SIZE)} />}
-            {view === 'groups' && <SimilarityGroups items={images} groups={similarityGroups} sessionFiles={sessionFiles} progress={similarityProgress} busy={similarityBusy} reconnectRequired={reconnectRequired} onAnalyze={() => void runSimilarityAnalysis()} />}
+            {view === 'groups' && <SimilarityGroups items={images} groups={similarityGroups} sessionFiles={sessionFiles} progress={similarityProgress} busy={working} reconnectRequired={reconnectRequired} onAnalyze={() => void runSimilarityAnalysis()} />}
+            {view === 'quality' && <QualityPanel items={images} sessionFiles={sessionFiles} progress={qualityProgress} busy={working} reconnectRequired={reconnectRequired} onAnalyze={() => void runQualityAnalysis()} />}
 
             <Diagnostics unknown={unknown} diagnostics={diagnostics} />
           </>}
@@ -243,7 +271,7 @@ export function LiteApp(): JSX.Element {
 }
 
 function EmptyState(): JSX.Element {
-  return <section className="empty-state"><h2>Start with a pile of photos</h2><p>Select a local folder or extracted Google Photos Takeout folder. PhotoFind builds a private local index with usable time, location and later similarity signals.</p><div className="privacy-grid"><div><strong>Local files</strong><span>No photo bytes or sidecar contents are uploaded.</span></div><div><strong>Local index</strong><span>EXIF, GPS, hashes and derived metadata stay in IndexedDB on this device.</span></div><div><strong>Map privacy</strong><span>Map tiles are fetched externally and reveal the approximate map area you view.</span></div></div></section>
+  return <section className="empty-state"><h2>Start with a pile of photos</h2><p>Select a local folder or extracted Google Photos Takeout folder. PhotoFind builds a private local index with time, location, similarity and technical-quality signals.</p><div className="privacy-grid"><div><strong>Local files</strong><span>No photo bytes or sidecar contents are uploaded.</span></div><div><strong>Local index</strong><span>EXIF, GPS, hashes, quality scores and derived metadata stay in IndexedDB on this device.</span></div><div><strong>Map privacy</strong><span>Map tiles are fetched externally and reveal the approximate map area you view.</span></div></div></section>
 }
 
 function ProgressNotice({ progress }: { progress: LiteScanProgress }): JSX.Element {
@@ -255,7 +283,7 @@ function ProgressNotice({ progress }: { progress: LiteScanProgress }): JSX.Eleme
 }
 
 function Diagnostics({ unknown, diagnostics }: { unknown: LiteMediaRecord[]; diagnostics: Array<{ path: string; message: string }> }): JSX.Element {
-  return <section className="diagnostics-section"><div className="section-heading"><div><div className="eyebrow">Diagnostics</div><h2>Nothing disappears silently</h2></div><span className="muted">{(unknown.length + diagnostics.length).toLocaleString()} notices</span></div>{unknown.length === 0 && diagnostics.length === 0 ? <p className="muted">No metadata, analysis or unknown-file diagnostics in this index.</p> : <ul className="diagnostic-list">{unknown.slice(0, 20).map((item) => <li key={`unknown-${item.id}`}>[INFO] {item.relativePath}: unrecognized file type</li>)}{diagnostics.slice(0, 50).map((entry, index) => <li key={`${entry.path}-${index}`}>[WARN] {entry.path}: {entry.message}</li>)}</ul>}</section>
+  return <section className="diagnostics-section"><div className="section-heading"><div><div className="eyebrow">Diagnostics</div><h2>Nothing disappears silently</h2></div><span className="muted">{(unknown.length + diagnostics.length).toLocaleString()} notices</span></div>{unknown.length === 0 && diagnostics.length === 0 ? <p className="muted">No metadata, analysis or unknown-file diagnostics in this index.</p> : <ul className="diagnostic-list">{unknown.slice(0, 20).map((item) => <li key={`unknown-${item.id}`}>[INFO] {item.relativePath}: unrecognized file type</li>)}{diagnostics.slice(0, 60).map((entry, index) => <li key={`${entry.path}-${index}`}>[WARN] {entry.path}: {entry.message}</li>)}</ul>}</section>
 }
 
 function collectDiagnostics(items: LiteMediaRecord[]): Array<{ path: string; message: string }> {
@@ -263,6 +291,7 @@ function collectDiagnostics(items: LiteMediaRecord[]): Array<{ path: string; mes
   for (const item of items) {
     for (const message of item.diagnostics ?? []) output.push({ path: item.relativePath, message })
     if (item.similarityError) output.push({ path: item.relativePath, message: `Similarity analysis: ${item.similarityError}` })
+    if (item.qualityError) output.push({ path: item.relativePath, message: `Quality analysis: ${item.qualityError}` })
   }
   return output
 }
