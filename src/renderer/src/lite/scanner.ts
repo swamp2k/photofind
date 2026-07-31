@@ -142,7 +142,7 @@ async function enrichMedia(
       metadataParsed += 1
     }
 
-    output.push(copySimilarityIfUnchanged(next, previous))
+    output.push(copyDerivedAnalysisIfUnchanged(next, previous))
 
     if ((metadataParsed + metadataReused) === 1 || (metadataParsed + metadataReused) % 10 === 0) {
       onProgress?.({
@@ -160,7 +160,7 @@ async function enrichMedia(
   return output
 }
 
-function copySimilarityIfUnchanged(fresh: LiteMediaRecord, previous: LiteMediaRecord | undefined): LiteMediaRecord {
+function copyDerivedAnalysisIfUnchanged(fresh: LiteMediaRecord, previous: LiteMediaRecord | undefined): LiteMediaRecord {
   if (!previous || previous.sizeBytes !== fresh.sizeBytes || previous.lastModified !== fresh.lastModified) return fresh
   return {
     ...fresh,
@@ -170,7 +170,26 @@ function copySimilarityIfUnchanged(fresh: LiteMediaRecord, previous: LiteMediaRe
     perceptualHash: previous.perceptualHash,
     similarityFingerprint: previous.similarityFingerprint,
     similarityError: previous.similarityError,
-    similarityAnalyzedAt: previous.similarityAnalyzedAt
+    similarityAnalyzedAt: previous.similarityAnalyzedAt,
+    qualityVersion: previous.qualityVersion,
+    qualityStatus: previous.qualityStatus,
+    qualityFingerprint: previous.qualityFingerprint,
+    qualityScore: previous.qualityScore,
+    qualityTier: previous.qualityTier,
+    sharpnessScore: previous.sharpnessScore,
+    exposureScore: previous.exposureScore,
+    resolutionScore: previous.resolutionScore,
+    motionBlurRisk: previous.motionBlurRisk,
+    meanLuminance: previous.meanLuminance,
+    luminanceStdDev: previous.luminanceStdDev,
+    shadowClipFraction: previous.shadowClipFraction,
+    highlightClipFraction: previous.highlightClipFraction,
+    laplacianMeanAbs: previous.laplacianMeanAbs,
+    horizontalGradient: previous.horizontalGradient,
+    verticalGradient: previous.verticalGradient,
+    qualityReasons: previous.qualityReasons,
+    qualityError: previous.qualityError,
+    qualityAnalyzedAt: previous.qualityAnalyzedAt
   }
 }
 

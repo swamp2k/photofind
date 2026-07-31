@@ -37,7 +37,10 @@ export function PhotoResults({ items, visibleCount, selectedId, sessionFiles, on
               onClick={() => setOpenIndex(index)}
               title={`Open ${item.name}`}
             >
-              <div className="photo-preview"><LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} /></div>
+              <div className="photo-preview">
+                <LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} />
+                {item.qualityStatus === 'ready' && item.qualityTier && <span className={`photo-quality-badge ${item.qualityTier}`}>{item.qualityScore}</span>}
+              </div>
               <div className="photo-card-body">
                 <strong className="photo-name" title={item.relativePath}>{item.name}</strong>
                 <span className="photo-date">{formatCapture(item)}</span>

@@ -1,6 +1,6 @@
 {
   "name": "photofind",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Browser-native local photo finder and curation tool",
   "private": true,
   "type": "module",

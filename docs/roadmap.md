@@ -7,7 +7,7 @@ The active roadmap is browser-native and local-first. The previous Electron/serv
 Goal: prove the hosted/no-upload architecture.
 
 - Static React/Vite app.
-- Desktop Chrome/Edge local folder picker.
+- Capability-based Chromium desktop folder access.
 - Recursive local indexing.
 - Persistent IndexedDB libraries and file handles.
 - Reopen and rescan indexed folders.
@@ -55,14 +55,15 @@ Goal: reduce thousands of files into actual photographic moments.
 
 Goal: rank and explain technical photo quality.
 
-- Sharpness/focus signals.
-- Motion-blur detection.
-- Exposure signals.
-- Resolution/usable detail.
-- Face detection and face-quality signals where practical locally.
-- Explainable recommendation reasons.
-- Quality filters and “best from each group”.
+- Sharpness/fine-detail signals.
+- Conservative directional motion-blur risk signal rather than pretending blur cause can always be known.
+- Exposure and clipping signals.
+- Resolution/usable-detail signal.
+- Explainable technical-quality reasons.
+- Quality filters and ranking by individual technical signals.
+- “Best technical candidate” inside duplicate/burst/similarity groups.
 - Keep technical quality separate from memory value.
+- Face-specific quality waits for a robust browser-local detector; person/face intelligence remains primarily Lite 6 scope.
 
 ## Lite 5 — Curation and export
 
