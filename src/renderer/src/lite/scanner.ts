@@ -1,6 +1,6 @@
 import { classifyMedia } from './classify'
 import { copyReusableMetadata, enrichMediaMetadata, LITE_METADATA_VERSION } from './metadata'
-import { matchTakeoutSidecars } from './takeout'
+import { matchTakeoutSidecars, type LiteTakeoutMatch } from './takeout'
 import type { LiteLibraryRecord, LiteMediaRecord, LiteScanProgress, LiteScanResult, LiteSelectionScanResult } from './types'
 
 export interface ExistingLibraryIdentity {
@@ -25,7 +25,6 @@ export async function scanDirectory(
       if (name === '.DS_Store') continue
       const segments = [...parentSegments, name]
       const relativePath = segments.join('/')
-
       if (handle.kind === 'directory') {
         await walk(handle, segments)
         continue
@@ -36,7 +35,6 @@ export async function scanDirectory(
       const record = createMediaRecord(libraryId, relativePath, file, fileHandle)
       media.push(record)
       filesById.set(record.id, file)
-
       scannedFiles += 1
       if (scannedFiles === 1 || scannedFiles % 25 === 0) {
         onProgress?.({ phase: 'files', scannedFiles, currentPath: relativePath })
@@ -48,7 +46,6 @@ export async function scanDirectory(
   await walk(rootHandle, [])
   const enriched = await enrichMedia(media, filesById, existingMedia, onProgress)
   const library = createLibraryRecord(libraryId, rootHandle.name, createdAt, enriched, 'handle', rootHandle)
-
   onProgress?.({ phase: 'metadata', scannedFiles, currentPath: '', metadataTotal: enrichableCount(enriched) })
   return { library, media: enriched }
 }
@@ -71,11 +68,9 @@ export async function scanFileSelection(
     const file = files[index]
     const relativePath = normalizeSelectionPath(file, rootName)
     if (relativePath === '.DS_Store' || relativePath.endsWith('/.DS_Store')) continue
-
     const record = createMediaRecord(libraryId, relativePath, file)
     media.push(record)
     sessionFiles.set(record.id, file)
-
     const scannedFiles = index + 1
     if (scannedFiles === 1 || scannedFiles % 25 === 0) {
       onProgress?.({ phase: 'files', scannedFiles, currentPath: relativePath })
@@ -109,7 +104,7 @@ async function enrichMedia(
     }
 
     const match = matches.get(record.id)
-    const sidecarFingerprint = fingerprintOf(match?.sidecar)
+    const sidecarFingerprint = fingerprintMatch(match)
     const previous = previousByPath.get(record.relativePath)
     const canReuse = Boolean(
       previous
@@ -133,7 +128,8 @@ async function enrichMedia(
           diagnostics: ['Local file handle was unavailable during metadata extraction.']
         })
       } else {
-        const takeoutFile = match?.sidecar ? filesById.get(match.sidecar.id) : undefined
+        const ambiguous = Boolean(match?.alternateSidecars?.length)
+        const takeoutFile = match?.sidecar && !ambiguous ? filesById.get(match.sidecar.id) : undefined
         const enriched = await enrichMediaMetadata({ media: record, mediaFile, takeoutMatch: match, takeoutFile })
         output.push({ ...enriched, sidecarFingerprint })
       }
@@ -202,8 +198,13 @@ function createLibraryRecord(
   }
 }
 
-function fingerprintOf(record: LiteMediaRecord | null | undefined): string {
-  return record ? `${record.relativePath}|${record.sizeBytes}|${record.lastModified}` : ''
+function fingerprintMatch(match: LiteTakeoutMatch | undefined): string {
+  if (!match?.sidecar) return ''
+  const records = [match.sidecar, ...(match.alternateSidecars ?? [])]
+  return records
+    .map((record) => `${record.relativePath}|${record.sizeBytes}|${record.lastModified}`)
+    .sort()
+    .join('||')
 }
 
 function enrichableCount(records: LiteMediaRecord[]): number {
