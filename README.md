@@ -1,28 +1,30 @@
-# PhotoFind
+# PhotoFind Lite
 
-PhotoFind is a local, self-hosting-ready photo-curation tool for turning overwhelming
-collections into smaller, useful selections. It has two equal workflows:
+PhotoFind is a hosted, browser-native photo finder and curation tool. The application is served centrally, but photo files and the working index stay on the computer using it.
 
-- **Quick Sort** processes a temporary batch, helps review it, and exports chosen originals.
-- **Library** indexes a long-lived archive without moving its source media.
+The core idea is simple:
 
-Originals remain protected. Google Takeout metadata repair is an optional ingestion
-feature, not the centre of the product.
+1. Open PhotoFind in desktop Chrome or Edge.
+2. Choose a local photo folder or an extracted Google Photos Takeout folder.
+3. PhotoFind recursively indexes the files in the browser.
+4. Reopen the local index later without uploading the collection anywhere.
+5. Use time, location, similarity and quality signals to find the photos worth keeping.
 
-## Current status
+The current branch is the first browser-native foundation. It can select a local folder, build a persistent IndexedDB index, reopen that index, rescan it, show local image previews and keep unknown file types visible in Diagnostics.
 
-The current Electron prototype scans folders, matches Takeout sidecars, generates
-thumbnails, reports diagnostics, persists keeper marks, performs explicitly confirmed
-metadata repair, and exports selected originals without silent overwrite.
+## Privacy model
 
-Milestone 0 established reusable application, service, persistence, migration, and
-renderer-client boundaries. Milestone 1 adds browser/server builds and a trusted-LAN
-container foundation. Scanning remains request-bound; durable jobs, similarity
-grouping, the full Keep/Maybe/Reject workflow and multiuser review remain planned.
+- Photo bytes are read directly by the browser from an explicitly selected local folder.
+- PhotoFind does not upload originals to its hosting server.
+- Folder handles, file handles and index metadata are stored locally in IndexedDB.
+- Browser permission may need to be granted again after a restart or permission reset.
+- Forgetting a PhotoFind index never deletes the source photos.
+
+PhotoFind Lite currently targets desktop Chromium browsers because the File System Access API is central to the no-upload workflow.
 
 ## Development
 
-Requires Node.js 20 (the current environment may use a newer runtime).
+Requires Node.js 20 or newer.
 
 ```bash
 npm install
@@ -30,17 +32,33 @@ npm run dev
 npm run typecheck
 npm test
 npm run build
-npm run build:webapp
-npm run start:web # after build:webapp
-npm run pack:linux # optional when Linux packaging tooling is available
 ```
 
-See [Unraid deployment](docs/deployment/unraid.md) and [compose.yaml](compose.yaml)
-for container usage. Set `PHOTOFIND_STATIC_DIR` to the built browser directory when
-running the standalone server outside the image.
+The production build is emitted to `dist/` and is fully static.
 
-`better-sqlite3` is a native dependency. The existing scripts rebuild it for the
-active Node or Electron ABI when required.
+## Cloudflare Pages
 
-See the [product](docs/product.md), [architecture](docs/architecture.md), and
-[roadmap](docs/roadmap.md) documents for the deeper direction and safety boundaries.
+PhotoFind Lite is intended to be deployed directly from this GitHub repository with Cloudflare Pages.
+
+Use:
+
+```text
+Production branch: main
+Build command: npm run build
+Build output directory: dist
+Root directory: /
+```
+
+See [Cloudflare Pages deployment](docs/deployment/cloudflare-pages.md).
+
+## Previous server/container implementation
+
+The completed Electron/server/container foundation has been frozen on:
+
+```text
+archive/container-milestone-1
+```
+
+It remains available if PhotoFind later needs a home-server edition. The active product direction is browser-native PhotoFind Lite.
+
+See [product](docs/product.md), [architecture](docs/architecture.md), and [roadmap](docs/roadmap.md) for the current direction.

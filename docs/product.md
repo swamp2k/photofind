@@ -1,64 +1,110 @@
 # PhotoFind product
 
-PhotoFind helps people reduce large, overwhelming photo collections into smaller,
-useful, and meaningful selections while keeping irreplaceable originals protected.
-Google Takeout repair is supported as an optional ingestion tool; it is not the
-product's main workflow.
+PhotoFind helps people find the useful, technically strong, and meaningful photos hidden inside large local collections.
 
-## Quick Sort
+The active product is **PhotoFind Lite**: a centrally hosted web application whose photo processing and working index remain on the user's computer.
 
-Quick Sort is a temporary batch-processing workflow:
+## Core experience
 
-1. Supply a folder or, in a later web milestone, upload a batch.
-2. Generate previews and analysis.
-3. Group exact duplicates, bursts, and near-identical images.
-4. Recommend technically stronger candidates with understandable reasons.
-5. Review each item as `unreviewed`, `keep`, `maybe`, or `reject`.
-6. Export the chosen originals to a standalone collection.
-7. Optionally remove the temporary job and generated cache.
+1. Open PhotoFind in desktop Chrome or Edge.
+2. Choose a local folder or extracted Google Photos Takeout folder.
+3. Build a private local index without uploading the originals.
+4. Browse and filter by time, location, media type, similarity, and quality as those capabilities arrive.
+5. Compare near-identical photos and find stronger candidates.
+6. Mark `keep`, `maybe`, or `reject` when curation is useful.
+7. Export selected originals or a curated standalone collection.
 
-Milestone 0 documents this direction. The current prototype supplies scanning,
-thumbnails, keeper marks, and export, but does not yet implement grouping,
-recommendations, or the complete four-state review workflow.
+PhotoFind should work equally well for a temporary batch such as hundreds of swimming-class photos and for a large exported family archive.
 
-## Library
+## Local-first privacy model
 
-Library is a long-lived archive workflow:
+The hosted application contains only HTML, CSS, JavaScript, WASM/models, and other application assets.
 
-1. Index source folders without moving their originals.
-2. Browse and curate the archive over time.
-3. Add timeline, similarity, people, places, and events as their milestones arrive.
-4. Optionally share review with household members.
-5. Export a standalone curated archive that remains useful without PhotoFind.
+The user's browser owns:
 
-The current prototype has a small persistent media index and keeper store. It is not
-yet the complete Library experience.
+- explicit directory permissions;
+- the photo index;
+- generated previews and analysis caches;
+- review decisions;
+- future similarity and quality signals.
 
-## Review and recommendations
+Original photo bytes are not uploaded merely to scan, browse, score, or curate a collection.
 
-Solo review stays the simple default. A future shared mode will store each person's
-decision separately from the final collection decision; one reviewer must never
-overwrite another reviewer's opinion.
+The initial implementation uses the File System Access API and IndexedDB and therefore targets desktop Chromium browsers. Reconnecting a previously indexed folder after the browser asks for permission again is a normal workflow, not data loss.
 
-Technical quality and memory value are different signals. A sharper image may be the
-technical best in a burst, while a blurrier but unique family moment remains the
-memory keeper. Recommendations should explain signals such as sharper faces, reduced
-motion blur, open eyes, exposure, or framing. They assist a human decision and never
-silently reject or delete media.
+## Google Photos Takeout
+
+Takeout support remains important, but metadata repair is no longer the product centre.
+
+PhotoFind should combine media files with matching JSON/XMP sidecars in its local index so dates, locations, descriptions, and other useful metadata can be searched without rewriting originals.
+
+Actual metadata writes should only happen later during an explicit export/normalisation action.
+
+## Finding photos
+
+PhotoFind keeps different signals separate rather than hiding them behind one opaque score.
+
+### Context
+
+- capture date and time;
+- GPS coordinates and map area;
+- media type;
+- future people/event information.
+
+### Similarity
+
+- exact duplicates;
+- near-duplicates;
+- bursts;
+- visually similar scenes.
+
+### Technical quality
+
+- sharpness/focus;
+- motion blur;
+- exposure;
+- resolution;
+- face quality where available;
+- composition signals only when explainable and useful.
+
+### Human decisions
+
+- `unreviewed`;
+- `keep`;
+- `maybe`;
+- `reject`.
+
+Technical quality and memory value are not the same thing. A technically imperfect unique family moment must not be discarded because another photo receives a higher sharpness score.
+
+## Location experience
+
+Location should become a first-class navigation surface rather than merely a metadata field.
+
+Users should be able to:
+
+- view indexed photos on a map;
+- select or draw an area;
+- filter the library to photos captured inside that area;
+- combine geographic filtering with date ranges, quality, similarity, and later people/events;
+- find photos with missing location data.
+
+Map tiles may come from an external provider, but photo coordinates and the index remain local unless the user explicitly enables some future sync feature.
 
 ## Diagnostics
 
-Diagnostics are part of the product contract, not development-only logging.
-Ambiguous or missing sidecars, unknown file types, unsupported media, thumbnail
-failures, metadata repair failures, skipped writes, and export failures must remain
-visible with useful context.
+Diagnostics are part of the product contract.
+
+Unknown file types, unreadable files, ambiguous sidecars, unsupported previews, analysis failures, and export failures must remain visible with useful context. Nothing should disappear silently.
 
 ## Media safety
 
-- Treat original media as irreplaceable.
-- Prefer read-only source libraries, especially for future container mounts.
-- Run a visible dry run before metadata writes.
-- Require explicit confirmation before enabling Repair Mode writes.
-- Never silently overwrite, delete, reject, or discard source media.
-- Keep export output independent of PhotoFind and include an auditable report.
-- Use disposable fixtures for automated tests and acceptance checks.
+- Treat originals as irreplaceable.
+- Default to read-only browser folder access.
+- Do not modify or delete source media during indexing or analysis.
+- Forgetting a PhotoFind index only removes PhotoFind's local browser data.
+- Export must never silently overwrite existing files.
+- Recommendations assist a human decision; they do not make irreversible destructive choices.
+
+## Optional future services
+
+Accounts, settings sync, encrypted index sync, shared review, and a home-server edition are possible later. None are required for the core PhotoFind Lite experience.
