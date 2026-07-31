@@ -1,4 +1,6 @@
 import { classifyMedia } from './classify'
+import { copyReusableMetadata, enrichMediaMetadata, LITE_METADATA_VERSION } from './metadata'
+import { matchTakeoutSidecars } from './takeout'
 import type { LiteLibraryRecord, LiteMediaRecord, LiteScanProgress, LiteScanResult, LiteSelectionScanResult } from './types'
 
 export interface ExistingLibraryIdentity {
@@ -9,11 +11,13 @@ export interface ExistingLibraryIdentity {
 export async function scanDirectory(
   rootHandle: FileSystemDirectoryHandle,
   existing: ExistingLibraryIdentity | null = null,
+  existingMedia: LiteMediaRecord[] = [],
   onProgress?: (progress: LiteScanProgress) => void
 ): Promise<LiteScanResult> {
   const libraryId = existing?.id ?? crypto.randomUUID()
   const createdAt = existing?.createdAt ?? Date.now()
   const media: LiteMediaRecord[] = []
+  const filesById = new Map<string, File>()
   let scannedFiles = 0
 
   async function walk(directory: FileSystemDirectoryHandle, parentSegments: string[]): Promise<void> {
@@ -29,26 +33,30 @@ export async function scanDirectory(
 
       const fileHandle = handle as FileSystemFileHandle
       const file = await fileHandle.getFile()
-      media.push(createMediaRecord(libraryId, relativePath, file, fileHandle))
+      const record = createMediaRecord(libraryId, relativePath, file, fileHandle)
+      media.push(record)
+      filesById.set(record.id, file)
 
       scannedFiles += 1
       if (scannedFiles === 1 || scannedFiles % 25 === 0) {
-        onProgress?.({ scannedFiles, currentPath: relativePath })
+        onProgress?.({ phase: 'files', scannedFiles, currentPath: relativePath })
         await Promise.resolve()
       }
     }
   }
 
   await walk(rootHandle, [])
-  const library = createLibraryRecord(libraryId, rootHandle.name, createdAt, media, 'handle', rootHandle)
+  const enriched = await enrichMedia(media, filesById, existingMedia, onProgress)
+  const library = createLibraryRecord(libraryId, rootHandle.name, createdAt, enriched, 'handle', rootHandle)
 
-  onProgress?.({ scannedFiles, currentPath: '' })
-  return { library, media }
+  onProgress?.({ phase: 'metadata', scannedFiles, currentPath: '', metadataTotal: enrichableCount(enriched) })
+  return { library, media: enriched }
 }
 
 export async function scanFileSelection(
   files: File[],
   existing: ExistingLibraryIdentity | null = null,
+  existingMedia: LiteMediaRecord[] = [],
   onProgress?: (progress: LiteScanProgress) => void
 ): Promise<LiteSelectionScanResult> {
   if (files.length === 0) throw new Error('The selected folder did not contain any files.')
@@ -70,14 +78,82 @@ export async function scanFileSelection(
 
     const scannedFiles = index + 1
     if (scannedFiles === 1 || scannedFiles % 25 === 0) {
-      onProgress?.({ scannedFiles, currentPath: relativePath })
+      onProgress?.({ phase: 'files', scannedFiles, currentPath: relativePath })
       await Promise.resolve()
     }
   }
 
-  const library = createLibraryRecord(libraryId, rootName, createdAt, media, 'selection')
-  onProgress?.({ scannedFiles: files.length, currentPath: '' })
-  return { library, media, sessionFiles }
+  const enriched = await enrichMedia(media, sessionFiles, existingMedia, onProgress)
+  const library = createLibraryRecord(libraryId, rootName, createdAt, enriched, 'selection')
+  onProgress?.({ phase: 'metadata', scannedFiles: files.length, currentPath: '', metadataTotal: enrichableCount(enriched) })
+  return { library, media: enriched, sessionFiles }
+}
+
+async function enrichMedia(
+  records: LiteMediaRecord[],
+  filesById: Map<string, File>,
+  existingMedia: LiteMediaRecord[],
+  onProgress?: (progress: LiteScanProgress) => void
+): Promise<LiteMediaRecord[]> {
+  const matches = matchTakeoutSidecars(records)
+  const previousByPath = new Map(existingMedia.map((record) => [record.relativePath, record]))
+  const output: LiteMediaRecord[] = []
+  const total = enrichableCount(records)
+  let metadataParsed = 0
+  let metadataReused = 0
+
+  for (const record of records) {
+    if (record.kind === 'sidecar' || record.kind === 'unknown') {
+      output.push({ ...record, metadataVersion: LITE_METADATA_VERSION, metadataStatus: 'not-applicable' })
+      continue
+    }
+
+    const match = matches.get(record.id)
+    const sidecarFingerprint = fingerprintOf(match?.sidecar)
+    const previous = previousByPath.get(record.relativePath)
+    const canReuse = Boolean(
+      previous
+      && previous.sizeBytes === record.sizeBytes
+      && previous.lastModified === record.lastModified
+      && previous.metadataVersion === LITE_METADATA_VERSION
+      && (previous.sidecarFingerprint ?? '') === sidecarFingerprint
+    )
+
+    if (canReuse && previous) {
+      output.push({ ...copyReusableMetadata(record, previous), sidecarFingerprint })
+      metadataReused += 1
+    } else {
+      const mediaFile = filesById.get(record.id)
+      if (!mediaFile) {
+        output.push({
+          ...record,
+          metadataVersion: LITE_METADATA_VERSION,
+          metadataStatus: 'failed',
+          sidecarFingerprint,
+          diagnostics: ['Local file handle was unavailable during metadata extraction.']
+        })
+      } else {
+        const takeoutFile = match?.sidecar ? filesById.get(match.sidecar.id) : undefined
+        const enriched = await enrichMediaMetadata({ media: record, mediaFile, takeoutMatch: match, takeoutFile })
+        output.push({ ...enriched, sidecarFingerprint })
+      }
+      metadataParsed += 1
+    }
+
+    if ((metadataParsed + metadataReused) === 1 || (metadataParsed + metadataReused) % 10 === 0) {
+      onProgress?.({
+        phase: 'metadata',
+        scannedFiles: records.length,
+        currentPath: record.relativePath,
+        metadataParsed,
+        metadataReused,
+        metadataTotal: total
+      })
+      await Promise.resolve()
+    }
+  }
+
+  return output
 }
 
 function createMediaRecord(
@@ -120,9 +196,18 @@ function createLibraryRecord(
     videoCount: count('video'),
     sidecarCount: count('sidecar'),
     unknownCount: count('unknown'),
+    locatedCount: media.filter((item) => item.kind === 'image' && typeof item.latitude === 'number' && typeof item.longitude === 'number').length,
     accessMode,
     ...(rootHandle ? { rootHandle } : {})
   }
+}
+
+function fingerprintOf(record: LiteMediaRecord | null | undefined): string {
+  return record ? `${record.relativePath}|${record.sizeBytes}|${record.lastModified}` : ''
+}
+
+function enrichableCount(records: LiteMediaRecord[]): number {
+  return records.filter((record) => record.kind !== 'sidecar' && record.kind !== 'unknown').length
 }
 
 function inferSelectionRootName(files: File[]): string {
