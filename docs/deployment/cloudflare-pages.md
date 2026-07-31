@@ -22,15 +22,15 @@ Cloudflare's Git integration creates preview deployments for non-production bran
 
 ## Browser requirements
 
-The local-folder workflow targets desktop browsers that expose the File System Access API and IndexedDB. In practice this means many Chromium-based browsers, including Chrome, Edge and Brave, with support determined by capability rather than browser brand or user-agent string.
+PhotoFind detects local-folder capabilities at runtime rather than checking browser brand.
+
+Preferred mode uses `showDirectoryPicker()` plus IndexedDB. Browsers exposing that API can persist directory/file handles and reconnect to an indexed folder after permission is granted again when necessary.
+
+If `showDirectoryPicker()` is unavailable but directory file selection is available through `webkitdirectory`, PhotoFind uses reconnect mode instead. This covers browsers such as Brave that may deliberately disable the File System Access directory picker. The local index still persists, but source `File` objects exist only for the current browser session, so the user must reselect the folder after a refresh or restart before previews or rescans can access the source bytes.
+
+PhotoFind intentionally does not store the fallback photo `File` blobs in IndexedDB, which would duplicate potentially very large photo archives inside browser storage.
 
 The site must be served over HTTPS, which Cloudflare Pages provides by default.
-
-Users explicitly choose a local directory through the File System Access API. The application then stores the directory handle and index metadata in IndexedDB on that browser profile.
-
-A Chromium-based browser may still disable or restrict the API through browser settings, enterprise policy, private-browsing behaviour or implementation differences. PhotoFind therefore checks for the required API at runtime instead of assuming every Chromium fork supports it identically.
-
-The browser can require the user to grant folder permission again after a browser restart, permission reset or other security boundary. PhotoFind must treat reconnecting a folder as normal rather than as data loss.
 
 ## Privacy boundary
 
@@ -44,7 +44,7 @@ Cloudflare Pages
            |
            v
 User browser
-  local directory handles
+  local directory/file selection
   local IndexedDB index
   local thumbnails / analysis
            |
