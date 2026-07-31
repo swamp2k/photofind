@@ -1,4 +1,5 @@
 export type LiteMediaKind = 'image' | 'raw' | 'video' | 'sidecar' | 'unknown'
+export type LiteLibraryAccessMode = 'handle' | 'selection'
 
 export interface LiteMediaRecord {
   id: string
@@ -9,7 +10,7 @@ export interface LiteMediaRecord {
   sizeBytes: number
   lastModified: number
   mimeType: string
-  fileHandle: FileSystemFileHandle
+  fileHandle?: FileSystemFileHandle
 }
 
 export interface LiteLibraryRecord {
@@ -23,7 +24,8 @@ export interface LiteLibraryRecord {
   videoCount: number
   sidecarCount: number
   unknownCount: number
-  rootHandle: FileSystemDirectoryHandle
+  accessMode: LiteLibraryAccessMode
+  rootHandle?: FileSystemDirectoryHandle
 }
 
 export interface LiteScanProgress {
@@ -34,4 +36,8 @@ export interface LiteScanProgress {
 export interface LiteScanResult {
   library: LiteLibraryRecord
   media: LiteMediaRecord[]
+}
+
+export interface LiteSelectionScanResult extends LiteScanResult {
+  sessionFiles: Map<string, File>
 }
