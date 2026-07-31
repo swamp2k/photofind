@@ -4,23 +4,30 @@ PhotoFind is a hosted, browser-native photo finder and curation tool. The applic
 
 The core idea is simple:
 
-1. Open PhotoFind in desktop Chrome or Edge.
+1. Open PhotoFind in a supported desktop browser.
 2. Choose a local photo folder or an extracted Google Photos Takeout folder.
 3. PhotoFind recursively indexes the files in the browser.
 4. Reopen the local index later without uploading the collection anywhere.
 5. Use time, location, similarity and quality signals to find the photos worth keeping.
 
-The current branch is the first browser-native foundation. It can select a local folder, build a persistent IndexedDB index, reopen that index, rescan it, show local image previews and keep unknown file types visible in Diagnostics.
+The current browser-native foundation can select a local folder, build a persistent IndexedDB index, reopen that index, rescan it, show local image previews and keep unknown file types visible in Diagnostics.
+
+## Browser folder access
+
+PhotoFind uses progressive enhancement rather than checking browser brand:
+
+- Browsers exposing `showDirectoryPicker()` get durable File System Access handles. PhotoFind can reopen the saved index and request folder permission again when necessary.
+- Browsers that disable that API, including Brave in its default configuration, fall back to a directory file picker (`webkitdirectory`). The index still persists in IndexedDB, but the user must reselect the source folder after a refresh/browser restart before PhotoFind can preview or rescan the files.
+
+Fallback file objects are kept only in memory for the current browser session. PhotoFind does not duplicate an entire selected photo collection into IndexedDB merely to work around a missing durable directory handle.
 
 ## Privacy model
 
 - Photo bytes are read directly by the browser from an explicitly selected local folder.
 - PhotoFind does not upload originals to its hosting server.
-- Folder handles, file handles and index metadata are stored locally in IndexedDB.
-- Browser permission may need to be granted again after a restart or permission reset.
+- Index metadata and available persistent file/folder handles are stored locally in IndexedDB.
+- Reconnect-mode browsers require the source folder to be selected again after a refresh or browser restart.
 - Forgetting a PhotoFind index never deletes the source photos.
-
-PhotoFind Lite currently targets desktop Chromium browsers because the File System Access API is central to the no-upload workflow.
 
 ## Development
 
