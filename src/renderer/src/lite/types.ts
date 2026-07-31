@@ -51,8 +51,12 @@ export interface LiteMediaRecord {
   resolutionScore?: number
   motionBlurRisk?: number
   meanLuminance?: number
+  luminanceStdDev?: number
   shadowClipFraction?: number
   highlightClipFraction?: number
+  laplacianMeanAbs?: number
+  horizontalGradient?: number
+  verticalGradient?: number
   qualityReasons?: string[]
   qualityError?: string
   qualityAnalyzedAt?: number
