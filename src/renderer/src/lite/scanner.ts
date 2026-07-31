@@ -119,27 +119,30 @@ async function enrichMedia(
       && (previous.sidecarFingerprint ?? '') === sidecarFingerprint
     )
 
+    let next: LiteMediaRecord
     if (canReuse && previous) {
-      output.push({ ...copyReusableMetadata(record, previous), sidecarFingerprint })
+      next = { ...copyReusableMetadata(record, previous), sidecarFingerprint }
       metadataReused += 1
     } else {
       const mediaFile = filesById.get(record.id)
       if (!mediaFile) {
-        output.push({
+        next = {
           ...record,
           metadataVersion: LITE_METADATA_VERSION,
           metadataStatus: 'failed',
           sidecarFingerprint,
           diagnostics: ['Local file handle was unavailable during metadata extraction.']
-        })
+        }
       } else {
         const ambiguous = Boolean(match?.alternateSidecars?.length)
         const takeoutFile = match?.sidecar && !ambiguous ? filesById.get(match.sidecar.id) : undefined
         const enriched = await enrichMediaMetadata({ media: record, mediaFile, takeoutMatch: match, takeoutFile })
-        output.push({ ...enriched, sidecarFingerprint })
+        next = { ...enriched, sidecarFingerprint }
       }
       metadataParsed += 1
     }
+
+    output.push(copySimilarityIfUnchanged(next, previous))
 
     if ((metadataParsed + metadataReused) === 1 || (metadataParsed + metadataReused) % 10 === 0) {
       onProgress?.({
@@ -155,6 +158,20 @@ async function enrichMedia(
   }
 
   return output
+}
+
+function copySimilarityIfUnchanged(fresh: LiteMediaRecord, previous: LiteMediaRecord | undefined): LiteMediaRecord {
+  if (!previous || previous.sizeBytes !== fresh.sizeBytes || previous.lastModified !== fresh.lastModified) return fresh
+  return {
+    ...fresh,
+    similarityVersion: previous.similarityVersion,
+    similarityStatus: previous.similarityStatus,
+    contentHash: previous.contentHash,
+    perceptualHash: previous.perceptualHash,
+    similarityFingerprint: previous.similarityFingerprint,
+    similarityError: previous.similarityError,
+    similarityAnalyzedAt: previous.similarityAnalyzedAt
+  }
 }
 
 function createMediaRecord(
