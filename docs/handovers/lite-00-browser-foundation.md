@@ -1,13 +1,13 @@
 # Lite 0 Handover — Browser Foundation
 
-**Status:** implementation in progress on `agent/photofind-lite-browser-foundation`
+**Status:** implementation merged to `main`
 
 ## Objective
 
 Prove the new PhotoFind Lite architecture end to end:
 
 - centrally hosted static application;
-- local folder selection in desktop Chrome/Edge;
+- local folder selection in a supported desktop Chromium-based browser;
 - no photo upload/backend dependency;
 - persistent local index;
 - local previews after reconnecting a previously indexed folder;
@@ -55,7 +55,9 @@ npm run build
 
 The production artifact must be static under `dist/` and must not depend on Electron, Fastify, SQLite native modules, or a PhotoFind HTTP API.
 
-### Browser smoke — Chrome or Edge desktop
+### Browser smoke — supported desktop Chromium browser
+
+Examples include Chrome, Edge and Brave when they expose the required File System Access API. Support is capability-based rather than determined from the browser user-agent string.
 
 1. Open the application over localhost or HTTPS.
 2. Choose a disposable directory containing at least:
@@ -93,8 +95,8 @@ Build command: npm run build
 Output directory: dist
 ```
 
-Open the HTTPS preview in Chrome/Edge and repeat folder selection + local preview checks.
+Open the HTTPS deployment in a supported desktop Chromium browser and repeat folder selection + local preview checks.
 
 ## Known browser constraint
 
-The File System Access API and durable handle behaviour are the reason Lite 0 targets desktop Chromium first. Requiring a new permission click after browser restart is acceptable; losing the saved local index is not.
+The File System Access API and durable handle behaviour are the reason Lite 0 targets desktop Chromium first. A browser being Chromium-based does not itself guarantee support: individual browsers, policies or privacy modes may disable or restrict the API. PhotoFind detects the required capability at runtime. Requiring a new permission click after browser restart is acceptable; losing the saved local index is not.
