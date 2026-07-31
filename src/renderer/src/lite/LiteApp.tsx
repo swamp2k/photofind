@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ensureReadPermission, pickLocalDirectory, supportsLocalFolderAccess } from './fileAccess'
+import { ensureReadPermission, localFolderAccessMode, pickLocalDirectory, pickLocalDirectoryFiles } from './fileAccess'
 import { deleteLibrary, listLibraries, loadMedia, replaceLibrary } from './libraryDb'
 import { LocalThumbnail } from './LocalThumbnail'
-import { scanDirectory } from './scanner'
-import type { LiteLibraryRecord, LiteMediaRecord, LiteScanProgress } from './types'
+import { scanDirectory, scanFileSelection } from './scanner'
+import type { LiteLibraryAccessMode, LiteLibraryRecord, LiteMediaRecord, LiteScanProgress } from './types'
 
 const PAGE_SIZE = 120
 
@@ -11,11 +11,13 @@ export function LiteApp(): JSX.Element {
   const [libraries, setLibraries] = useState<LiteLibraryRecord[]>([])
   const [activeLibrary, setActiveLibrary] = useState<LiteLibraryRecord | null>(null)
   const [media, setMedia] = useState<LiteMediaRecord[]>([])
+  const [sessionFiles, setSessionFiles] = useState<Map<string, File>>(new Map())
   const [progress, setProgress] = useState<LiteScanProgress | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
-  const supported = supportsLocalFolderAccess()
+  const folderMode = localFolderAccessMode()
+  const supported = folderMode !== 'unsupported'
 
   useEffect(() => {
     void refreshLibraries()
@@ -24,6 +26,7 @@ export function LiteApp(): JSX.Element {
   const images = useMemo(() => media.filter((item) => item.kind === 'image'), [media])
   const visibleImages = images.slice(0, visibleCount)
   const unknown = useMemo(() => media.filter((item) => item.kind === 'unknown'), [media])
+  const reconnectRequired = activeLibrary !== null && libraryMode(activeLibrary) === 'selection' && sessionFiles.size === 0
 
   async function refreshLibraries(): Promise<void> {
     try {
@@ -36,8 +39,17 @@ export function LiteApp(): JSX.Element {
   async function addFolder(): Promise<void> {
     setError(null)
     try {
-      const handle = await pickLocalDirectory()
-      await indexHandle(handle, null)
+      if (folderMode === 'handle') {
+        const handle = await pickLocalDirectory()
+        await indexHandle(handle, null)
+        return
+      }
+      if (folderMode === 'selection') {
+        const files = await pickLocalDirectoryFiles()
+        await indexFiles(files, null)
+        return
+      }
+      setError('This browser does not expose a usable local-folder selection API.')
     } catch (cause) {
       if (isAbort(cause)) return
       setError(messageOf(cause))
@@ -47,14 +59,22 @@ export function LiteApp(): JSX.Element {
   async function openLibrary(library: LiteLibraryRecord): Promise<void> {
     setError(null)
     try {
-      if (!(await ensureReadPermission(library.rootHandle))) {
-        setError('PhotoFind needs permission to read this folder again. Click the library to reconnect it.')
-        return
+      if (libraryMode(library) === 'handle') {
+        if (!library.rootHandle) {
+          setError('This saved folder handle is unavailable. Forget the index and choose the folder again.')
+          return
+        }
+        if (!(await ensureReadPermission(library.rootHandle))) {
+          setError('PhotoFind needs permission to read this folder again. Click the library to reconnect it.')
+          return
+        }
       }
+
       setBusy(true)
       const rows = await loadMedia(library.id)
       setActiveLibrary(library)
       setMedia(rows)
+      setSessionFiles(new Map())
       setVisibleCount(PAGE_SIZE)
     } catch (cause) {
       setError(messageOf(cause))
@@ -67,12 +87,23 @@ export function LiteApp(): JSX.Element {
     if (!activeLibrary) return
     setError(null)
     try {
+      if (libraryMode(activeLibrary) === 'selection') {
+        const files = await pickLocalDirectoryFiles()
+        await indexFiles(files, activeLibrary)
+        return
+      }
+
+      if (!activeLibrary.rootHandle) {
+        setError('The saved folder handle is unavailable.')
+        return
+      }
       if (!(await ensureReadPermission(activeLibrary.rootHandle))) {
         setError('Folder permission was not granted.')
         return
       }
       await indexHandle(activeLibrary.rootHandle, activeLibrary)
     } catch (cause) {
+      if (isAbort(cause)) return
       setError(messageOf(cause))
     }
   }
@@ -89,6 +120,31 @@ export function LiteApp(): JSX.Element {
       await replaceLibrary(result.library, result.media)
       setActiveLibrary(result.library)
       setMedia(result.media)
+      setSessionFiles(new Map())
+      setVisibleCount(PAGE_SIZE)
+      await refreshLibraries()
+    } finally {
+      setBusy(false)
+      setProgress(null)
+    }
+  }
+
+  async function indexFiles(files: File[], existing: LiteLibraryRecord | null): Promise<void> {
+    setBusy(true)
+    setProgress({ scannedFiles: 0, currentPath: '' })
+    try {
+      const result = await scanFileSelection(
+        files,
+        existing ? { id: existing.id, createdAt: existing.createdAt } : null,
+        setProgress
+      )
+      if (existing && result.library.name !== existing.name) {
+        throw new Error(`Selected “${result.library.name}”, but this index belongs to “${existing.name}”. Choose the original folder.`)
+      }
+      await replaceLibrary(result.library, result.media)
+      setActiveLibrary(result.library)
+      setMedia(result.media)
+      setSessionFiles(result.sessionFiles)
       setVisibleCount(PAGE_SIZE)
       await refreshLibraries()
     } finally {
@@ -105,6 +161,7 @@ export function LiteApp(): JSX.Element {
       if (activeLibrary?.id === library.id) {
         setActiveLibrary(null)
         setMedia([])
+        setSessionFiles(new Map())
       }
       await refreshLibraries()
     } catch (cause) {
@@ -127,7 +184,12 @@ export function LiteApp(): JSX.Element {
 
       {!supported && (
         <div className="notice warning">
-          Local folder access is not available in this browser. PhotoFind Lite requires a desktop browser that exposes the File System Access API, supported by many Chromium-based browsers such as Chrome, Edge and Brave.
+          Local folder access is not available in this browser. Use a desktop browser with folder-selection support.
+        </div>
+      )}
+      {folderMode === 'selection' && (
+        <div className="notice">
+          This browser uses reconnect mode. Your PhotoFind index persists locally, but you must reselect the folder after a refresh or browser restart to preview or rescan its files.
         </div>
       )}
       {error && <div className="notice error">{error}</div>}
@@ -167,7 +229,7 @@ export function LiteApp(): JSX.Element {
               <p>Select a local folder or an extracted Google Photos Takeout folder. The first step builds a private local index.</p>
               <div className="privacy-grid">
                 <div><strong>Local files</strong><span>The hosted site receives no photo bytes.</span></div>
-                <div><strong>Local index</strong><span>Folder handles and file metadata stay in IndexedDB on this device.</span></div>
+                <div><strong>Local index</strong><span>Folder references and file metadata stay in IndexedDB on this device.</span></div>
                 <div><strong>Refresh to update</strong><span>The application itself can be centrally updated without reinstalling anything.</span></div>
               </div>
             </section>
@@ -178,8 +240,11 @@ export function LiteApp(): JSX.Element {
                   <div className="eyebrow">Indexed folder</div>
                   <h2>{activeLibrary.name}</h2>
                   <p className="muted">Last indexed {new Date(activeLibrary.updatedAt).toLocaleString()}</p>
+                  {reconnectRequired && <p className="muted">Reselect this folder to restore previews in this browser session.</p>}
                 </div>
-                <button disabled={busy} onClick={() => void rescanActive()}>Rescan folder</button>
+                <button disabled={busy} onClick={() => void rescanActive()}>
+                  {libraryMode(activeLibrary) === 'selection' ? (reconnectRequired ? 'Reconnect folder' : 'Reselect & rescan') : 'Rescan folder'}
+                </button>
               </section>
 
               <section className="stat-grid">
@@ -204,7 +269,7 @@ export function LiteApp(): JSX.Element {
                   <div className="photo-grid">
                     {visibleImages.map((item) => (
                       <article className="photo-card" key={item.id}>
-                        <div className="photo-preview"><LocalThumbnail item={item} /></div>
+                        <div className="photo-preview"><LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} /></div>
                         <div className="photo-meta">
                           <strong title={item.relativePath}>{item.name}</strong>
                           <span>{formatBytes(item.sizeBytes)}</span>
@@ -242,6 +307,10 @@ export function LiteApp(): JSX.Element {
       </div>
     </div>
   )
+}
+
+function libraryMode(library: LiteLibraryRecord): LiteLibraryAccessMode {
+  return library.accessMode ?? (library.rootHandle ? 'handle' : 'selection')
 }
 
 function Stat({ label, value, warn = false }: { label: string; value: number; warn?: boolean }): JSX.Element {
