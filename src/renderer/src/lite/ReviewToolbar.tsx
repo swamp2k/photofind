@@ -18,19 +18,21 @@ export function ReviewToolbar({ counts, filter, matchingCount, onFilter, onBulk 
         <ReviewFilterButton label="Maybe" value="maybe" count={counts.maybe} current={filter} onFilter={onFilter} />
         <ReviewFilterButton label="Reject" value="reject" count={counts.reject} current={filter} onFilter={onFilter} />
       </div>
-      <div className="review-bulk">
-        <span>{matchingCount.toLocaleString()} current results</span>
-        <button type="button" disabled={matchingCount === 0} onClick={() => onBulk('keep')}>Keep results</button>
-        <button type="button" disabled={matchingCount === 0} onClick={() => onBulk('maybe')}>Maybe results</button>
-        <button type="button" disabled={matchingCount === 0} onClick={() => onBulk('reject')}>Reject results</button>
-        <button type="button" disabled={matchingCount === 0} onClick={() => onBulk('unreviewed')}>Reset results</button>
-      </div>
+      <details className="review-bulk">
+        <summary>Bulk actions · {matchingCount.toLocaleString()} results</summary>
+        <div>
+          <button type="button" disabled={matchingCount === 0} onClick={() => onBulk('keep')}>Keep all results</button>
+          <button type="button" disabled={matchingCount === 0} onClick={() => onBulk('maybe')}>Maybe all results</button>
+          <button type="button" disabled={matchingCount === 0} onClick={() => onBulk('reject')}>Reject all results</button>
+          <button type="button" disabled={matchingCount === 0} onClick={() => onBulk('unreviewed')}>Reset results</button>
+        </div>
+      </details>
     </section>
   )
 }
 
 function ReviewFilterButton({ label, value, count, current, onFilter }: { label: string; value: LiteReviewFilter; count: number; current: LiteReviewFilter; onFilter(filter: LiteReviewFilter): void }): JSX.Element {
-  return <button type="button" className={current === value ? 'active' : ''} onClick={() => onFilter(value)}>{label} <span>{count.toLocaleString()}</span></button>
+  return <button type="button" className={`${value}${current === value ? ' active' : ''}`} onClick={() => onFilter(value)}>{label} <span>{count.toLocaleString()}</span></button>
 }
 
 function sumCounts(counts: LiteReviewCounts): number {
