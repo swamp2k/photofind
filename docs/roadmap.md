@@ -65,33 +65,94 @@ Goal: rank and explain technical photo quality.
 - Keep technical quality separate from memory value.
 - Face-specific quality waits for a robust browser-local detector; person/face intelligence remains primarily Lite 6 scope.
 
+## Visual refresh — Photo-first application shell
+
+Goal: make the product pleasant, focused and coherent before adding more intelligence.
+
+Implemented:
+
+- Authoritative visual and interaction contract in `docs/visual-design.md`.
+- Calm dark shell with compact global search and privacy state.
+- Task-based navigation: Library, Map, Groups, Quality, Review, Compare and Selection.
+- Larger photo-led layouts and reduced dashboard/card noise.
+- Progressive disclosure for filters, bulk actions and Diagnostics.
+- Stable Keep / Maybe / Reject semantics and keyboard shortcuts.
+- Responsive layouts down to narrow mobile-sized windows.
+- Reduced-motion and visible keyboard-focus support.
+
 ## Lite 5 — Curation and export
 
 Goal: turn search results into useful finished selections.
 
-Implemented in the current static app:
+Implemented:
 
 - Persistent `unreviewed`, `keep`, `maybe`, `reject` decisions.
 - Review filters, counters, per-photo controls and bulk actions for current results.
 - Review from photo grid, map, quality ranking, similarity groups and full-size viewer.
-- Keyboard review shortcuts in the full-size viewer.
 - Keeper tray / Selection view.
-- Export Keep or Keep+Maybe originals to an explicitly selected local folder.
+- Export Keep or Keep+Maybe copies to an explicitly selected local folder.
 - Flat, date-day, date-month and source-folder export layouts.
 - Collision-safe filenames with no destination overwrite.
 - Optional standalone JSON and HTML selection reports.
 - Visible per-file and report-generation failures.
 - Review decisions preserved through rescans.
 
-Possible later export extensions:
+### Lite 5.1 — Metadata-aware export
+
+Implemented:
+
+- Reliable normalized EXIF/Takeout capture date and GPS are embedded directly in exported JPEG copies.
+- Existing JPEG EXIF is preserved where possible.
+- File-mtime fallback is not written as a claimed capture date.
+- Formats that cannot be safely rewritten receive an XMP sidecar.
+- JPEG rewrite failures fall back to the original copy plus XMP rather than losing the export.
+- Export reports identify embedded, sidecar and unchanged metadata results.
+- Source files remain read-only.
+
+### Lite 5.2 — Viewer polish
+
+Implemented:
+
+- Full-size local viewer with 1× / 2× / 4× zoom.
+- Pointer pan while zoomed.
+- Double-click and keyboard zoom controls.
+- Filmstrip navigation.
+- Contextual metadata and technical-quality inspector.
+- Stable navigation/review keyboard shortcuts.
+
+### Lite 5.3 — Compare and pick best
+
+Implemented:
+
+- First-class Compare mode for exact duplicates, bursts and similar scenes.
+- Side-by-side candidates with technical signals and current review state.
+- Technical suggestion clearly separated from the user's memory-value decision.
+- Keep, Maybe or Reject the selected candidate.
+- Atomic “Keep one · reject others” action with reversible persisted decisions.
+
+### Lite 5.4 — Review sessions
+
+Implemented:
+
+- Focused one-photo-at-a-time review mode.
+- Large Keep / Maybe / Reject actions.
+- Keyboard-only workflow with automatic advance.
+- Session progress, nearby-photo strip and contextual quality/metadata.
+- Review sessions honour current search/date/location/review filters.
+- Decisions persist immediately in the local index.
+
+Possible later curation/export extensions:
 
 - More configurable folder/filename templates.
-- Explicit metadata-normalised copies without modifying sources.
-- Additional sidecar formats.
+- Additional embedded metadata fields and sidecar formats.
+- Explicit session save/naming independent of current filters.
+- Undo history spanning multiple bulk/compare operations.
 
 ## Lite 6 — People, events, and richer local intelligence
 
 Goal: find meaningful family moments beyond dates and locations.
+
+Planned:
 
 - Local face detection and clustering.
 - Rename, merge, split, and ignore person clusters.
@@ -99,6 +160,15 @@ Goal: find meaningful family moments beyond dates and locations.
 - Rare-person and rare-combination discovery.
 - Memory-keeper suggestions separate from technical scoring.
 - Natural-language local search only if it adds clear value.
+
+## Later — Story and album creation
+
+Potential scope after people/events prove useful:
+
+- Turn an event or selection into a chronological story.
+- Suggest a cover photo without overriding the user.
+- Produce standalone HTML galleries, slideshows, PDF albums or optional videos.
+- Keep all generation local unless a later explicit opt-in service is introduced.
 
 ## Optional later services
 
