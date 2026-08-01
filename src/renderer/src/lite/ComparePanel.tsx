@@ -24,7 +24,7 @@ export function ComparePanel({ items, groups, sessionFiles, onReview, onPickBest
 
   useEffect(() => {
     setSelectedId(technicalBest?.id ?? candidates[0]?.id ?? null)
-  }, [group?.id, technicalBest?.id, candidates])
+  }, [group?.id])
 
   if (groups.length === 0 || !group) {
     return <section className="compare-empty"><h2>No comparison groups yet</h2><p>Run similarity analysis first. PhotoFind will then collect exact duplicates, bursts and similar scenes here.</p></section>
