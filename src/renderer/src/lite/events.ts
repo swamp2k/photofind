@@ -1,4 +1,4 @@
-import { sourceFolderName, sourceFolderOf } from './sourcePath'
+import { sourceFolderName, sourceFolderOf } from './sourcePaths'
 import type { LiteEventRecord, LiteMediaRecord, LiteSimilarityGroup } from './types'
 
 const QUICK_GAP_MS = 90 * 60 * 1000
