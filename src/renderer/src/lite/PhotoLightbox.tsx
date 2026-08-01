@@ -4,7 +4,7 @@ import { hasLocation } from './filters'
 import { LocalPhotoImage } from './LocalPhotoImage'
 import { LocalThumbnail } from './LocalThumbnail'
 import { ReviewControls } from './ReviewControls'
-import { SourcePath } from './SourcePath'
+import { SourcePath } from './SourcePathView'
 import type { LiteMediaRecord, LiteReviewState } from './types'
 
 interface PhotoLightboxProps {
