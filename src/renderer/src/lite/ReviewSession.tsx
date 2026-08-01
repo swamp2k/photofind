@@ -4,6 +4,7 @@ import { hasLocation } from './filters'
 import { LocalPhotoImage } from './LocalPhotoImage'
 import { LocalThumbnail } from './LocalThumbnail'
 import { reviewStateOf } from './review'
+import { SourcePath } from './SourcePath'
 import type { LiteMediaRecord, LiteReviewState } from './types'
 
 interface ReviewSessionProps {
@@ -90,7 +91,9 @@ export function ReviewSession({ title, items, sessionFiles, onReview, onExit }: 
         </div>
 
         <aside className="review-info">
+          <section><span className="inspector-label">Source</span><SourcePath item={item} /></section>
           <section><span className="inspector-label">Photo</span><strong>{item.name}</strong><span>{formatCapture(item)}</span><span>{hasLocation(item) ? formatLocation(item) : 'No location data'}</span>{item.width && item.height && <span>{item.width} × {item.height}</span>}</section>
+          {item.faces && item.faces.length > 0 && <section><span className="inspector-label">People</span><span>{item.faces.length} detected face{item.faces.length === 1 ? '' : 's'}</span></section>}
           {typeof item.qualityScore === 'number' && <section><div className="quality-inspector-head"><span className="inspector-label">Technical quality</span><strong>{item.qualityScore}/100</strong></div><ReviewMetric label="Sharpness" value={item.sharpnessScore} /><ReviewMetric label="Exposure" value={item.exposureScore} /><ReviewMetric label="Resolution" value={item.resolutionScore} />{(item.qualityReasons ?? []).slice(0, 3).map((reason) => <small key={reason}>{reason}</small>)}</section>}
           <section><span className="inspector-label">Current decision</span><strong className={`review-state-text ${reviewStateOf(item)}`}>{reviewStateOf(item)}</strong><button type="button" className="quiet-button" onClick={() => decide('unreviewed', false)}>Reset to unreviewed</button></section>
           <section className="shortcut-help"><span className="inspector-label">Keyboard</span><span>← → navigate</span><span>K keep · M maybe · R reject</span><span>U reset · Esc exit</span></section>
