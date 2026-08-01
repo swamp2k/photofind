@@ -67,13 +67,21 @@ export async function exportLocalPhotos(options: ExportOptions): Promise<LiteExp
   let reportPath: string | undefined
   if (options.includeReports !== false) {
     const timestamp = fileTimestamp(new Date())
-    const manifestName = await allocateUniqueName(root, `photofind-selection-${timestamp}.json`)
-    await writeText(root, manifestName.name, JSON.stringify({ exportedAt: new Date().toISOString(), layout: options.layout, exported, renamed, failures, items: manifest }, null, 2), 'application/json')
-    manifestPath = manifestName.name
+    try {
+      const manifestName = await allocateUniqueName(root, `photofind-selection-${timestamp}.json`)
+      await writeText(root, manifestName.name, JSON.stringify({ exportedAt: new Date().toISOString(), layout: options.layout, exported, renamed, failures, items: manifest }, null, 2), 'application/json')
+      manifestPath = manifestName.name
+    } catch (cause) {
+      failures.push({ itemId: '__json-report__', relativePath: 'JSON selection report', message: messageOf(cause) })
+    }
 
-    const reportName = await allocateUniqueName(root, `photofind-selection-${timestamp}.html`)
-    await writeText(root, reportName.name, buildHtmlReport(manifest, exported, failures.length), 'text/html')
-    reportPath = reportName.name
+    try {
+      const reportName = await allocateUniqueName(root, `photofind-selection-${timestamp}.html`)
+      await writeText(root, reportName.name, buildHtmlReport(manifest, exported, failures.length), 'text/html')
+      reportPath = reportName.name
+    } catch (cause) {
+      failures.push({ itemId: '__html-report__', relativePath: 'HTML selection report', message: messageOf(cause) })
+    }
   }
 
   return { exported, renamed, failures, manifestPath, reportPath }
