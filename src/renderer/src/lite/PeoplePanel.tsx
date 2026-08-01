@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { LocalFaceCrop } from './LocalFaceCrop'
 import { faceReference, peoplePhotoCounts, rarePersonPairs } from './people'
-import { SourcePath } from './SourcePath'
+import { SourcePath } from './SourcePathView'
 import type { LiteFaceObservation, LiteMediaRecord, LitePeopleProgress, LitePersonRecord } from './types'
 
 interface PeoplePanelProps {
