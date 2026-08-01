@@ -3,6 +3,7 @@ import { GeoMap } from './GeoMap'
 import { hasLocation } from './filters'
 import { LocalThumbnail } from './LocalThumbnail'
 import { ReviewControls } from './ReviewControls'
+import { SourcePath } from './SourcePath'
 import type { LiteGeoBounds, LiteMediaRecord, LiteReviewState } from './types'
 
 interface MapResultsProps {
@@ -45,6 +46,7 @@ export function MapResults(props: MapResultsProps): JSX.Element {
             <div className="eyebrow">Selected photo</div>
             <strong>{props.selected.name}</strong>
             <p>{formatCapture(props.selected)} · {formatLocation(props.selected)}</p>
+            <SourcePath item={props.selected} />
             <div className="map-selection-actions"><button onClick={props.onShowSelected}>Show in photo results</button><ReviewControls item={props.selected} onReview={props.onReview} /></div>
           </div>
         </article>
