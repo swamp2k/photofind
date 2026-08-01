@@ -18,6 +18,7 @@ Core principles:
 - Keep technical quality separate from emotional or historical importance.
 - Recommendations assist the user; they never make irreversible destructive decisions.
 - The hosted application must remain useful without accounts, profiles, a backend database, or a home server.
+- The primary UI is a calm family-photo curator, not an operations console or enterprise asset manager.
 
 The previous Electron/server/container implementation is frozen on `archive/container-milestone-1`. Do not preserve its architecture at the expense of the browser-native product.
 
@@ -40,7 +41,7 @@ Browser-native React application
 Local user-selected photo folders
 ```
 
-Current supported target is desktop Chrome/Edge. Broader browser support may be added later but must not compromise the core no-upload workflow.
+The primary target is a desktop Chromium-based browser exposing the required local-folder capabilities. Support is capability-based, not tied to Chrome branding. Fallback directory selection may be offered where persistent handles are unavailable.
 
 Cloudflare Pages hosts application assets only. Do not add Workers, Pages Functions, D1, R2, or another backend unless a later task explicitly requires it.
 
@@ -51,8 +52,10 @@ For each task, follow instructions in this order:
 1. The user's current request.
 2. The active milestone/handover, when present.
 3. This `AGENTS.md`.
-4. `docs/product.md`, `docs/architecture.md`, and `docs/roadmap.md`.
+4. `docs/product.md`, `docs/architecture.md`, `docs/roadmap.md`, and `docs/visual-design.md`.
 5. `README.md` and existing code conventions.
+
+`docs/visual-design.md` is the visual and interaction contract. UI work must follow it unless the task explicitly revises that contract first.
 
 Do not silently implement later-roadmap features because they appear useful.
 
@@ -105,7 +108,7 @@ The supervisor must inspect actual changes. A worker summary is not proof of cor
 
 For feature/milestone work:
 
-1. Read this file and the relevant product/roadmap material.
+1. Read this file and the relevant product/roadmap/design material.
 2. Inspect repository state and preserve unrelated work.
 3. State the bounded implementation goal.
 4. Identify browser/privacy/data-safety risks.
@@ -129,6 +132,7 @@ PhotoFind works with irreplaceable personal media.
 - Validate archive/sidecar parsing defensively; malformed metadata must not abort the whole library silently.
 - Generated object URLs must be revoked when no longer used.
 - Large processing must move off the UI thread as soon as it becomes expensive enough to affect interaction.
+- Metadata-normalised export may write only to newly exported copies. It must preserve originals, preserve existing destination files, and report whether metadata was embedded or written as a sidecar.
 
 Tests must use synthetic/mock handles or disposable fixtures, never real personal photo folders.
 
@@ -153,7 +157,19 @@ A blurry but unique family photo must not be discarded because it loses a techni
 
 Recommendations should explain useful reasons such as sharper subject, reduced motion blur, improved exposure, higher usable detail, or better face quality.
 
-## 8. Diagnostics
+## 8. Visual and interaction rules
+
+- Make photos the dominant visual material.
+- Organise navigation around user tasks: Library, Map, Groups, Quality, Review, Compare, and Selection.
+- Use progressive disclosure for advanced filters, diagnostics, source paths, and technical measurements.
+- Keep review-state semantics and shortcuts consistent across every mode.
+- Avoid dense dashboard KPI layouts, nested bordered cards, tiny badges, or infrastructure terminology in the primary experience.
+- Preserve keyboard access, visible focus states, mobile usability down to 320 CSS pixels, and reduced-motion support.
+- Do not add decorative controls that are not functional.
+
+See `docs/visual-design.md` for the complete contract.
+
+## 9. Diagnostics
 
 Diagnostics are product behaviour, not developer-only logging.
 
@@ -161,7 +177,7 @@ Unknown file types, unreadable files, ambiguous/missing sidecars, unsupported pr
 
 Do not catch errors and return success-shaped results.
 
-## 9. Engineering conventions
+## 10. Engineering conventions
 
 - Prefer clear explicit TypeScript over clever abstractions.
 - Keep pure classification/matching/scoring logic independently testable.
@@ -175,8 +191,9 @@ Do not catch errors and return success-shaped results.
 - Do not introduce Node filesystem APIs into browser code.
 - Do not add Cloudflare-specific runtime APIs to core photo logic.
 - Avoid broad version upgrades and mass formatting during unrelated work.
+- Use semantic CSS variables for visual states instead of scattering literal colours through components.
 
-## 10. Validation
+## 11. Validation
 
 Run the applicable commands after changes:
 
@@ -192,11 +209,12 @@ Validation rules:
 - Report skipped validation and the reason.
 - New pure/domain logic requires unit tests.
 - IndexedDB schema/persistence changes require persistence/migration coverage where practical.
-- Folder-access/UI changes require a focused Chrome/Edge manual smoke test.
-- A successful static build does not prove folder permissions, IndexedDB handle persistence, or local previews work.
+- Folder-access/UI changes require a focused supported-browser manual smoke test.
+- A successful static build does not prove folder permissions, IndexedDB handle persistence, local previews, metadata writing, zoom/pan, or responsive layout work.
+- Metadata-aware export must be tested with disposable files and the result inspected independently for embedded EXIF/XMP.
 - Cloudflare deployment changes should verify the `dist/` artifact and, when access is available, a Pages preview deployment.
 
-## 11. Git and repository hygiene
+## 12. Git and repository hygiene
 
 - Preserve unrelated work.
 - Keep changes bounded to the active task.
@@ -204,7 +222,7 @@ Validation rules:
 - Do not commit local indexes, caches, photo fixtures, models generated at runtime, or exported user media.
 - The archived container branch is a historical fallback, not a target for routine changes.
 
-## 12. Non-goals unless explicitly requested
+## 13. Non-goals unless explicitly requested
 
 Do not introduce these opportunistically:
 

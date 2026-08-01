@@ -8,9 +8,21 @@ The core idea is simple:
 2. Choose a local photo folder or an extracted Google Photos Takeout folder.
 3. PhotoFind recursively indexes the collection in the browser.
 4. Find useful photos using time, place, similarity and technical-quality signals.
-5. Review with Keep, Maybe or Reject and export selected originals safely.
+5. Review with Keep, Maybe or Reject, compare related frames, and export self-contained copies safely.
 
-The current Lite app can interpret local EXIF/Google Takeout metadata, filter by date and location, browse geotagged photos on a map, open photos full-size, find exact duplicates/bursts/visually similar scenes, rank photos by explainable technical-quality signals, persist review decisions, and export a standalone local selection.
+The current Lite app can interpret local EXIF/Google Takeout metadata, filter and search by date/location/path/camera, browse geotagged photos on a map, open and zoom photos full-size, find exact duplicates/bursts/visually similar scenes, rank photos by explainable technical-quality signals, run focused review sessions, compare and pick the best related frame, persist review decisions, and export a standalone local selection.
+
+The primary experience follows the visual and interaction rules in [PhotoFind visual design](docs/visual-design.md): photo-first, calm, task-based, progressively disclosed, keyboard accessible, and responsive down to narrow mobile-sized windows.
+
+## Main modes
+
+- **Library** — search, filter and browse the local collection.
+- **Map** — find photos by geographic area.
+- **Groups** — inspect duplicates, bursts and visually similar scenes.
+- **Quality** — rank using explainable technical signals.
+- **Review** — work through a focused Keep / Maybe / Reject session using buttons or keyboard shortcuts.
+- **Compare** — inspect related frames together, select a winner and optionally reject the alternatives in one reversible action.
+- **Selection** — inspect keepers and export the finished result.
 
 ## Browser folder access
 
@@ -28,12 +40,27 @@ Fallback file objects are kept only in memory for the current browser session. P
 - Index metadata, review decisions and available persistent file/folder handles are stored locally in IndexedDB.
 - Similarity and technical-quality analysis run in browser Web Workers. Derived hashes, perceptual fingerprints and scores are stored locally.
 - Map tiles are requested from OpenStreetMap; those requests reveal the approximate map area being viewed to the tile provider, but do not contain PhotoFind photo records.
-- Export copies Keep or Keep+Maybe originals to a folder the user explicitly chooses. Source media are never modified or deleted.
+- Export writes only to a folder the user explicitly chooses. Source media are never modified or deleted.
+- With **Embed repaired metadata** enabled, reliable normalized EXIF/Takeout date and GPS are embedded directly into exported JPEG copies.
+- Formats that cannot be safely rewritten are copied unchanged and receive a neighbouring XMP sidecar.
+- File-modification-time fallback is not written as a claimed capture date.
 - Existing destination files are never overwritten. Filename collisions receive safe numbered suffixes.
 - Optional JSON and HTML reports make an exported selection understandable without PhotoFind.
 - Forgetting a PhotoFind index never deletes source photos.
 
 Technical quality is deliberately separate from memory value. A low technical score is never a recommendation to delete a unique or meaningful photo.
+
+## Review shortcuts
+
+```text
+K          Keep
+M          Maybe
+R          Reject
+U          Reset to Unreviewed
+← / →      Previous / next photo
+Z          Cycle viewer zoom
+Esc        Leave focused review/viewer mode
+```
 
 ## Development
 
@@ -74,4 +101,4 @@ archive/container-milestone-1
 
 It remains available if PhotoFind later needs a home-server edition. The active product direction is browser-native PhotoFind Lite.
 
-See [product](docs/product.md), [architecture](docs/architecture.md), and [roadmap](docs/roadmap.md) for the current direction.
+See [product](docs/product.md), [architecture](docs/architecture.md), [roadmap](docs/roadmap.md), and [visual design](docs/visual-design.md) for the current direction.
