@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { formatCapture, formatLocation } from './formatters'
 import { hasLocation } from './filters'
+import { LocalPhotoImage } from './LocalPhotoImage'
+import { LocalThumbnail } from './LocalThumbnail'
 import { ReviewControls } from './ReviewControls'
 import type { LiteMediaRecord, LiteReviewState } from './types'
 
@@ -13,14 +15,28 @@ interface PhotoLightboxProps {
   onReview?(item: LiteMediaRecord, state: LiteReviewState): void
 }
 
+const ZOOM_LEVELS = [1, 2, 4]
+
 export function PhotoLightbox({ items, index, sessionFiles, onIndex, onClose, onReview }: PhotoLightboxProps): JSX.Element | null {
   const item = items[index]
+  const [zoomIndex, setZoomIndex] = useState(0)
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const drag = useRef<{ pointerId: number; x: number; y: number; originX: number; originY: number } | null>(null)
+  const zoom = ZOOM_LEVELS[zoomIndex]
+
+  useEffect(() => {
+    setZoomIndex(0)
+    setPan({ x: 0, y: 0 })
+  }, [item?.id])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') onClose()
       if (event.key === 'ArrowLeft' && index > 0) onIndex(index - 1)
       if (event.key === 'ArrowRight' && index < items.length - 1) onIndex(index + 1)
+      if (event.key.toLowerCase() === 'z') cycleZoom()
+      if (event.key === '+' || event.key === '=') setZoomIndex((value) => Math.min(ZOOM_LEVELS.length - 1, value + 1))
+      if (event.key === '-') setZoomIndex((value) => Math.max(0, value - 1))
       if (!item || !onReview) return
       if (event.key.toLowerCase() === 'k') onReview(item, 'keep')
       if (event.key.toLowerCase() === 'm') onReview(item, 'maybe')
@@ -29,69 +45,111 @@ export function PhotoLightbox({ items, index, sessionFiles, onIndex, onClose, on
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [index, item, items.length, onClose, onIndex, onReview])
+  })
 
   if (!item) return null
+
+  function cycleZoom(): void {
+    setZoomIndex((value) => (value + 1) % ZOOM_LEVELS.length)
+    setPan({ x: 0, y: 0 })
+  }
+
+  function onPointerDown(event: React.PointerEvent<HTMLDivElement>): void {
+    if (zoom === 1) return
+    event.currentTarget.setPointerCapture(event.pointerId)
+    drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, originX: pan.x, originY: pan.y }
+  }
+
+  function onPointerMove(event: React.PointerEvent<HTMLDivElement>): void {
+    if (!drag.current || drag.current.pointerId !== event.pointerId) return
+    setPan({ x: drag.current.originX + event.clientX - drag.current.x, y: drag.current.originY + event.clientY - drag.current.y })
+  }
+
+  function stopDrag(event: React.PointerEvent<HTMLDivElement>): void {
+    if (drag.current?.pointerId === event.pointerId) drag.current = null
+  }
+
+  const filmstripStart = Math.max(0, Math.min(index - 4, items.length - 9))
+  const filmstrip = items.slice(filmstripStart, filmstripStart + 9)
+
   return (
     <div className="lightbox-backdrop" role="presentation" onMouseDown={onClose}>
-      <div className="lightbox" role="dialog" aria-modal="true" aria-label={item.name} onMouseDown={(event) => event.stopPropagation()}>
+      <div className="lightbox lightbox-polished" role="dialog" aria-modal="true" aria-label={item.name} onMouseDown={(event) => event.stopPropagation()}>
         <div className="lightbox-toolbar">
-          <div>
+          <div className="lightbox-title">
             <strong>{item.name}</strong>
-            <span>{index + 1} / {items.length}</span>
+            <span>{index + 1} of {items.length}</span>
           </div>
           <div className="lightbox-actions">
+            <button type="button" className="zoom-button" onClick={cycleZoom} aria-label={`Zoom ${zoom === 1 ? 'in' : zoom === 2 ? 'further' : 'reset'}`}>{zoom}×</button>
             {onReview && <ReviewControls item={item} onReview={onReview} />}
-            <button type="button" onClick={onClose} aria-label="Close viewer">×</button>
+            <button type="button" className="close-button" onClick={onClose} aria-label="Close viewer">×</button>
           </div>
         </div>
-        <div className="lightbox-stage">
-          <button type="button" className="lightbox-nav" disabled={index === 0} onClick={() => onIndex(index - 1)} aria-label="Previous photo">‹</button>
-          <FullLocalImage item={item} sessionFile={sessionFiles.get(item.id)} />
-          <button type="button" className="lightbox-nav" disabled={index >= items.length - 1} onClick={() => onIndex(index + 1)} aria-label="Next photo">›</button>
+
+        <div className="lightbox-content">
+          <div
+            className={zoom > 1 ? 'lightbox-stage zoomed' : 'lightbox-stage'}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={stopDrag}
+            onPointerCancel={stopDrag}
+            onDoubleClick={cycleZoom}
+          >
+            <button type="button" className="lightbox-nav previous" disabled={index === 0} onClick={() => onIndex(index - 1)} aria-label="Previous photo">‹</button>
+            <div className="lightbox-canvas">
+              <LocalPhotoImage
+                item={item}
+                sessionFile={sessionFiles.get(item.id)}
+                className="lightbox-image"
+                eager
+                style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
+              />
+            </div>
+            <button type="button" className="lightbox-nav next" disabled={index >= items.length - 1} onClick={() => onIndex(index + 1)} aria-label="Next photo">›</button>
+          </div>
+
+          <aside className="lightbox-inspector">
+            <div className="inspector-section">
+              <span className="inspector-label">Captured</span>
+              <strong>{formatCapture(item)}</strong>
+              <span>{hasLocation(item) ? formatLocation(item) : 'No location metadata'}</span>
+            </div>
+            {(item.width || item.cameraModel || item.cameraMake) && <div className="inspector-section">
+              <span className="inspector-label">File details</span>
+              {item.width && item.height && <span>{item.width} × {item.height}</span>}
+              {(item.cameraMake || item.cameraModel) && <span>{[item.cameraMake, item.cameraModel].filter(Boolean).join(' ')}</span>}
+            </div>}
+            {typeof item.qualityScore === 'number' && <div className="inspector-section">
+              <div className="quality-inspector-head"><span className="inspector-label">Technical quality</span><strong>{item.qualityScore}/100</strong></div>
+              <QualityBar label="Sharpness" value={item.sharpnessScore} />
+              <QualityBar label="Exposure" value={item.exposureScore} />
+              <QualityBar label="Resolution" value={item.resolutionScore} />
+              {(item.qualityReasons ?? []).slice(0, 3).map((reason) => <small key={reason}>{reason}</small>)}
+            </div>}
+            <div className="inspector-section shortcut-help">
+              <span className="inspector-label">Shortcuts</span>
+              <span>← → navigate · Z zoom</span>
+              {onReview && <span>K keep · M maybe · R reject · U reset</span>}
+            </div>
+          </aside>
         </div>
-        <div className="lightbox-meta">
-          <span>{formatCapture(item)}</span>
-          <span>{hasLocation(item) ? formatLocation(item) : 'No location'}</span>
-          {item.width && item.height && <span>{item.width} × {item.height}</span>}
-          {(item.cameraMake || item.cameraModel) && <span>{[item.cameraMake, item.cameraModel].filter(Boolean).join(' ')}</span>}
-          {item.similarityStatus === 'ready' && <span>{item.perceptualHash ? 'Visual fingerprint ready' : 'Exact hash only'}</span>}
-          {typeof item.qualityScore === 'number' && <span>Technical {item.qualityScore}/100 · sharp {item.sharpnessScore ?? '–'} · exposure {item.exposureScore ?? '–'} · resolution {item.resolutionScore ?? '–'}</span>}
-          {item.qualityReasons?.map((reason) => <span key={reason}>{reason}</span>)}
-          {onReview && <span>Shortcuts: K keep · M maybe · R reject · U reset</span>}
+
+        <div className="lightbox-filmstrip" aria-label="Nearby photos">
+          {filmstrip.map((candidate, offset) => {
+            const candidateIndex = filmstripStart + offset
+            return (
+              <button type="button" className={candidateIndex === index ? 'active' : ''} key={candidate.id} onClick={() => onIndex(candidateIndex)} aria-label={`Open ${candidate.name}`}>
+                <LocalThumbnail item={candidate} sessionFile={sessionFiles.get(candidate.id)} />
+              </button>
+            )
+          })}
         </div>
       </div>
     </div>
   )
 }
 
-function FullLocalImage({ item, sessionFile }: { item: LiteMediaRecord; sessionFile?: File }): JSX.Element {
-  const [url, setUrl] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let disposed = false
-    let objectUrl: string | null = null
-    setUrl(null)
-    setError(null)
-
-    void (async () => {
-      const file = sessionFile ?? (item.fileHandle ? await item.fileHandle.getFile() : null)
-      if (!file) throw new Error('Reconnect the source folder to view this photo.')
-      if (disposed) return
-      objectUrl = URL.createObjectURL(file)
-      setUrl(objectUrl)
-    })().catch((cause) => {
-      if (!disposed) setError(cause instanceof Error ? cause.message : 'Unable to open local photo.')
-    })
-
-    return () => {
-      disposed = true
-      if (objectUrl) URL.revokeObjectURL(objectUrl)
-    }
-  }, [item, sessionFile])
-
-  if (error) return <div className="lightbox-error">{error}</div>
-  if (!url) return <div className="lightbox-loading">Loading local photo…</div>
-  return <img className="lightbox-image" src={url} alt={item.name} onError={() => setError('This browser cannot decode the selected photo.')} />
+function QualityBar({ label, value }: { label: string; value?: number }): JSX.Element {
+  return <div className="inspector-quality-row"><span>{label}</span><div><i style={{ width: `${Math.max(0, Math.min(100, value ?? 0))}%` }} /></div><strong>{value ?? '–'}</strong></div>
 }
