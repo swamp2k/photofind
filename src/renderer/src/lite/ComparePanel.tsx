@@ -3,7 +3,7 @@ import { formatCapture } from './formatters'
 import { LocalPhotoImage } from './LocalPhotoImage'
 import { bestTechnicalCandidate } from './qualityRanking'
 import { reviewStateOf } from './review'
-import { SourcePath } from './SourcePath'
+import { SourcePath } from './SourcePathView'
 import { sourceFolderLabel, summarizeSourceFolders } from './sourcePaths'
 import type { LiteMediaRecord, LiteReviewState, LiteSimilarityGroup } from './types'
 
