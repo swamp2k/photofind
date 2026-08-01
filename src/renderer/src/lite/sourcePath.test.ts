@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isInExactSourceFolder, sourceFolderLabel, sourceFolderOf, summarizeSourceFolders, topLevelSourceFolder } from './sourcePath'
+import { isInExactSourceFolder, sourceFolderLabel, sourceFolderOf, summarizeSourceFolders, topLevelSourceFolder } from './sourcePaths'
 
 describe('source folder helpers', () => {
   it('normalizes parent folders and library-root files', () => {
