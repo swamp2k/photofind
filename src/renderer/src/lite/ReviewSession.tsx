@@ -10,7 +10,7 @@ interface ReviewSessionProps {
   title: string
   items: LiteMediaRecord[]
   sessionFiles: Map<string, File>
-  onReview(item: LiteMediaRecord, state: LiteReviewState): void
+  onReview(items: LiteMediaRecord[], state: LiteReviewState): void
   onExit(): void
 }
 
@@ -34,7 +34,7 @@ export function ReviewSession({ title, items, sessionFiles, onReview, onExit }: 
       if (event.key.toLowerCase() === 'k') decide('keep')
       if (event.key.toLowerCase() === 'm') decide('maybe')
       if (event.key.toLowerCase() === 'r') decide('reject')
-      if (event.key.toLowerCase() === 'u') onReview(item, 'unreviewed')
+      if (event.key.toLowerCase() === 'u') onReview([item], 'unreviewed')
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -42,7 +42,7 @@ export function ReviewSession({ title, items, sessionFiles, onReview, onExit }: 
 
   function decide(state: LiteReviewState): void {
     if (!item) return
-    onReview(item, state)
+    onReview([item], state)
     if (index < items.length - 1) setIndex(index + 1)
   }
 
@@ -86,7 +86,7 @@ export function ReviewSession({ title, items, sessionFiles, onReview, onExit }: 
         <aside className="review-info">
           <section><span className="inspector-label">Photo</span><strong>{item.name}</strong><span>{formatCapture(item)}</span><span>{hasLocation(item) ? formatLocation(item) : 'No location data'}</span>{item.width && item.height && <span>{item.width} × {item.height}</span>}</section>
           {typeof item.qualityScore === 'number' && <section><div className="quality-inspector-head"><span className="inspector-label">Technical quality</span><strong>{item.qualityScore}/100</strong></div><ReviewMetric label="Sharpness" value={item.sharpnessScore} /><ReviewMetric label="Exposure" value={item.exposureScore} /><ReviewMetric label="Resolution" value={item.resolutionScore} />{(item.qualityReasons ?? []).slice(0, 3).map((reason) => <small key={reason}>{reason}</small>)}</section>}
-          <section><span className="inspector-label">Current decision</span><strong className={`review-state-text ${reviewStateOf(item)}`}>{reviewStateOf(item)}</strong><button type="button" className="quiet-button" onClick={() => onReview(item, 'unreviewed')}>Reset to unreviewed</button></section>
+          <section><span className="inspector-label">Current decision</span><strong className={`review-state-text ${reviewStateOf(item)}`}>{reviewStateOf(item)}</strong><button type="button" className="quiet-button" onClick={() => onReview([item], 'unreviewed')}>Reset to unreviewed</button></section>
           <section className="shortcut-help"><span className="inspector-label">Keyboard</span><span>← → navigate</span><span>K keep · M maybe · R reject</span><span>U reset · Esc exit</span></section>
         </aside>
       </div>
