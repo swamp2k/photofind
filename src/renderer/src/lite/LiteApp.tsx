@@ -1,20 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { BrowseFilters } from './BrowseFilters'
-import { ensureReadPermission, localFolderAccessMode, pickLocalDirectory, pickLocalDirectoryFiles } from './fileAccess'
+import { CurationPanel } from './CurationPanel'
+import { exportLocalPhotos } from './exporter'
+import { ensureReadPermission, ensureWritePermission, localFolderAccessMode, pickExportDirectory, pickLocalDirectory, pickLocalDirectoryFiles, supportsWritableExport } from './fileAccess'
 import { availableYears, dateInputToEnd, dateInputToStart, filterPhotos, hasLocation } from './filters'
 import { deleteLibrary, listLibraries, loadMedia, putMediaRecords, replaceLibrary } from './libraryDb'
 import { MapResults } from './MapResults'
 import { PhotoResults } from './PhotoResults'
 import { analyzeQuality } from './qualityAnalysis'
 import { QualityPanel } from './QualityPanel'
+import { countReviewStates, filterByReview, setReviewState } from './review'
+import { ReviewToolbar } from './ReviewToolbar'
 import { scanDirectory, scanFileSelection } from './scanner'
 import { buildSimilarityGroups } from './similarity'
 import { analyzeSimilarity } from './similarityAnalysis'
 import { SimilarityGroups } from './SimilarityGroups'
-import type { LiteDateMetadataFilter, LiteGeoBounds, LiteLibraryAccessMode, LiteLibraryRecord, LiteLocationFilter, LiteMediaRecord, LitePhotoFilters, LiteQualityProgress, LiteScanProgress, LiteSimilarityProgress } from './types'
+import type { LiteDateMetadataFilter, LiteExportLayout, LiteExportProgress, LiteExportResult, LiteGeoBounds, LiteLibraryAccessMode, LiteLibraryRecord, LiteLocationFilter, LiteMediaRecord, LitePhotoFilters, LiteQualityProgress, LiteReviewFilter, LiteReviewState, LiteScanProgress, LiteSimilarityProgress } from './types'
 
 const PAGE_SIZE = 120
-type BrowseView = 'photos' | 'map' | 'groups' | 'quality'
+type BrowseView = 'photos' | 'map' | 'groups' | 'quality' | 'selection'
 
 export function LiteApp(): JSX.Element {
   const [libraries, setLibraries] = useState<LiteLibraryRecord[]>([])
@@ -24,9 +28,13 @@ export function LiteApp(): JSX.Element {
   const [progress, setProgress] = useState<LiteScanProgress | null>(null)
   const [similarityProgress, setSimilarityProgress] = useState<LiteSimilarityProgress | null>(null)
   const [qualityProgress, setQualityProgress] = useState<LiteQualityProgress | null>(null)
+  const [exportProgress, setExportProgress] = useState<LiteExportProgress | null>(null)
+  const [exportResult, setExportResult] = useState<LiteExportResult | null>(null)
   const [busy, setBusy] = useState(false)
   const [similarityBusy, setSimilarityBusy] = useState(false)
   const [qualityBusy, setQualityBusy] = useState(false)
+  const [reviewBusy, setReviewBusy] = useState(false)
+  const [exportBusy, setExportBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [view, setView] = useState<BrowseView>('photos')
@@ -35,16 +43,19 @@ export function LiteApp(): JSX.Element {
   const [toDate, setToDate] = useState('')
   const [locationFilter, setLocationFilter] = useState<LiteLocationFilter>('all')
   const [dateMetadataFilter, setDateMetadataFilter] = useState<LiteDateMetadataFilter>('all')
+  const [reviewFilter, setReviewFilter] = useState<LiteReviewFilter>('all')
   const [filterToViewport, setFilterToViewport] = useState(false)
   const [mapBounds, setMapBounds] = useState<LiteGeoBounds | null>(null)
   const [selectedMapId, setSelectedMapId] = useState<string | null>(null)
   const folderMode = localFolderAccessMode()
   const supported = folderMode !== 'unsupported'
-  const working = busy || similarityBusy || qualityBusy
+  const exportSupported = supportsWritableExport()
+  const working = busy || similarityBusy || qualityBusy || reviewBusy || exportBusy
 
   useEffect(() => { void refreshLibraries() }, [])
 
   const images = useMemo(() => media.filter((item) => item.kind === 'image'), [media])
+  const reviewCounts = useMemo(() => countReviewStates(images), [images])
   const similarityGroups = useMemo(() => buildSimilarityGroups(images), [images])
   const qualityReadyCount = useMemo(() => images.filter((item) => item.qualityStatus === 'ready').length, [images])
   const greatQualityCount = useMemo(() => images.filter((item) => item.qualityTier === 'great').length, [images])
@@ -57,11 +68,12 @@ export function LiteApp(): JSX.Element {
     dateMetadata: dateMetadataFilter,
     mapBounds: null
   }), [year, fromDate, toDate, locationFilter, dateMetadataFilter])
-  const mapItems = useMemo(() => filterPhotos(images, baseFilters), [images, baseFilters])
-  const filteredImages = useMemo(() => filterPhotos(images, { ...baseFilters, mapBounds: filterToViewport ? mapBounds : null }), [images, baseFilters, filterToViewport, mapBounds])
+  const contextMapItems = useMemo(() => filterPhotos(images, baseFilters), [images, baseFilters])
+  const mapItems = useMemo(() => filterByReview(contextMapItems, reviewFilter), [contextMapItems, reviewFilter])
+  const contextFilteredImages = useMemo(() => filterPhotos(images, { ...baseFilters, mapBounds: filterToViewport ? mapBounds : null }), [images, baseFilters, filterToViewport, mapBounds])
+  const filteredImages = useMemo(() => filterByReview(contextFilteredImages, reviewFilter), [contextFilteredImages, reviewFilter])
   const unknown = useMemo(() => media.filter((item) => item.kind === 'unknown'), [media])
   const locatedCount = useMemo(() => images.filter(hasLocation).length, [images])
-  const fileTimeOnlyCount = useMemo(() => images.filter((item) => item.captureTimeSource === 'file').length, [images])
   const diagnostics = useMemo(() => collectDiagnostics(media), [media])
   const reconnectRequired = activeLibrary !== null && libraryMode(activeLibrary) === 'selection' && sessionFiles.size === 0
   const selectedMapItem = selectedMapId ? images.find((item) => item.id === selectedMapId) ?? null : null
@@ -150,6 +162,47 @@ export function LiteApp(): JSX.Element {
     }
   }
 
+  async function updateReview(targets: LiteMediaRecord[], state: LiteReviewState): Promise<void> {
+    if (reviewBusy || targets.length === 0) return
+    setError(null)
+    setReviewBusy(true)
+    try {
+      const result = setReviewState(media, new Set(targets.map((item) => item.id)), state)
+      if (result.changed.length === 0) return
+      await putMediaRecords(result.changed)
+      setMedia(result.items)
+    } catch (cause) {
+      setError(`Review decision was not saved: ${messageOf(cause)}`)
+    } finally {
+      setReviewBusy(false)
+    }
+  }
+
+  function bulkReview(state: LiteReviewState): void {
+    if (filteredImages.length >= 250 && !window.confirm(`Mark all ${filteredImages.length.toLocaleString()} current results as ${state}? This only changes the local PhotoFind index and can be reversed.`)) return
+    void updateReview(filteredImages, state)
+  }
+
+  async function runExport(items: LiteMediaRecord[], layout: LiteExportLayout, includeReports: boolean): Promise<void> {
+    if (exportBusy || items.length === 0 || reconnectRequired) return
+    setError(null)
+    setExportResult(null)
+    try {
+      const destination = await pickExportDirectory()
+      if (!(await ensureWritePermission(destination))) throw new Error('Write permission was not granted for the export folder.')
+      setExportBusy(true)
+      setExportProgress({ complete: 0, total: items.length, exported: 0, renamed: 0, failed: 0, currentPath: '' })
+      const result = await exportLocalPhotos({ items, destination, layout, includeReports, resolveFile: resolveLocalFile, onProgress: setExportProgress })
+      setExportResult(result)
+      if (result.failures.length > 0) setError(`Export completed with ${result.failures.length.toLocaleString()} failures. Details remain visible in the Selection view.`)
+    } catch (cause) {
+      if (!isAbort(cause)) setError(`Export stopped: ${messageOf(cause)}`)
+    } finally {
+      setExportBusy(false)
+      setExportProgress(null)
+    }
+  }
+
   async function resolveLocalFile(item: LiteMediaRecord): Promise<File | null> {
     try {
       const sessionFile = sessionFiles.get(item.id)
@@ -201,7 +254,7 @@ export function LiteApp(): JSX.Element {
   }
 
   function resetBrowseState(): void {
-    setVisibleCount(PAGE_SIZE); setView('photos'); setYear(null); setFromDate(''); setToDate(''); setLocationFilter('all'); setDateMetadataFilter('all'); setFilterToViewport(false); setMapBounds(null); setSelectedMapId(null); setSimilarityProgress(null); setQualityProgress(null)
+    setVisibleCount(PAGE_SIZE); setView('photos'); setYear(null); setFromDate(''); setToDate(''); setLocationFilter('all'); setDateMetadataFilter('all'); setReviewFilter('all'); setFilterToViewport(false); setMapBounds(null); setSelectedMapId(null); setSimilarityProgress(null); setQualityProgress(null); setExportProgress(null); setExportResult(null)
   }
 
   function clearFilters(): void {
@@ -211,12 +264,12 @@ export function LiteApp(): JSX.Element {
   return (
     <div className="lite-shell">
       <header className="topbar">
-        <div><div className="eyebrow">PhotoFind Lite</div><h1>Find the photos worth keeping.</h1><p>Choose a folder on this computer. Dates, GPS, similarity and technical quality analysis stay local; your photos and index are not uploaded.</p></div>
+        <div><div className="eyebrow">PhotoFind Lite</div><h1>Find the photos worth keeping.</h1><p>Choose a folder, find the strongest moments, review them, and export selected originals. Photos, decisions and analysis remain local.</p></div>
         <button className="primary" disabled={!supported || working} onClick={() => void addFolder()}>{working ? 'Working…' : 'Choose local folder'}</button>
       </header>
 
       {!supported && <div className="notice warning">Local folder access is not available in this browser.</div>}
-      {folderMode === 'selection' && <div className="notice">This browser uses reconnect mode. The index persists locally, but reselect the folder after refresh to restore file previews and analysis access.</div>}
+      {folderMode === 'selection' && <div className="notice">This browser uses reconnect mode. The index and review decisions persist locally, but reselect the folder after refresh to restore previews, analysis and export access.</div>}
       {error && <div className="notice error">{error}</div>}
       {progress && <ProgressNotice progress={progress} />}
 
@@ -234,14 +287,14 @@ export function LiteApp(): JSX.Element {
         <main className="library-main">
           {!activeLibrary ? <EmptyState /> : <>
             <section className="library-summary">
-              <div><div className="eyebrow">Indexed folder</div><h2>{activeLibrary.name}</h2><p className="muted">Last indexed {new Date(activeLibrary.updatedAt).toLocaleString()}</p>{reconnectRequired && <p className="muted">Reselect this folder to restore previews and local analysis access.</p>}</div>
+              <div><div className="eyebrow">Indexed folder</div><h2>{activeLibrary.name}</h2><p className="muted">Last indexed {new Date(activeLibrary.updatedAt).toLocaleString()}</p>{reconnectRequired && <p className="muted">Reselect this folder to restore previews and local file access.</p>}</div>
               <button disabled={working} onClick={() => void rescanActive()}>{libraryMode(activeLibrary) === 'selection' ? (reconnectRequired ? 'Reconnect folder' : 'Reselect & rescan') : 'Rescan folder'}</button>
             </section>
 
             <section className="stat-grid stat-grid-six">
               <Stat label="Photos" value={activeLibrary.imageCount} />
-              <Stat label="Located" value={locatedCount} />
-              <Stat label="File time only" value={fileTimeOnlyCount} warn={fileTimeOnlyCount > 0} />
+              <Stat label="Keep" value={reviewCounts.keep} />
+              <Stat label="Maybe" value={reviewCounts.maybe} />
               <Stat label="Groups" value={similarityGroups.length} />
               <Stat label="Great quality" value={greatQualityCount} />
               <Stat label="Unknown" value={activeLibrary.unknownCount} warn={activeLibrary.unknownCount > 0} />
@@ -250,17 +303,21 @@ export function LiteApp(): JSX.Element {
             <BrowseFilters years={years} year={year} fromDate={fromDate} toDate={toDate} location={locationFilter} dateMetadata={dateMetadataFilter} matchingCount={filteredImages.length} totalCount={images.length} viewportActive={filterToViewport && mapBounds !== null}
               onYear={(value) => { setYear(value); setVisibleCount(PAGE_SIZE) }} onFromDate={(value) => { setFromDate(value); setVisibleCount(PAGE_SIZE) }} onToDate={(value) => { setToDate(value); setVisibleCount(PAGE_SIZE) }} onLocation={(value) => { setLocationFilter(value); setVisibleCount(PAGE_SIZE) }} onDateMetadata={(value) => { setDateMetadataFilter(value); setVisibleCount(PAGE_SIZE) }} onClear={clearFilters} />
 
+            <ReviewToolbar counts={reviewCounts} filter={reviewFilter} matchingCount={filteredImages.length} onFilter={(value) => { setReviewFilter(value); setVisibleCount(PAGE_SIZE) }} onBulk={bulkReview} />
+
             <div className="view-tabs" role="tablist" aria-label="Library view">
               <button className={view === 'photos' ? 'active' : ''} onClick={() => setView('photos')}>Photos</button>
               <button className={view === 'map' ? 'active' : ''} onClick={() => setView('map')}>Map <span>{locatedCount.toLocaleString()}</span></button>
               <button className={view === 'groups' ? 'active' : ''} onClick={() => setView('groups')}>Groups <span>{similarityGroups.length.toLocaleString()}</span></button>
               <button className={view === 'quality' ? 'active' : ''} onClick={() => setView('quality')}>Quality <span>{qualityReadyCount.toLocaleString()}</span></button>
+              <button className={view === 'selection' ? 'active' : ''} onClick={() => setView('selection')}>Selection <span>{reviewCounts.keep.toLocaleString()}</span></button>
             </div>
 
-            {view === 'map' && <MapResults items={mapItems} filterToViewport={filterToViewport} selected={selectedMapItem} sessionFiles={sessionFiles} onFilterToViewport={setFilterToViewport} onBoundsChange={handleMapBounds} onSelect={setSelectedMapId} onShowSelected={() => { setView('photos'); setVisibleCount(PAGE_SIZE) }} />}
-            {view === 'photos' && <PhotoResults items={filteredImages} visibleCount={visibleCount} selectedId={selectedMapId} sessionFiles={sessionFiles} onShowMore={() => setVisibleCount((count) => count + PAGE_SIZE)} />}
-            {view === 'groups' && <SimilarityGroups items={images} groups={similarityGroups} sessionFiles={sessionFiles} progress={similarityProgress} busy={working} reconnectRequired={reconnectRequired} onAnalyze={() => void runSimilarityAnalysis()} />}
-            {view === 'quality' && <QualityPanel items={images} sessionFiles={sessionFiles} progress={qualityProgress} busy={working} reconnectRequired={reconnectRequired} onAnalyze={() => void runQualityAnalysis()} />}
+            {view === 'map' && <MapResults items={mapItems} filterToViewport={filterToViewport} selected={selectedMapItem} sessionFiles={sessionFiles} onFilterToViewport={setFilterToViewport} onBoundsChange={handleMapBounds} onSelect={setSelectedMapId} onShowSelected={() => { setView('photos'); setVisibleCount(PAGE_SIZE) }} onReview={(item, state) => void updateReview([item], state)} />}
+            {view === 'photos' && <PhotoResults items={filteredImages} visibleCount={visibleCount} selectedId={selectedMapId} sessionFiles={sessionFiles} onShowMore={() => setVisibleCount((count) => count + PAGE_SIZE)} onReview={(item, state) => void updateReview([item], state)} />}
+            {view === 'groups' && <SimilarityGroups items={filterByReview(images, reviewFilter)} groups={similarityGroups} sessionFiles={sessionFiles} progress={similarityProgress} busy={working} reconnectRequired={reconnectRequired} onAnalyze={() => void runSimilarityAnalysis()} onReview={(item, state) => void updateReview([item], state)} />}
+            {view === 'quality' && <QualityPanel items={filterByReview(images, reviewFilter)} sessionFiles={sessionFiles} progress={qualityProgress} busy={working} reconnectRequired={reconnectRequired} onAnalyze={() => void runQualityAnalysis()} onReview={(item, state) => void updateReview([item], state)} />}
+            {view === 'selection' && <CurationPanel items={images} sessionFiles={sessionFiles} exportSupported={exportSupported} reconnectRequired={reconnectRequired} busy={exportBusy} progress={exportProgress} result={exportResult} onReview={(item, state) => void updateReview([item], state)} onExport={(items, layout, reports) => void runExport(items, layout, reports)} />}
 
             <Diagnostics unknown={unknown} diagnostics={diagnostics} />
           </>}
@@ -271,7 +328,7 @@ export function LiteApp(): JSX.Element {
 }
 
 function EmptyState(): JSX.Element {
-  return <section className="empty-state"><h2>Start with a pile of photos</h2><p>Select a local folder or extracted Google Photos Takeout folder. PhotoFind builds a private local index with time, location, similarity and technical-quality signals.</p><div className="privacy-grid"><div><strong>Local files</strong><span>No photo bytes or sidecar contents are uploaded.</span></div><div><strong>Local index</strong><span>EXIF, GPS, hashes, quality scores and derived metadata stay in IndexedDB on this device.</span></div><div><strong>Map privacy</strong><span>Map tiles are fetched externally and reveal the approximate map area you view.</span></div></div></section>
+  return <section className="empty-state"><h2>Start with a pile of photos</h2><p>Select a local folder or extracted Google Photos Takeout folder. PhotoFind builds a private local index with time, location, similarity, technical quality and review decisions.</p><div className="privacy-grid"><div><strong>Local files</strong><span>No photo bytes or sidecar contents are uploaded.</span></div><div><strong>Local index</strong><span>Analysis and Keep/Maybe/Reject decisions stay in IndexedDB on this device.</span></div><div><strong>Safe export</strong><span>Export copies selected originals without modifying or overwriting source files.</span></div></div></section>
 }
 
 function ProgressNotice({ progress }: { progress: LiteScanProgress }): JSX.Element {
