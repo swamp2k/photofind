@@ -1,20 +1,6 @@
 import { reviewStateOf } from './review'
 import type { LiteExportFailure, LiteExportLayout, LiteExportProgress, LiteExportResult, LiteMediaRecord } from './types'
 
-interface WritableStreamLike {
-  write(data: Blob | string): Promise<void>
-  close(): Promise<void>
-}
-
-interface WritableFileHandle extends FileSystemFileHandle {
-  createWritable(): Promise<WritableStreamLike>
-}
-
-interface WritableDirectoryHandle extends FileSystemDirectoryHandle {
-  getDirectoryHandle(name: string, options?: { create?: boolean }): Promise<WritableDirectoryHandle>
-  getFileHandle(name: string, options?: { create?: boolean }): Promise<WritableFileHandle>
-}
-
 interface ExportOptions {
   items: LiteMediaRecord[]
   destination: FileSystemDirectoryHandle
@@ -37,7 +23,7 @@ interface ManifestEntry {
 }
 
 export async function exportLocalPhotos(options: ExportOptions): Promise<LiteExportResult> {
-  const root = options.destination as WritableDirectoryHandle
+  const root = options.destination
   const failures: LiteExportFailure[] = []
   const manifest: ManifestEntry[] = []
   let exported = 0
@@ -130,13 +116,13 @@ function manifestEntry(item: LiteMediaRecord, exportedPath?: string): ManifestEn
   }
 }
 
-async function ensureDirectories(root: WritableDirectoryHandle, segments: string[]): Promise<WritableDirectoryHandle> {
+async function ensureDirectories(root: FileSystemDirectoryHandle, segments: string[]): Promise<FileSystemDirectoryHandle> {
   let current = root
   for (const segment of segments) current = await current.getDirectoryHandle(segment, { create: true })
   return current
 }
 
-async function allocateUniqueName(directory: WritableDirectoryHandle, desiredName: string): Promise<{ name: string; renamed: boolean }> {
+async function allocateUniqueName(directory: FileSystemDirectoryHandle, desiredName: string): Promise<{ name: string; renamed: boolean }> {
   for (let attempt = 1; attempt < 10_000; attempt += 1) {
     const candidate = collisionCandidate(desiredName, attempt)
     if (!(await fileExists(directory, candidate))) return { name: candidate, renamed: attempt > 1 }
@@ -144,7 +130,7 @@ async function allocateUniqueName(directory: WritableDirectoryHandle, desiredNam
   throw new Error(`Could not allocate a collision-safe filename for ${desiredName}.`)
 }
 
-async function fileExists(directory: WritableDirectoryHandle, name: string): Promise<boolean> {
+async function fileExists(directory: FileSystemDirectoryHandle, name: string): Promise<boolean> {
   try {
     await directory.getFileHandle(name)
     return true
@@ -154,7 +140,7 @@ async function fileExists(directory: WritableDirectoryHandle, name: string): Pro
   }
 }
 
-async function writeText(directory: WritableDirectoryHandle, name: string, content: string, type: string): Promise<void> {
+async function writeText(directory: FileSystemDirectoryHandle, name: string, content: string, type: string): Promise<void> {
   const handle = await directory.getFileHandle(name, { create: true })
   const writable = await handle.createWritable()
   await writable.write(new Blob([content], { type }))
