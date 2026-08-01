@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { formatCapture, formatLocation } from './formatters'
 import { hasLocation } from './filters'
-import { qualityTierLabel } from './quality'
-import type { LiteMediaRecord } from './types'
+import { ReviewControls } from './ReviewControls'
+import type { LiteMediaRecord, LiteReviewState } from './types'
 
 interface PhotoLightboxProps {
   items: LiteMediaRecord[]
@@ -10,9 +10,10 @@ interface PhotoLightboxProps {
   sessionFiles: Map<string, File>
   onIndex(index: number): void
   onClose(): void
+  onReview?(item: LiteMediaRecord, state: LiteReviewState): void
 }
 
-export function PhotoLightbox({ items, index, sessionFiles, onIndex, onClose }: PhotoLightboxProps): JSX.Element | null {
+export function PhotoLightbox({ items, index, sessionFiles, onIndex, onClose, onReview }: PhotoLightboxProps): JSX.Element | null {
   const item = items[index]
 
   useEffect(() => {
@@ -20,10 +21,15 @@ export function PhotoLightbox({ items, index, sessionFiles, onIndex, onClose }: 
       if (event.key === 'Escape') onClose()
       if (event.key === 'ArrowLeft' && index > 0) onIndex(index - 1)
       if (event.key === 'ArrowRight' && index < items.length - 1) onIndex(index + 1)
+      if (!item || !onReview) return
+      if (event.key.toLowerCase() === 'k') onReview(item, 'keep')
+      if (event.key.toLowerCase() === 'm') onReview(item, 'maybe')
+      if (event.key.toLowerCase() === 'r') onReview(item, 'reject')
+      if (event.key.toLowerCase() === 'u') onReview(item, 'unreviewed')
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [index, items.length, onClose, onIndex])
+  }, [index, item, items.length, onClose, onIndex, onReview])
 
   if (!item) return null
   return (
@@ -34,7 +40,10 @@ export function PhotoLightbox({ items, index, sessionFiles, onIndex, onClose }: 
             <strong>{item.name}</strong>
             <span>{index + 1} / {items.length}</span>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close viewer">×</button>
+          <div className="lightbox-actions">
+            {onReview && <ReviewControls item={item} onReview={onReview} />}
+            <button type="button" onClick={onClose} aria-label="Close viewer">×</button>
+          </div>
         </div>
         <div className="lightbox-stage">
           <button type="button" className="lightbox-nav" disabled={index === 0} onClick={() => onIndex(index - 1)} aria-label="Previous photo">‹</button>
@@ -47,17 +56,10 @@ export function PhotoLightbox({ items, index, sessionFiles, onIndex, onClose }: 
           {item.width && item.height && <span>{item.width} × {item.height}</span>}
           {(item.cameraMake || item.cameraModel) && <span>{[item.cameraMake, item.cameraModel].filter(Boolean).join(' ')}</span>}
           {item.similarityStatus === 'ready' && <span>{item.perceptualHash ? 'Visual fingerprint ready' : 'Exact hash only'}</span>}
-          {item.qualityStatus === 'ready' && item.qualityTier && <span className={`quality-inline ${item.qualityTier}`}>Technical {item.qualityScore}/100 · {qualityTierLabel(item.qualityTier)}</span>}
+          {typeof item.qualityScore === 'number' && <span>Technical {item.qualityScore}/100 · sharp {item.sharpnessScore ?? '–'} · exposure {item.exposureScore ?? '–'} · resolution {item.resolutionScore ?? '–'}</span>}
+          {item.qualityReasons?.map((reason) => <span key={reason}>{reason}</span>)}
+          {onReview && <span>Shortcuts: K keep · M maybe · R reject · U reset</span>}
         </div>
-        {item.qualityStatus === 'ready' && (
-          <div className="lightbox-quality">
-            <div><span>Sharpness</span><strong>{item.sharpnessScore ?? '–'}</strong></div>
-            <div><span>Exposure</span><strong>{item.exposureScore ?? '–'}</strong></div>
-            <div><span>Resolution</span><strong>{item.resolutionScore ?? '–'}</strong></div>
-            <div><span>Blur risk</span><strong>{item.motionBlurRisk ?? '–'}</strong></div>
-            <p>{(item.qualityReasons ?? []).join(' · ')}</p>
-          </div>
-        )}
       </div>
     </div>
   )
