@@ -5,6 +5,7 @@ import './styles.css'
 import './lite2.css'
 import './lite3.css'
 import './lite4.css'
+import './lite5.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

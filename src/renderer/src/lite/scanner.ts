@@ -142,7 +142,7 @@ async function enrichMedia(
       metadataParsed += 1
     }
 
-    output.push(copyDerivedAnalysisIfUnchanged(next, previous))
+    output.push(copyPersistentAndDerivedState(next, previous))
 
     if ((metadataParsed + metadataReused) === 1 || (metadataParsed + metadataReused) % 10 === 0) {
       onProgress?.({
@@ -160,10 +160,16 @@ async function enrichMedia(
   return output
 }
 
-function copyDerivedAnalysisIfUnchanged(fresh: LiteMediaRecord, previous: LiteMediaRecord | undefined): LiteMediaRecord {
-  if (!previous || previous.sizeBytes !== fresh.sizeBytes || previous.lastModified !== fresh.lastModified) return fresh
-  return {
+function copyPersistentAndDerivedState(fresh: LiteMediaRecord, previous: LiteMediaRecord | undefined): LiteMediaRecord {
+  if (!previous) return fresh
+  const reviewed = {
     ...fresh,
+    reviewState: previous.reviewState,
+    reviewUpdatedAt: previous.reviewUpdatedAt
+  }
+  if (previous.sizeBytes !== fresh.sizeBytes || previous.lastModified !== fresh.lastModified) return reviewed
+  return {
+    ...reviewed,
     similarityVersion: previous.similarityVersion,
     similarityStatus: previous.similarityStatus,
     contentHash: previous.contentHash,

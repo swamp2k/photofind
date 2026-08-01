@@ -4,19 +4,23 @@ import { LocalThumbnail } from './LocalThumbnail'
 import { PhotoLightbox } from './PhotoLightbox'
 import { qualityTierLabel } from './quality'
 import { bestTechnicalCandidate } from './qualityRanking'
-import type { LiteMediaRecord, LiteSimilarityGroup, LiteSimilarityProgress } from './types'
+import { ReviewControls } from './ReviewControls'
+import { reviewStateOf } from './review'
+import type { LiteMediaRecord, LiteReviewFilter, LiteReviewState, LiteSimilarityGroup, LiteSimilarityProgress } from './types'
 
 interface SimilarityGroupsProps {
   items: LiteMediaRecord[]
   groups: LiteSimilarityGroup[]
+  reviewFilter: LiteReviewFilter
   sessionFiles: Map<string, File>
   progress: LiteSimilarityProgress | null
   busy: boolean
   reconnectRequired: boolean
   onAnalyze(): void
+  onReview(item: LiteMediaRecord, state: LiteReviewState): void
 }
 
-export function SimilarityGroups({ items, groups, sessionFiles, progress, busy, reconnectRequired, onAnalyze }: SimilarityGroupsProps): JSX.Element {
+export function SimilarityGroups({ items, groups, reviewFilter, sessionFiles, progress, busy, reconnectRequired, onAnalyze, onReview }: SimilarityGroupsProps): JSX.Element {
   const [kind, setKind] = useState<'all' | 'exact' | 'burst' | 'similar'>('all')
   const [openGroupId, setOpenGroupId] = useState<string | null>(null)
   const [openIndex, setOpenIndex] = useState(0)
@@ -24,10 +28,14 @@ export function SimilarityGroups({ items, groups, sessionFiles, progress, busy, 
   const analyzed = items.filter((item) => item.kind === 'image' && item.similarityStatus === 'ready').length
   const failed = items.filter((item) => item.kind === 'image' && item.similarityStatus === 'failed').length
   const total = items.filter((item) => item.kind === 'image').length
-  const visibleGroups = kind === 'all' ? groups : groups.filter((group) => group.kind === kind)
-  const exactCount = groups.filter((group) => group.kind === 'exact').length
-  const burstCount = groups.filter((group) => group.kind === 'burst').length
-  const similarCount = groups.filter((group) => group.kind === 'similar').length
+  const reviewGroups = useMemo(() => groups.filter((group) => reviewFilter === 'all' || group.itemIds.some((id) => {
+    const item = byId.get(id)
+    return item ? reviewStateOf(item) === reviewFilter : false
+  })), [byId, groups, reviewFilter])
+  const visibleGroups = kind === 'all' ? reviewGroups : reviewGroups.filter((group) => group.kind === kind)
+  const exactCount = reviewGroups.filter((group) => group.kind === 'exact').length
+  const burstCount = reviewGroups.filter((group) => group.kind === 'burst').length
+  const similarCount = reviewGroups.filter((group) => group.kind === 'similar').length
   const openGroup = openGroupId ? groups.find((group) => group.id === openGroupId) ?? null : null
   const openItems = openGroup ? openGroup.itemIds.map((id) => byId.get(id)).filter(isMediaRecord) : []
 
@@ -65,10 +73,12 @@ export function SimilarityGroups({ items, groups, sessionFiles, progress, busy, 
         <div className="similarity-empty"><h3>Turn the pile into moments</h3><p>Run local analysis to find byte-identical copies, burst sequences and visually similar photos. No source file is changed.</p></div>
       ) : groups.length === 0 ? (
         <div className="similarity-empty"><h3>No groups found yet</h3><p>The analyzed photos did not meet the current duplicate, burst or perceptual-similarity thresholds.</p></div>
+      ) : reviewGroups.length === 0 ? (
+        <div className="similarity-empty"><h3>No groups match the review filter</h3><p>Change the review filter above to see other comparison groups.</p></div>
       ) : (
         <>
           <div className="group-filter-tabs" aria-label="Similarity group type">
-            <button className={kind === 'all' ? 'active' : ''} onClick={() => setKind('all')}>All <span>{groups.length}</span></button>
+            <button className={kind === 'all' ? 'active' : ''} onClick={() => setKind('all')}>All <span>{reviewGroups.length}</span></button>
             <button className={kind === 'exact' ? 'active' : ''} onClick={() => setKind('exact')}>Exact <span>{exactCount}</span></button>
             <button className={kind === 'burst' ? 'active' : ''} onClick={() => setKind('burst')}>Bursts <span>{burstCount}</span></button>
             <button className={kind === 'similar' ? 'active' : ''} onClick={() => setKind('similar')}>Similar <span>{similarCount}</span></button>
@@ -89,14 +99,17 @@ export function SimilarityGroups({ items, groups, sessionFiles, progress, busy, 
                   </div>
                   <div className="compare-strip">
                     {groupItems.slice(0, 10).map((item, index) => (
-                      <button type="button" className={best?.id === item.id ? 'compare-thumb best' : 'compare-thumb'} key={item.id} onClick={() => { setOpenGroupId(group.id); setOpenIndex(index) }}>
-                        <div className="compare-image">
-                          <LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} />
-                          {best?.id === item.id && <span className="best-badge">Best technical</span>}
-                          {item.qualityStatus === 'ready' && <span className={`mini-quality ${item.qualityTier ?? 'okay'}`}>{item.qualityScore}</span>}
-                        </div>
-                        <span>{formatCapture(item)}</span>
-                      </button>
+                      <article className={best?.id === item.id ? 'compare-thumb best' : 'compare-thumb'} key={item.id}>
+                        <button type="button" className="compare-open" onClick={() => { setOpenGroupId(group.id); setOpenIndex(index) }}>
+                          <div className="compare-image">
+                            <LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} />
+                            {best?.id === item.id && <span className="best-badge">Best technical</span>}
+                            {item.qualityStatus === 'ready' && <span className={`mini-quality ${item.qualityTier ?? 'okay'}`}>{item.qualityScore}</span>}
+                          </div>
+                          <span>{formatCapture(item)}</span>
+                        </button>
+                        <ReviewControls item={item} compact onReview={onReview} />
+                      </article>
                     ))}
                     {groupItems.length > 10 && <div className="compare-more">+{groupItems.length - 10}</div>}
                   </div>
@@ -104,7 +117,7 @@ export function SimilarityGroups({ items, groups, sessionFiles, progress, busy, 
               )
             })}
           </div>
-          {visibleGroups.length > 100 && <p className="muted">Showing the first 100 groups. More focused group filtering will come with the review workflow.</p>}
+          {visibleGroups.length > 100 && <p className="muted">Showing the first 100 groups. Use the group-type filters to narrow the set.</p>}
         </>
       )}
 
@@ -115,6 +128,7 @@ export function SimilarityGroups({ items, groups, sessionFiles, progress, busy, 
           sessionFiles={sessionFiles}
           onIndex={setOpenIndex}
           onClose={() => setOpenGroupId(null)}
+          onReview={onReview}
         />
       )}
     </section>

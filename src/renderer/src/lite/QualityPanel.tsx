@@ -3,7 +3,8 @@ import { LocalThumbnail } from './LocalThumbnail'
 import { PhotoLightbox } from './PhotoLightbox'
 import { qualityTierLabel } from './quality'
 import { filterMinimumQuality, sortByTechnicalQuality, type LiteQualitySort } from './qualityRanking'
-import type { LiteMediaRecord, LiteQualityProgress } from './types'
+import { ReviewControls } from './ReviewControls'
+import type { LiteMediaRecord, LiteQualityProgress, LiteReviewState } from './types'
 
 interface QualityPanelProps {
   items: LiteMediaRecord[]
@@ -12,11 +13,12 @@ interface QualityPanelProps {
   busy: boolean
   reconnectRequired: boolean
   onAnalyze(): void
+  onReview(item: LiteMediaRecord, state: LiteReviewState): void
 }
 
 const MAX_VISIBLE = 240
 
-export function QualityPanel({ items, sessionFiles, progress, busy, reconnectRequired, onAnalyze }: QualityPanelProps): JSX.Element {
+export function QualityPanel({ items, sessionFiles, progress, busy, reconnectRequired, onAnalyze, onReview }: QualityPanelProps): JSX.Element {
   const [minimumScore, setMinimumScore] = useState(0)
   const [sort, setSort] = useState<LiteQualitySort>('overall')
   const [openIndex, setOpenIndex] = useState<number | null>(null)
@@ -95,20 +97,23 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
           {ranked.length === 0 ? <p className="muted">No analyzed photos meet that quality threshold.</p> : (
             <div className="quality-grid">
               {visible.map((item, index) => (
-                <button className="quality-card" type="button" key={item.id} onClick={() => setOpenIndex(index)}>
-                  <div className="quality-image"><LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} /></div>
-                  <div className="quality-card-head">
-                    <span className={`quality-badge ${item.qualityTier ?? 'okay'}`}>{item.qualityScore ?? '–'}</span>
-                    <div><strong>{qualityTierLabel(item.qualityTier ?? 'okay')}</strong><span title={item.relativePath}>{item.name}</span></div>
-                  </div>
-                  <div className="quality-metrics">
-                    <Metric label="Sharp" value={item.sharpnessScore} />
-                    <Metric label="Exposure" value={item.exposureScore} />
-                    <Metric label="Resolution" value={item.resolutionScore} />
-                    <Metric label="Blur risk" value={item.motionBlurRisk} invert />
-                  </div>
-                  <div className="quality-reasons">{(item.qualityReasons ?? []).slice(0, 3).map((reason) => <span key={reason}>{reason}</span>)}</div>
-                </button>
+                <article className="quality-card" key={item.id}>
+                  <button className="quality-open-button" type="button" onClick={() => setOpenIndex(index)}>
+                    <div className="quality-image"><LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} /></div>
+                    <div className="quality-card-head">
+                      <span className={`quality-badge ${item.qualityTier ?? 'okay'}`}>{item.qualityScore ?? '–'}</span>
+                      <div><strong>{qualityTierLabel(item.qualityTier ?? 'okay')}</strong><span title={item.relativePath}>{item.name}</span></div>
+                    </div>
+                    <div className="quality-metrics">
+                      <Metric label="Sharp" value={item.sharpnessScore} />
+                      <Metric label="Exposure" value={item.exposureScore} />
+                      <Metric label="Resolution" value={item.resolutionScore} />
+                      <Metric label="Blur risk" value={item.motionBlurRisk} invert />
+                    </div>
+                    <div className="quality-reasons">{(item.qualityReasons ?? []).slice(0, 3).map((reason) => <span key={reason}>{reason}</span>)}</div>
+                  </button>
+                  <ReviewControls item={item} compact onReview={onReview} />
+                </article>
               ))}
             </div>
           )}
@@ -117,7 +122,7 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
       )}
 
       {openIndex !== null && ranked[openIndex] && (
-        <PhotoLightbox items={ranked} index={openIndex} sessionFiles={sessionFiles} onIndex={setOpenIndex} onClose={() => setOpenIndex(null)} />
+        <PhotoLightbox items={ranked} index={openIndex} sessionFiles={sessionFiles} onIndex={setOpenIndex} onClose={() => setOpenIndex(null)} onReview={onReview} />
       )}
     </section>
   )

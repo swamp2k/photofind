@@ -20,10 +20,21 @@ export function supportsLocalFolderAccess(): boolean {
   return localFolderAccessMode() !== 'unsupported'
 }
 
+export function supportsWritableExport(): boolean {
+  const candidate = window as Window & { showDirectoryPicker?: DirectoryPicker }
+  return typeof candidate.showDirectoryPicker === 'function'
+}
+
 export async function pickLocalDirectory(): Promise<FileSystemDirectoryHandle> {
   const candidate = window as Window & { showDirectoryPicker?: DirectoryPicker }
   if (!candidate.showDirectoryPicker) throw new Error('This browser does not support persistent local folder handles.')
   return candidate.showDirectoryPicker({ id: 'photofind-library', mode: 'read' })
+}
+
+export async function pickExportDirectory(): Promise<FileSystemDirectoryHandle> {
+  const candidate = window as Window & { showDirectoryPicker?: DirectoryPicker }
+  if (!candidate.showDirectoryPicker) throw new Error('This browser cannot write an export folder directly. Open PhotoFind in Chrome, Edge, Brave or another browser exposing the File System Access API.')
+  return candidate.showDirectoryPicker({ id: 'photofind-export', mode: 'readwrite' })
 }
 
 export function pickLocalDirectoryFiles(): Promise<File[]> {
@@ -63,11 +74,19 @@ export function pickLocalDirectoryFiles(): Promise<File[]> {
 }
 
 export async function ensureReadPermission(handle: FileSystemDirectoryHandle): Promise<boolean> {
+  return ensurePermission(handle, 'read')
+}
+
+export async function ensureWritePermission(handle: FileSystemDirectoryHandle): Promise<boolean> {
+  return ensurePermission(handle, 'readwrite')
+}
+
+async function ensurePermission(handle: FileSystemDirectoryHandle, mode: 'read' | 'readwrite'): Promise<boolean> {
   const permissionHandle = handle as PermissionCapableDirectoryHandle
   if (typeof permissionHandle.queryPermission !== 'function') return true
 
-  const current = await permissionHandle.queryPermission({ mode: 'read' })
+  const current = await permissionHandle.queryPermission({ mode })
   if (current === 'granted') return true
   if (typeof permissionHandle.requestPermission !== 'function') return false
-  return (await permissionHandle.requestPermission({ mode: 'read' })) === 'granted'
+  return (await permissionHandle.requestPermission({ mode })) === 'granted'
 }
