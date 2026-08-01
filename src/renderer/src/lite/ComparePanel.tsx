@@ -10,10 +10,10 @@ interface ComparePanelProps {
   groups: LiteSimilarityGroup[]
   sessionFiles: Map<string, File>
   onReview(item: LiteMediaRecord, state: LiteReviewState): void
-  onReviewMany(items: LiteMediaRecord[], state: LiteReviewState): void
+  onPickBest(selected: LiteMediaRecord, others: LiteMediaRecord[]): void
 }
 
-export function ComparePanel({ items, groups, sessionFiles, onReview, onReviewMany }: ComparePanelProps): JSX.Element {
+export function ComparePanel({ items, groups, sessionFiles, onReview, onPickBest }: ComparePanelProps): JSX.Element {
   const [groupIndex, setGroupIndex] = useState(0)
   const byId = useMemo(() => new Map(items.map((item) => [item.id, item])), [items])
   const group = groups[Math.min(groupIndex, Math.max(0, groups.length - 1))]
@@ -28,12 +28,6 @@ export function ComparePanel({ items, groups, sessionFiles, onReview, onReviewMa
 
   if (groups.length === 0 || !group) {
     return <section className="compare-empty"><h2>No comparison groups yet</h2><p>Run similarity analysis first. PhotoFind will then collect exact duplicates, bursts and similar scenes here.</p></section>
-  }
-
-  function keepSelected(rejectOthers: boolean): void {
-    if (!selected) return
-    onReview(selected, 'keep')
-    if (rejectOthers) onReviewMany(candidates.filter((item) => item.id !== selected.id), 'reject')
   }
 
   return (
@@ -68,9 +62,9 @@ export function ComparePanel({ items, groups, sessionFiles, onReview, onReviewMa
       <div className="compare-actions">
         <button type="button" className="decision reject" disabled={!selected} onClick={() => selected && onReview(selected, 'reject')}>× Reject selected</button>
         <button type="button" className="decision maybe" disabled={!selected} onClick={() => selected && onReview(selected, 'maybe')}>? Maybe selected</button>
-        <button type="button" className="decision keep" disabled={!selected} onClick={() => keepSelected(false)}>✓ Keep selected</button>
+        <button type="button" className="decision keep" disabled={!selected} onClick={() => selected && onReview(selected, 'keep')}>✓ Keep selected</button>
         <button type="button" className="primary" disabled={!selected || candidates.length < 2} onClick={() => {
-          if (window.confirm(`Keep “${selected?.name}” and reject the other ${candidates.length - 1} photos in this group? Review decisions remain reversible.`)) keepSelected(true)
+          if (selected && window.confirm(`Keep “${selected.name}” and reject the other ${candidates.length - 1} photos in this group? Review decisions remain reversible.`)) onPickBest(selected, candidates.filter((item) => item.id !== selected.id))
         }}>Keep one · reject others</button>
       </div>
     </section>
