@@ -1,9 +1,10 @@
-import type { LiteLibraryRecord, LiteMediaRecord } from './types'
+import type { LiteLibraryRecord, LiteMediaRecord, LitePersonRecord } from './types'
 
 const DB_NAME = 'photofind-lite'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const LIBRARIES_STORE = 'libraries'
 const MEDIA_STORE = 'media'
+const PEOPLE_STORE = 'people'
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -23,6 +24,10 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(MEDIA_STORE)) {
         const store = db.createObjectStore(MEDIA_STORE, { keyPath: 'id' })
+        store.createIndex('libraryId', 'libraryId', { unique: false })
+      }
+      if (!db.objectStoreNames.contains(PEOPLE_STORE)) {
+        const store = db.createObjectStore(PEOPLE_STORE, { keyPath: 'id' })
         store.createIndex('libraryId', 'libraryId', { unique: false })
       }
     }
@@ -47,6 +52,17 @@ export async function loadMedia(libraryId: string): Promise<LiteMediaRecord[]> {
     const transaction = db.transaction(MEDIA_STORE, 'readonly')
     const rows = await requestResult(transaction.objectStore(MEDIA_STORE).index('libraryId').getAll(libraryId)) as LiteMediaRecord[]
     return rows.sort((a, b) => a.relativePath.localeCompare(b.relativePath))
+  } finally {
+    db.close()
+  }
+}
+
+export async function loadPeople(libraryId: string): Promise<LitePersonRecord[]> {
+  const db = await openDb()
+  try {
+    const transaction = db.transaction(PEOPLE_STORE, 'readonly')
+    const rows = await requestResult(transaction.objectStore(PEOPLE_STORE).index('libraryId').getAll(libraryId)) as LitePersonRecord[]
+    return rows.sort((a, b) => b.faceRefs.length - a.faceRefs.length || (a.name ?? '').localeCompare(b.name ?? '') || a.id.localeCompare(b.id))
   } finally {
     db.close()
   }
@@ -97,26 +113,61 @@ export async function putMediaRecords(media: LiteMediaRecord[]): Promise<void> {
   }
 }
 
+export async function savePeopleState(libraryId: string, people: LitePersonRecord[], media: LiteMediaRecord[]): Promise<void> {
+  const db = await openDb()
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction([PEOPLE_STORE, MEDIA_STORE], 'readwrite')
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error ?? new Error('Failed to save local people analysis'))
+      transaction.onabort = () => reject(transaction.error ?? new Error('People analysis transaction was aborted'))
+
+      const mediaStore = transaction.objectStore(MEDIA_STORE)
+      for (const item of media) mediaStore.put(item)
+
+      const peopleStore = transaction.objectStore(PEOPLE_STORE)
+      const cursorRequest = peopleStore.index('libraryId').openCursor(IDBKeyRange.only(libraryId))
+      cursorRequest.onerror = () => transaction.abort()
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result
+        if (cursor) {
+          cursor.delete()
+          cursor.continue()
+          return
+        }
+        for (const person of people) peopleStore.put(person)
+      }
+    })
+  } finally {
+    db.close()
+  }
+}
+
 export async function deleteLibrary(libraryId: string): Promise<void> {
   const db = await openDb()
   try {
     await new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction([LIBRARIES_STORE, MEDIA_STORE], 'readwrite')
+      const transaction = db.transaction([LIBRARIES_STORE, MEDIA_STORE, PEOPLE_STORE], 'readwrite')
       transaction.oncomplete = () => resolve()
       transaction.onerror = () => reject(transaction.error ?? new Error('Failed to remove PhotoFind index'))
       transaction.onabort = () => reject(transaction.error ?? new Error('PhotoFind removal transaction was aborted'))
 
       transaction.objectStore(LIBRARIES_STORE).delete(libraryId)
-      const cursorRequest = transaction.objectStore(MEDIA_STORE).index('libraryId').openCursor(IDBKeyRange.only(libraryId))
-      cursorRequest.onerror = () => transaction.abort()
-      cursorRequest.onsuccess = () => {
-        const cursor = cursorRequest.result
-        if (!cursor) return
-        cursor.delete()
-        cursor.continue()
-      }
+      deleteRowsForLibrary(transaction.objectStore(MEDIA_STORE), libraryId, transaction)
+      deleteRowsForLibrary(transaction.objectStore(PEOPLE_STORE), libraryId, transaction)
     })
   } finally {
     db.close()
+  }
+}
+
+function deleteRowsForLibrary(store: IDBObjectStore, libraryId: string, transaction: IDBTransaction): void {
+  const cursorRequest = store.index('libraryId').openCursor(IDBKeyRange.only(libraryId))
+  cursorRequest.onerror = () => transaction.abort()
+  cursorRequest.onsuccess = () => {
+    const cursor = cursorRequest.result
+    if (!cursor) return
+    cursor.delete()
+    cursor.continue()
   }
 }

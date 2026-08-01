@@ -6,6 +6,8 @@ import { qualityTierLabel } from './quality'
 import { bestTechnicalCandidate } from './qualityRanking'
 import { ReviewControls } from './ReviewControls'
 import { reviewStateOf } from './review'
+import { SourceFolderButton, SourcePath } from './SourcePathView'
+import { summarizeSourceFolders } from './sourcePaths'
 import type { LiteMediaRecord, LiteReviewFilter, LiteReviewState, LiteSimilarityGroup, LiteSimilarityProgress } from './types'
 
 interface SimilarityGroupsProps {
@@ -86,6 +88,7 @@ export function SimilarityGroups({ items, groups, reviewFilter, sessionFiles, pr
           <div className="similarity-groups">
             {visibleGroups.slice(0, 100).map((group) => {
               const groupItems = group.itemIds.map((id) => byId.get(id)).filter(isMediaRecord)
+              const sourceFolders = summarizeSourceFolders(groupItems)
               const best = bestTechnicalCandidate(groupItems)
               const bestIndex = best ? groupItems.findIndex((item) => item.id === best.id) : 0
               return (
@@ -93,6 +96,11 @@ export function SimilarityGroups({ items, groups, reviewFilter, sessionFiles, pr
                   <div className="similarity-group-head">
                     <div>
                       <span className={`group-kind ${group.kind}`}>{groupLabel(group.kind)}</span><strong>{groupItems.length} photos</strong><p>{group.reason}</p>
+                      <div className="group-source-folders" aria-label="Source folders represented in this group">
+                        <span className="group-source-label">{sourceFolders.length} source folder{sourceFolders.length === 1 ? '' : 's'}</span>
+                        {sourceFolders.slice(0, 8).map((summary) => <SourceFolderButton key={summary.folder} folder={summary.folder} count={summary.count} />)}
+                        {sourceFolders.length > 8 && <span className="muted">+{sourceFolders.length - 8} more</span>}
+                      </div>
                       {best?.qualityTier && <p className="group-best">Best technical candidate: <strong>{best.name}</strong> · {best.qualityScore}/100 {qualityTierLabel(best.qualityTier).toLowerCase()}</p>}
                     </div>
                     <button type="button" onClick={() => { setOpenGroupId(group.id); setOpenIndex(Math.max(0, bestIndex)) }}>Compare</button>
@@ -108,6 +116,7 @@ export function SimilarityGroups({ items, groups, reviewFilter, sessionFiles, pr
                           </div>
                           <span>{formatCapture(item)}</span>
                         </button>
+                        <SourcePath item={item} compact />
                         <ReviewControls item={item} compact onReview={onReview} />
                       </article>
                     ))}

@@ -4,6 +4,7 @@ import { hasLocation } from './filters'
 import { LocalPhotoImage } from './LocalPhotoImage'
 import { LocalThumbnail } from './LocalThumbnail'
 import { ReviewControls } from './ReviewControls'
+import { SourcePath } from './SourcePathView'
 import type { LiteMediaRecord, LiteReviewState } from './types'
 
 interface PhotoLightboxProps {
@@ -110,6 +111,10 @@ export function PhotoLightbox({ items, index, sessionFiles, onIndex, onClose, on
           </div>
 
           <aside className="lightbox-inspector">
+            <div className="inspector-section source-inspector">
+              <span className="inspector-label">Source</span>
+              <SourcePath item={item} />
+            </div>
             <div className="inspector-section">
               <span className="inspector-label">Captured</span>
               <strong>{formatCapture(item)}</strong>
@@ -120,6 +125,7 @@ export function PhotoLightbox({ items, index, sessionFiles, onIndex, onClose, on
               {item.width && item.height && <span>{item.width} × {item.height}</span>}
               {(item.cameraMake || item.cameraModel) && <span>{[item.cameraMake, item.cameraModel].filter(Boolean).join(' ')}</span>}
             </div>}
+            {item.faces && item.faces.length > 0 && <div className="inspector-section"><span className="inspector-label">People analysis</span><span>{item.faces.length} detected face{item.faces.length === 1 ? '' : 's'}</span></div>}
             {typeof item.qualityScore === 'number' && <div className="inspector-section">
               <div className="quality-inspector-head"><span className="inspector-label">Technical quality</span><strong>{item.qualityScore}/100</strong></div>
               <QualityBar label="Sharpness" value={item.sharpnessScore} />

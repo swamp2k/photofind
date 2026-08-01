@@ -195,7 +195,13 @@ function copyPersistentAndDerivedState(fresh: LiteMediaRecord, previous: LiteMed
     verticalGradient: previous.verticalGradient,
     qualityReasons: previous.qualityReasons,
     qualityError: previous.qualityError,
-    qualityAnalyzedAt: previous.qualityAnalyzedAt
+    qualityAnalyzedAt: previous.qualityAnalyzedAt,
+    faceAnalysisVersion: previous.faceAnalysisVersion,
+    faceAnalysisStatus: previous.faceAnalysisStatus,
+    faceFingerprint: previous.faceFingerprint,
+    faces: previous.faces,
+    faceAnalysisError: previous.faceAnalysisError,
+    facesAnalyzedAt: previous.facesAnalyzedAt
   }
 }
 

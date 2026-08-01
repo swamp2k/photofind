@@ -3,6 +3,8 @@ import { formatCapture } from './formatters'
 import { LocalPhotoImage } from './LocalPhotoImage'
 import { bestTechnicalCandidate } from './qualityRanking'
 import { reviewStateOf } from './review'
+import { SourcePath } from './SourcePathView'
+import { sourceFolderLabel, summarizeSourceFolders } from './sourcePaths'
 import type { LiteMediaRecord, LiteReviewState, LiteSimilarityGroup } from './types'
 
 interface ComparePanelProps {
@@ -18,6 +20,7 @@ export function ComparePanel({ items, groups, sessionFiles, onReview, onPickBest
   const byId = useMemo(() => new Map(items.map((item) => [item.id, item])), [items])
   const group = groups[Math.min(groupIndex, Math.max(0, groups.length - 1))]
   const candidates = useMemo(() => group ? group.itemIds.map((id) => byId.get(id)).filter(isMediaRecord) : [], [byId, group])
+  const sourceFolders = useMemo(() => summarizeSourceFolders(candidates), [candidates])
   const technicalBest = useMemo(() => bestTechnicalCandidate(candidates), [candidates])
   const [selectedId, setSelectedId] = useState<string | null>(technicalBest?.id ?? candidates[0]?.id ?? null)
   const selected = candidates.find((item) => item.id === selectedId) ?? candidates[0]
@@ -34,7 +37,7 @@ export function ComparePanel({ items, groups, sessionFiles, onReview, onPickBest
     <section className="compare-mode">
       <header className="compare-header">
         <button type="button" className="quiet-button" disabled={groupIndex === 0} onClick={() => setGroupIndex(groupIndex - 1)}>← Previous group</button>
-        <div><span className={`group-kind ${group.kind}`}>{groupLabel(group.kind)}</span><strong>Compare {candidates.length} related photos</strong><p>{group.reason}</p></div>
+        <div><span className={`group-kind ${group.kind}`}>{groupLabel(group.kind)}</span><strong>Compare {candidates.length} related photos</strong><p>{group.reason}</p><div className="compare-source-summary">{sourceFolders.map((summary) => <span key={summary.folder}>{sourceFolderLabel(summary.folder)} <b>{summary.count}</b></span>)}</div></div>
         <div className="compare-counter"><strong>{groupIndex + 1} / {groups.length}</strong><button type="button" className="quiet-button" disabled={groupIndex >= groups.length - 1} onClick={() => setGroupIndex(groupIndex + 1)}>Next group →</button></div>
       </header>
 
@@ -50,6 +53,7 @@ export function ComparePanel({ items, groups, sessionFiles, onReview, onPickBest
             </button>
             <div className="compare-candidate-meta">
               <strong>{item.name}</strong>
+              <SourcePath item={item} compact />
               <span>{formatCapture(item)}</span>
               <div className="candidate-score"><strong>{item.qualityScore ?? '–'}</strong><span>quality</span></div>
               <div className="candidate-signals"><span>Sharp {item.sharpnessScore ?? '–'}</span><span>Exposure {item.exposureScore ?? '–'}</span><span>Resolution {item.resolutionScore ?? '–'}</span></div>

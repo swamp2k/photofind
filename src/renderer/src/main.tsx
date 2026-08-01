@@ -7,6 +7,7 @@ import './lite3.css'
 import './lite4.css'
 import './lite5.css'
 import './visual-refresh.css'
+import './lite67.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

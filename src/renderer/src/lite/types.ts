@@ -8,9 +8,20 @@ export type LiteSimilarityStatus = 'ready' | 'failed'
 export type LiteSimilarityGroupKind = 'exact' | 'burst' | 'similar'
 export type LiteQualityStatus = 'ready' | 'failed'
 export type LiteQualityTier = 'great' | 'good' | 'okay' | 'weak'
+export type LiteFaceAnalysisStatus = 'ready' | 'failed'
 export type LiteReviewState = 'unreviewed' | 'keep' | 'maybe' | 'reject'
 export type LiteReviewFilter = 'all' | LiteReviewState
 export type LiteExportLayout = 'flat' | 'date-day' | 'date-month' | 'source-folders'
+
+export type LiteFaceBox = [number, number, number, number]
+
+export interface LiteFaceObservation {
+  id: string
+  box: LiteFaceBox
+  confidence: number
+  embedding: number[]
+  personId?: string
+}
 
 export interface LiteMediaRecord {
   id: string
@@ -63,6 +74,12 @@ export interface LiteMediaRecord {
   qualityReasons?: string[]
   qualityError?: string
   qualityAnalyzedAt?: number
+  faceAnalysisVersion?: number
+  faceAnalysisStatus?: LiteFaceAnalysisStatus
+  faceFingerprint?: string
+  faces?: LiteFaceObservation[]
+  faceAnalysisError?: string
+  facesAnalyzedAt?: number
   reviewState?: LiteReviewState
   reviewUpdatedAt?: number
 }
@@ -81,6 +98,42 @@ export interface LiteLibraryRecord {
   locatedCount?: number
   accessMode: LiteLibraryAccessMode
   rootHandle?: FileSystemDirectoryHandle
+}
+
+export interface LitePersonRecord {
+  id: string
+  libraryId: string
+  name?: string
+  ignored: boolean
+  faceRefs: string[]
+  centroid: number[]
+  createdAt: number
+  updatedAt: number
+}
+
+export type LitePeopleProgressPhase = 'models' | 'faces' | 'clustering'
+
+export interface LitePeopleProgress {
+  phase: LitePeopleProgressPhase
+  complete: number
+  total: number
+  reused: number
+  facesFound: number
+  currentPath: string
+}
+
+export interface LiteEventRecord {
+  id: string
+  libraryId: string
+  title: string
+  startTime: number
+  endTime: number
+  itemIds: string[]
+  personIds: string[]
+  folderPaths: string[]
+  latitude?: number
+  longitude?: number
+  evidence: string[]
 }
 
 export type LiteScanPhase = 'files' | 'metadata'
