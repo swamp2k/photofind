@@ -15,50 +15,56 @@ interface ReviewSessionProps {
 }
 
 export function ReviewSession({ title, items, sessionFiles, onReview, onExit }: ReviewSessionProps): JSX.Element {
-  const firstUnreviewed = Math.max(0, items.findIndex((item) => reviewStateOf(item) === 'unreviewed'))
+  const [sessionItems, setSessionItems] = useState<LiteMediaRecord[]>(() => items)
+  const firstUnreviewed = Math.max(0, sessionItems.findIndex((item) => reviewStateOf(item) === 'unreviewed'))
   const [index, setIndex] = useState(firstUnreviewed)
-  const item = items[Math.min(index, Math.max(0, items.length - 1))]
-  const reviewed = useMemo(() => items.filter((candidate) => reviewStateOf(candidate) !== 'unreviewed').length, [items])
-  const progress = items.length > 0 ? ((index + 1) / items.length) * 100 : 0
+  const item = sessionItems[Math.min(index, Math.max(0, sessionItems.length - 1))]
+  const reviewed = useMemo(() => sessionItems.filter((candidate) => reviewStateOf(candidate) !== 'unreviewed').length, [sessionItems])
+  const progress = sessionItems.length > 0 ? ((index + 1) / sessionItems.length) * 100 : 0
 
   useEffect(() => {
-    if (index >= items.length && items.length > 0) setIndex(items.length - 1)
-  }, [index, items.length])
+    setSessionItems((current) => current.map((candidate) => items.find((updated) => updated.id === candidate.id) ?? candidate))
+  }, [items])
+
+  useEffect(() => {
+    if (index >= sessionItems.length && sessionItems.length > 0) setIndex(sessionItems.length - 1)
+  }, [index, sessionItems.length])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') onExit()
       if (event.key === 'ArrowLeft') setIndex((value) => Math.max(0, value - 1))
-      if (event.key === 'ArrowRight') setIndex((value) => Math.min(items.length - 1, value + 1))
+      if (event.key === 'ArrowRight') setIndex((value) => Math.min(sessionItems.length - 1, value + 1))
       if (!item) return
       if (event.key.toLowerCase() === 'k') decide('keep')
       if (event.key.toLowerCase() === 'm') decide('maybe')
       if (event.key.toLowerCase() === 'r') decide('reject')
-      if (event.key.toLowerCase() === 'u') onReview([item], 'unreviewed')
+      if (event.key.toLowerCase() === 'u') decide('unreviewed', false)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   })
 
-  function decide(state: LiteReviewState): void {
+  function decide(state: LiteReviewState, advance = true): void {
     if (!item) return
+    setSessionItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, reviewState: state, reviewUpdatedAt: Date.now() } : candidate))
     onReview([item], state)
-    if (index < items.length - 1) setIndex(index + 1)
+    if (advance && index < sessionItems.length - 1) setIndex(index + 1)
   }
 
-  if (items.length === 0 || !item) {
+  if (sessionItems.length === 0 || !item) {
     return <section className="focus-empty"><h2>No photos in this review session</h2><p>Change the current filters or return to the library.</p><button type="button" onClick={onExit}>Back to library</button></section>
   }
 
-  const nearbyStart = Math.max(0, Math.min(index - 2, items.length - 5))
-  const nearby = items.slice(nearbyStart, nearbyStart + 5)
+  const nearbyStart = Math.max(0, Math.min(index - 2, sessionItems.length - 5))
+  const nearby = sessionItems.slice(nearbyStart, nearbyStart + 5)
 
   return (
     <section className="review-session">
       <header className="focus-header">
         <button type="button" className="quiet-button" onClick={onExit}>← Exit review</button>
-        <div className="focus-title"><strong>{title}</strong><span>{items.length.toLocaleString()} photos · {reviewed.toLocaleString()} decided</span></div>
-        <div className="focus-progress"><strong>{index + 1} / {items.length}</strong><div><i style={{ width: `${progress}%` }} /></div></div>
+        <div className="focus-title"><strong>{title}</strong><span>{sessionItems.length.toLocaleString()} photos · {reviewed.toLocaleString()} decided</span></div>
+        <div className="focus-progress"><strong>{index + 1} / {sessionItems.length}</strong><div><i style={{ width: `${progress}%` }} /></div></div>
       </header>
 
       <div className="review-layout">
@@ -66,7 +72,7 @@ export function ReviewSession({ title, items, sessionFiles, onReview, onExit }: 
           <div className="review-photo-stage">
             <button type="button" className="focus-nav previous" disabled={index === 0} onClick={() => setIndex(index - 1)} aria-label="Previous photo">‹</button>
             <LocalPhotoImage item={item} sessionFile={sessionFiles.get(item.id)} className="review-main-image" eager />
-            <button type="button" className="focus-nav next" disabled={index >= items.length - 1} onClick={() => setIndex(index + 1)} aria-label="Next photo">›</button>
+            <button type="button" className="focus-nav next" disabled={index >= sessionItems.length - 1} onClick={() => setIndex(index + 1)} aria-label="Next photo">›</button>
           </div>
 
           <div className="review-decision-bar">
@@ -86,7 +92,7 @@ export function ReviewSession({ title, items, sessionFiles, onReview, onExit }: 
         <aside className="review-info">
           <section><span className="inspector-label">Photo</span><strong>{item.name}</strong><span>{formatCapture(item)}</span><span>{hasLocation(item) ? formatLocation(item) : 'No location data'}</span>{item.width && item.height && <span>{item.width} × {item.height}</span>}</section>
           {typeof item.qualityScore === 'number' && <section><div className="quality-inspector-head"><span className="inspector-label">Technical quality</span><strong>{item.qualityScore}/100</strong></div><ReviewMetric label="Sharpness" value={item.sharpnessScore} /><ReviewMetric label="Exposure" value={item.exposureScore} /><ReviewMetric label="Resolution" value={item.resolutionScore} />{(item.qualityReasons ?? []).slice(0, 3).map((reason) => <small key={reason}>{reason}</small>)}</section>}
-          <section><span className="inspector-label">Current decision</span><strong className={`review-state-text ${reviewStateOf(item)}`}>{reviewStateOf(item)}</strong><button type="button" className="quiet-button" onClick={() => onReview([item], 'unreviewed')}>Reset to unreviewed</button></section>
+          <section><span className="inspector-label">Current decision</span><strong className={`review-state-text ${reviewStateOf(item)}`}>{reviewStateOf(item)}</strong><button type="button" className="quiet-button" onClick={() => decide('unreviewed', false)}>Reset to unreviewed</button></section>
           <section className="shortcut-help"><span className="inspector-label">Keyboard</span><span>← → navigate</span><span>K keep · M maybe · R reject</span><span>U reset · Esc exit</span></section>
         </aside>
       </div>
