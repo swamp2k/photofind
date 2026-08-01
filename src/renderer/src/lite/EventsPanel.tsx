@@ -3,7 +3,7 @@ import { formatCapture } from './formatters'
 import { LocalThumbnail } from './LocalThumbnail'
 import { PhotoLightbox } from './PhotoLightbox'
 import { ReviewControls } from './ReviewControls'
-import { SourceFolderButton } from './SourcePath'
+import { SourceFolderButton } from './SourcePathView'
 import { sourceFolderLabel, summarizeSourceFolders } from './sourcePaths'
 import type { LiteEventRecord, LiteMediaRecord, LitePersonRecord, LiteReviewState } from './types'
 
