@@ -7,7 +7,7 @@ import { bestTechnicalCandidate } from './qualityRanking'
 import { ReviewControls } from './ReviewControls'
 import { reviewStateOf } from './review'
 import { SourceFolderButton, SourcePath } from './SourcePath'
-import { summarizeSourceFolders } from './sourcePath'
+import { summarizeSourceFolders } from './sourcePaths'
 import type { LiteMediaRecord, LiteReviewFilter, LiteReviewState, LiteSimilarityGroup, LiteSimilarityProgress } from './types'
 
 interface SimilarityGroupsProps {
