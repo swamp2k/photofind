@@ -24,9 +24,18 @@ export function setReviewState(
   state: LiteReviewState,
   updatedAt = Date.now()
 ): { items: LiteMediaRecord[]; changed: LiteMediaRecord[] } {
+  return setReviewAssignments(items, new Map([...itemIds].map((id) => [id, state])), updatedAt)
+}
+
+export function setReviewAssignments(
+  items: LiteMediaRecord[],
+  assignments: ReadonlyMap<string, LiteReviewState>,
+  updatedAt = Date.now()
+): { items: LiteMediaRecord[]; changed: LiteMediaRecord[] } {
   const changed: LiteMediaRecord[] = []
   const next = items.map((item) => {
-    if (!itemIds.has(item.id) || item.kind !== 'image' || reviewStateOf(item) === state) return item
+    const state = assignments.get(item.id)
+    if (!state || item.kind !== 'image' || reviewStateOf(item) === state) return item
     const updated = { ...item, reviewState: state, reviewUpdatedAt: updatedAt }
     changed.push(updated)
     return updated
