@@ -170,6 +170,8 @@ export interface LiteExportProgress {
   exported: number
   renamed: number
   failed: number
+  metadataEmbedded: number
+  sidecarsWritten: number
   currentPath: string
 }
 
@@ -182,6 +184,9 @@ export interface LiteExportFailure {
 export interface LiteExportResult {
   exported: number
   renamed: number
+  metadataEmbedded: number
+  sidecarsWritten: number
+  metadataUnchanged: number
   failures: LiteExportFailure[]
   manifestPath?: string
   reportPath?: string
