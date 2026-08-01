@@ -69,13 +69,25 @@ Goal: rank and explain technical photo quality.
 
 Goal: turn search results into useful finished selections.
 
-- `unreviewed`, `keep`, `maybe`, `reject`.
-- Keeper tray.
-- Bulk and visible-result actions.
-- Export selected originals with collision safety.
-- Optional folder templates.
-- Optional sidecar/report export.
-- Explicit metadata-normalised export without modifying sources.
+Implemented in the current static app:
+
+- Persistent `unreviewed`, `keep`, `maybe`, `reject` decisions.
+- Review filters, counters, per-photo controls and bulk actions for current results.
+- Review from photo grid, map, quality ranking, similarity groups and full-size viewer.
+- Keyboard review shortcuts in the full-size viewer.
+- Keeper tray / Selection view.
+- Export Keep or Keep+Maybe originals to an explicitly selected local folder.
+- Flat, date-day, date-month and source-folder export layouts.
+- Collision-safe filenames with no destination overwrite.
+- Optional standalone JSON and HTML selection reports.
+- Visible per-file and report-generation failures.
+- Review decisions preserved through rescans.
+
+Possible later export extensions:
+
+- More configurable folder/filename templates.
+- Explicit metadata-normalised copies without modifying sources.
+- Additional sidecar formats.
 
 ## Lite 6 — People, events, and richer local intelligence
 
