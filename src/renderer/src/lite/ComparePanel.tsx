@@ -4,7 +4,7 @@ import { LocalPhotoImage } from './LocalPhotoImage'
 import { bestTechnicalCandidate } from './qualityRanking'
 import { reviewStateOf } from './review'
 import { SourcePath } from './SourcePath'
-import { sourceFolderLabel, summarizeSourceFolders } from './sourcePath'
+import { sourceFolderLabel, summarizeSourceFolders } from './sourcePaths'
 import type { LiteMediaRecord, LiteReviewState, LiteSimilarityGroup } from './types'
 
 interface ComparePanelProps {
