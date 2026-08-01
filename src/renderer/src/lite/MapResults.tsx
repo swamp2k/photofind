@@ -3,7 +3,7 @@ import { GeoMap } from './GeoMap'
 import { hasLocation } from './filters'
 import { LocalThumbnail } from './LocalThumbnail'
 import { ReviewControls } from './ReviewControls'
-import { SourcePath } from './SourcePath'
+import { SourcePath } from './SourcePathView'
 import type { LiteGeoBounds, LiteMediaRecord, LiteReviewState } from './types'
 
 interface MapResultsProps {
