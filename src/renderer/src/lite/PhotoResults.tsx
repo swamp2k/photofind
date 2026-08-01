@@ -3,7 +3,8 @@ import { formatCapture, formatLocation } from './formatters'
 import { hasLocation } from './filters'
 import { LocalThumbnail } from './LocalThumbnail'
 import { PhotoLightbox } from './PhotoLightbox'
-import type { LiteMediaRecord } from './types'
+import { ReviewControls } from './ReviewControls'
+import type { LiteMediaRecord, LiteReviewState } from './types'
 
 interface PhotoResultsProps {
   items: LiteMediaRecord[]
@@ -11,9 +12,10 @@ interface PhotoResultsProps {
   selectedId: string | null
   sessionFiles: Map<string, File>
   onShowMore(): void
+  onReview(item: LiteMediaRecord, state: LiteReviewState): void
 }
 
-export function PhotoResults({ items, visibleCount, selectedId, sessionFiles, onShowMore }: PhotoResultsProps): JSX.Element {
+export function PhotoResults({ items, visibleCount, selectedId, sessionFiles, onShowMore, onReview }: PhotoResultsProps): JSX.Element {
   const [openIndex, setOpenIndex] = useState<number | null>(null)
   const visible = items.slice(0, visibleCount)
   return (
@@ -30,23 +32,20 @@ export function PhotoResults({ items, visibleCount, selectedId, sessionFiles, on
       ) : (
         <div className="photo-grid">
           {visible.map((item, index) => (
-            <button
-              type="button"
-              className={selectedId === item.id ? 'photo-card photo-card-button selected' : 'photo-card photo-card-button'}
-              key={item.id}
-              onClick={() => setOpenIndex(index)}
-              title={`Open ${item.name}`}
-            >
-              <div className="photo-preview">
-                <LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} />
-                {item.qualityStatus === 'ready' && item.qualityTier && <span className={`photo-quality-badge ${item.qualityTier}`}>{item.qualityScore}</span>}
-              </div>
-              <div className="photo-card-body">
-                <strong className="photo-name" title={item.relativePath}>{item.name}</strong>
-                <span className="photo-date">{formatCapture(item)}</span>
-                <span className="photo-detail">{hasLocation(item) ? formatLocation(item) : 'No location'}{item.cameraModel ? ` · ${item.cameraModel}` : ''}</span>
-              </div>
-            </button>
+            <article className={selectedId === item.id ? 'photo-card selected' : 'photo-card'} key={item.id}>
+              <button type="button" className="photo-open-button" onClick={() => setOpenIndex(index)} title={`Open ${item.name}`}>
+                <div className="photo-preview">
+                  <LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} />
+                  {item.qualityStatus === 'ready' && item.qualityTier && <span className={`photo-quality-badge ${item.qualityTier}`}>{item.qualityScore}</span>}
+                </div>
+                <div className="photo-card-body">
+                  <strong className="photo-name" title={item.relativePath}>{item.name}</strong>
+                  <span className="photo-date">{formatCapture(item)}</span>
+                  <span className="photo-detail">{hasLocation(item) ? formatLocation(item) : 'No location'}{item.cameraModel ? ` · ${item.cameraModel}` : ''}</span>
+                </div>
+              </button>
+              <ReviewControls item={item} compact onReview={onReview} />
+            </article>
           ))}
         </div>
       )}
@@ -62,6 +61,7 @@ export function PhotoResults({ items, visibleCount, selectedId, sessionFiles, on
           sessionFiles={sessionFiles}
           onIndex={setOpenIndex}
           onClose={() => setOpenIndex(null)}
+          onReview={onReview}
         />
       )}
     </section>
