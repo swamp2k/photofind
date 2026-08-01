@@ -106,7 +106,7 @@ async function analyzeOne(
 async function loadHuman(): Promise<HumanInstance> {
   humanPromise ??= (async () => {
     const module = await import('@vladmandic/human')
-    const modelBasePath = new URL(`${import.meta.env.BASE_URL}models/`, window.location.origin).href
+    const modelBasePath = new URL('models/', document.baseURI).href
     const human = new module.default({
       backend: 'webgl',
       modelBasePath,
