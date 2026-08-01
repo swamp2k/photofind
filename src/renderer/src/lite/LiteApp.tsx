@@ -17,7 +17,7 @@ import { scanDirectory, scanFileSelection } from './scanner'
 import { buildSimilarityGroups } from './similarity'
 import { analyzeSimilarity } from './similarityAnalysis'
 import { SimilarityGroups } from './SimilarityGroups'
-import type { LiteDateMetadataFilter, LiteExportLayout, LiteExportProgress, LiteExportResult, LiteGeoBounds, LiteLibraryAccessMode, LiteLibraryRecord, LiteLocationFilter, LiteMediaRecord, LitePhotoFilters, LiteQualityProgress, LiteReviewFilter, LiteReviewState, LiteScanProgress, LiteSimilarityGroup, LiteSimilarityProgress } from './types'
+import type { LiteDateMetadataFilter, LiteExportLayout, LiteExportProgress, LiteExportResult, LiteGeoBounds, LiteLibraryAccessMode, LiteLibraryRecord, LiteLocationFilter, LiteMediaRecord, LitePhotoFilters, LiteQualityProgress, LiteReviewFilter, LiteReviewState, LiteScanProgress, LiteSimilarityProgress } from './types'
 
 const PAGE_SIZE = 120
 type BrowseView = 'photos' | 'map' | 'groups' | 'quality' | 'review' | 'compare' | 'selection'
