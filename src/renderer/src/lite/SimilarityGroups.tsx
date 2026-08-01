@@ -4,7 +4,8 @@ import { LocalThumbnail } from './LocalThumbnail'
 import { PhotoLightbox } from './PhotoLightbox'
 import { qualityTierLabel } from './quality'
 import { bestTechnicalCandidate } from './qualityRanking'
-import type { LiteMediaRecord, LiteSimilarityGroup, LiteSimilarityProgress } from './types'
+import { ReviewControls } from './ReviewControls'
+import type { LiteMediaRecord, LiteReviewState, LiteSimilarityGroup, LiteSimilarityProgress } from './types'
 
 interface SimilarityGroupsProps {
   items: LiteMediaRecord[]
@@ -14,9 +15,10 @@ interface SimilarityGroupsProps {
   busy: boolean
   reconnectRequired: boolean
   onAnalyze(): void
+  onReview(item: LiteMediaRecord, state: LiteReviewState): void
 }
 
-export function SimilarityGroups({ items, groups, sessionFiles, progress, busy, reconnectRequired, onAnalyze }: SimilarityGroupsProps): JSX.Element {
+export function SimilarityGroups({ items, groups, sessionFiles, progress, busy, reconnectRequired, onAnalyze, onReview }: SimilarityGroupsProps): JSX.Element {
   const [kind, setKind] = useState<'all' | 'exact' | 'burst' | 'similar'>('all')
   const [openGroupId, setOpenGroupId] = useState<string | null>(null)
   const [openIndex, setOpenIndex] = useState(0)
@@ -89,14 +91,17 @@ export function SimilarityGroups({ items, groups, sessionFiles, progress, busy, 
                   </div>
                   <div className="compare-strip">
                     {groupItems.slice(0, 10).map((item, index) => (
-                      <button type="button" className={best?.id === item.id ? 'compare-thumb best' : 'compare-thumb'} key={item.id} onClick={() => { setOpenGroupId(group.id); setOpenIndex(index) }}>
-                        <div className="compare-image">
-                          <LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} />
-                          {best?.id === item.id && <span className="best-badge">Best technical</span>}
-                          {item.qualityStatus === 'ready' && <span className={`mini-quality ${item.qualityTier ?? 'okay'}`}>{item.qualityScore}</span>}
-                        </div>
-                        <span>{formatCapture(item)}</span>
-                      </button>
+                      <article className={best?.id === item.id ? 'compare-thumb best' : 'compare-thumb'} key={item.id}>
+                        <button type="button" className="compare-open" onClick={() => { setOpenGroupId(group.id); setOpenIndex(index) }}>
+                          <div className="compare-image">
+                            <LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} />
+                            {best?.id === item.id && <span className="best-badge">Best technical</span>}
+                            {item.qualityStatus === 'ready' && <span className={`mini-quality ${item.qualityTier ?? 'okay'}`}>{item.qualityScore}</span>}
+                          </div>
+                          <span>{formatCapture(item)}</span>
+                        </button>
+                        <ReviewControls item={item} compact onReview={onReview} />
+                      </article>
                     ))}
                     {groupItems.length > 10 && <div className="compare-more">+{groupItems.length - 10}</div>}
                   </div>
@@ -104,7 +109,7 @@ export function SimilarityGroups({ items, groups, sessionFiles, progress, busy, 
               )
             })}
           </div>
-          {visibleGroups.length > 100 && <p className="muted">Showing the first 100 groups. More focused group filtering will come with the review workflow.</p>}
+          {visibleGroups.length > 100 && <p className="muted">Showing the first 100 groups. Use the group-type filters to narrow the set.</p>}
         </>
       )}
 
@@ -115,6 +120,7 @@ export function SimilarityGroups({ items, groups, sessionFiles, progress, busy, 
           sessionFiles={sessionFiles}
           onIndex={setOpenIndex}
           onClose={() => setOpenGroupId(null)}
+          onReview={onReview}
         />
       )}
     </section>
