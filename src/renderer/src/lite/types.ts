@@ -8,6 +8,9 @@ export type LiteSimilarityStatus = 'ready' | 'failed'
 export type LiteSimilarityGroupKind = 'exact' | 'burst' | 'similar'
 export type LiteQualityStatus = 'ready' | 'failed'
 export type LiteQualityTier = 'great' | 'good' | 'okay' | 'weak'
+export type LiteReviewState = 'unreviewed' | 'keep' | 'maybe' | 'reject'
+export type LiteReviewFilter = 'all' | LiteReviewState
+export type LiteExportLayout = 'flat' | 'date-day' | 'date-month' | 'source-folders'
 
 export interface LiteMediaRecord {
   id: string
@@ -60,6 +63,8 @@ export interface LiteMediaRecord {
   qualityReasons?: string[]
   qualityError?: string
   qualityAnalyzedAt?: number
+  reviewState?: LiteReviewState
+  reviewUpdatedAt?: number
 }
 
 export interface LiteLibraryRecord {
@@ -150,4 +155,33 @@ export interface LiteQualityMeasurements {
   laplacianMeanAbs: number
   horizontalGradient: number
   verticalGradient: number
+}
+
+export interface LiteReviewCounts {
+  unreviewed: number
+  keep: number
+  maybe: number
+  reject: number
+}
+
+export interface LiteExportProgress {
+  complete: number
+  total: number
+  exported: number
+  renamed: number
+  failed: number
+  currentPath: string
+}
+
+export interface LiteExportFailure {
+  itemId: string
+  relativePath: string
+  message: string
+}
+
+export interface LiteExportResult {
+  exported: number
+  renamed: number
+  failures: LiteExportFailure[]
+  manifestPath?: string
 }
