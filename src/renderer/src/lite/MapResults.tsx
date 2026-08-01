@@ -2,7 +2,8 @@ import { formatCapture, formatLocation } from './formatters'
 import { GeoMap } from './GeoMap'
 import { hasLocation } from './filters'
 import { LocalThumbnail } from './LocalThumbnail'
-import type { LiteGeoBounds, LiteMediaRecord } from './types'
+import { ReviewControls } from './ReviewControls'
+import type { LiteGeoBounds, LiteMediaRecord, LiteReviewState } from './types'
 
 interface MapResultsProps {
   items: LiteMediaRecord[]
@@ -13,6 +14,7 @@ interface MapResultsProps {
   onBoundsChange(bounds: LiteGeoBounds | null): void
   onSelect(itemId: string): void
   onShowSelected(): void
+  onReview(item: LiteMediaRecord, state: LiteReviewState): void
 }
 
 export function MapResults(props: MapResultsProps): JSX.Element {
@@ -43,7 +45,7 @@ export function MapResults(props: MapResultsProps): JSX.Element {
             <div className="eyebrow">Selected photo</div>
             <strong>{props.selected.name}</strong>
             <p>{formatCapture(props.selected)} · {formatLocation(props.selected)}</p>
-            <button onClick={props.onShowSelected}>Show in photo results</button>
+            <div className="map-selection-actions"><button onClick={props.onShowSelected}>Show in photo results</button><ReviewControls item={props.selected} onReview={props.onReview} /></div>
           </div>
         </article>
       )}
