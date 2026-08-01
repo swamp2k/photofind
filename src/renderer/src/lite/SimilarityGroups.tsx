@@ -6,7 +6,7 @@ import { qualityTierLabel } from './quality'
 import { bestTechnicalCandidate } from './qualityRanking'
 import { ReviewControls } from './ReviewControls'
 import { reviewStateOf } from './review'
-import { SourceFolderButton, SourcePath } from './SourcePath'
+import { SourceFolderButton, SourcePath } from './SourcePathView'
 import { summarizeSourceFolders } from './sourcePaths'
 import type { LiteMediaRecord, LiteReviewFilter, LiteReviewState, LiteSimilarityGroup, LiteSimilarityProgress } from './types'
 
