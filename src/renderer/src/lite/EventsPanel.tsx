@@ -4,7 +4,7 @@ import { LocalThumbnail } from './LocalThumbnail'
 import { PhotoLightbox } from './PhotoLightbox'
 import { ReviewControls } from './ReviewControls'
 import { SourceFolderButton } from './SourcePath'
-import { sourceFolderLabel, summarizeSourceFolders } from './sourcePath'
+import { sourceFolderLabel, summarizeSourceFolders } from './sourcePaths'
 import type { LiteEventRecord, LiteMediaRecord, LitePersonRecord, LiteReviewState } from './types'
 
 interface EventsPanelProps {
