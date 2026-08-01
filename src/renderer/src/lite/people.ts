@@ -24,6 +24,13 @@ interface WorkingCluster {
   refs: string[]
 }
 
+interface PersonAggregate {
+  refs: string[]
+  sum: number[]
+  count: number
+  libraryId: string
+}
+
 export function faceReference(itemId: string, faceId: string): string {
   return `${itemId}#${faceId}`
 }
@@ -35,7 +42,6 @@ export function clusterPeople(
   createId: () => string = () => crypto.randomUUID()
 ): LitePeopleStateResult {
   const entries = collectFaces(items).sort((a, b) => a.ref.localeCompare(b.ref))
-  const existingById = new Map(existingPeople.map((person) => [person.id, person]))
   const clusters = new Map<string, WorkingCluster>()
 
   for (const person of existingPeople) {
@@ -44,7 +50,7 @@ export function clusterPeople(
       id: person.id,
       template: person,
       centroid: [...person.centroid],
-      sum: new Array(person.centroid.length).fill(0),
+      sum: new Array<number>(person.centroid.length).fill(0),
       count: 0,
       refs: []
     })
@@ -75,7 +81,7 @@ export function clusterPeople(
 
     if (!selected) {
       const id = `person-${createId()}`
-      selected = { id, centroid: embedding, sum: new Array(embedding.length).fill(0), count: 0, refs: [] }
+      selected = { id, centroid: embedding, sum: new Array<number>(embedding.length).fill(0), count: 0, refs: [] }
       clusters.set(id, selected)
     }
 
@@ -176,7 +182,7 @@ export function splitFaceIntoNewPerson(
   })
   if (changed.length === 0) return { items, changed: [], people }
 
-  const templates = [...people, {
+  const templates: LitePersonRecord[] = [...people, {
     id: newId,
     libraryId: changed[0].libraryId,
     ignored: false,
@@ -191,8 +197,8 @@ export function splitFaceIntoNewPerson(
 export function peoplePhotoCounts(items: LiteMediaRecord[]): Map<string, number> {
   const counts = new Map<string, number>()
   for (const item of items) {
-    const people = new Set((item.faces ?? []).map((face) => face.personId).filter(isString))
-    for (const personId of people) counts.set(personId, (counts.get(personId) ?? 0) + 1)
+    const assignedPeople = new Set<string>((item.faces ?? []).map((face) => face.personId).filter(isString))
+    for (const personId of assignedPeople) counts.set(personId, (counts.get(personId) ?? 0) + 1)
   }
   return counts
 }
@@ -205,7 +211,7 @@ export interface LitePersonPairCount {
 export function rarePersonPairs(items: LiteMediaRecord[]): LitePersonPairCount[] {
   const counts = new Map<string, number>()
   for (const item of items) {
-    const ids = [...new Set((item.faces ?? []).map((face) => face.personId).filter(isString))].sort()
+    const ids = [...new Set<string>((item.faces ?? []).map((face) => face.personId).filter(isString))].sort()
     for (let left = 0; left < ids.length; left += 1) {
       for (let right = left + 1; right < ids.length; right += 1) {
         const key = `${ids[left]}\u0000${ids[right]}`
@@ -244,7 +250,7 @@ function collectFaces(items: LiteMediaRecord[]): FaceEntry[] {
 }
 
 function addToCluster(cluster: WorkingCluster, embedding: number[], ref: string): void {
-  if (cluster.sum.length !== embedding.length) cluster.sum = new Array(embedding.length).fill(0)
+  if (cluster.sum.length !== embedding.length) cluster.sum = new Array<number>(embedding.length).fill(0)
   for (let index = 0; index < embedding.length; index += 1) cluster.sum[index] += embedding[index]
   cluster.count += 1
   cluster.refs.push(ref)
@@ -253,11 +259,16 @@ function addToCluster(cluster: WorkingCluster, embedding: number[], ref: string)
 
 function rebuildPeopleFromAssignments(items: LiteMediaRecord[], templates: LitePersonRecord[], now: number): LitePersonRecord[] {
   const templateById = new Map(templates.map((person) => [person.id, person]))
-  const aggregates = new Map<string, { refs: string[]; sum: number[]; count: number; libraryId: string }>()
+  const aggregates = new Map<string, PersonAggregate>()
   for (const item of items) {
     for (const face of item.faces ?? []) {
       if (!face.personId || face.embedding.length === 0) continue
-      const aggregate = aggregates.get(face.personId) ?? { refs: [], sum: new Array(face.embedding.length).fill(0), count: 0, libraryId: item.libraryId }
+      const aggregate: PersonAggregate = aggregates.get(face.personId) ?? {
+        refs: [],
+        sum: new Array<number>(face.embedding.length).fill(0),
+        count: 0,
+        libraryId: item.libraryId
+      }
       if (aggregate.sum.length !== face.embedding.length) continue
       for (let index = 0; index < face.embedding.length; index += 1) aggregate.sum[index] += face.embedding[index]
       aggregate.count += 1
