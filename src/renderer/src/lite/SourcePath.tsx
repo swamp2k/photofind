@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { sourceFolderLabel, sourceFolderOf } from './sourcePath'
+import { sourceFolderLabel, sourceFolderOf } from './sourcePaths'
 import { useSourceNavigation } from './SourceNavigation'
 import type { LiteMediaRecord } from './types'
 
