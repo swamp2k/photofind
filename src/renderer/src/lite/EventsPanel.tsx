@@ -3,6 +3,7 @@ import { formatCapture } from './formatters'
 import { LocalThumbnail } from './LocalThumbnail'
 import { PhotoLightbox } from './PhotoLightbox'
 import { ReviewControls } from './ReviewControls'
+import { SourceFolderButton } from './SourcePath'
 import { sourceFolderLabel, summarizeSourceFolders } from './sourcePath'
 import type { LiteEventRecord, LiteMediaRecord, LitePersonRecord, LiteReviewState } from './types'
 
@@ -48,7 +49,7 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview }: E
               <header className="event-detail-head"><div><span className="inspector-label">Detected event</span><h3>{selected.title}</h3><p>{formatEventRange(selected)} · {selected.itemIds.length.toLocaleString()} photos</p></div>{selected.personIds.length > 0 && <div className="event-people">{selected.personIds.slice(0, 6).map((id) => <span key={id}>{peopleById.get(id)?.name || 'Unnamed person'}</span>)}</div>}</header>
 
               <div className="event-evidence"><strong>Why these photos are together</strong><div>{selected.evidence.length > 0 ? selected.evidence.map((value) => <span key={value}>{value}</span>) : <span>single moment</span>}</div></div>
-              <div className="event-folders"><strong>Source folders</strong><div>{summarizeSourceFolders(selectedItems).map((summary) => <span key={summary.folder}>{sourceFolderLabel(summary.folder)} <b>{summary.count}</b></span>)}</div></div>
+              <div className="event-folders"><strong>Source folders</strong><div>{summarizeSourceFolders(selectedItems).map((summary) => <SourceFolderButton key={summary.folder} folder={summary.folder} count={summary.count} />)}</div></div>
 
               <div className="event-photo-grid">
                 {selectedItems.slice(0, 300).map((item, index) => <article key={item.id}><button type="button" className="event-photo-open" onClick={() => setOpenIndex(index)}><LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} /></button><div><strong>{item.name}</strong><span>{formatCapture(item)}</span><ReviewControls item={item} compact onReview={onReview} /></div></article>)}
