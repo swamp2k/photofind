@@ -20,14 +20,7 @@ interface BrowseFiltersProps {
 
 export function BrowseFilters(props: BrowseFiltersProps): JSX.Element {
   return (
-    <section className="filter-panel">
-      <div className="filter-heading">
-        <div>
-          <div className="eyebrow">Find photos</div>
-          <h2>Time and place</h2>
-        </div>
-        <button onClick={props.onClear}>Clear filters</button>
-      </div>
+    <section className="filter-panel modern-filters">
       <div className="filter-grid">
         <label>
           <span>Year</span>
@@ -45,27 +38,24 @@ export function BrowseFilters(props: BrowseFiltersProps): JSX.Element {
           <input type="date" value={props.toDate} onChange={(event) => props.onToDate(event.target.value)} />
         </label>
         <label>
-          <span>Location</span>
+          <span>Place</span>
           <select value={props.location} onChange={(event) => props.onLocation(event.target.value as LiteLocationFilter)}>
-            <option value="all">All photos</option>
+            <option value="all">Anywhere</option>
             <option value="located">With location</option>
             <option value="missing">Missing location</option>
           </select>
         </label>
         <label>
-          <span>Capture metadata</span>
+          <span>Date source</span>
           <select value={props.dateMetadata} onChange={(event) => props.onDateMetadata(event.target.value as LiteDateMetadataFilter)}>
-            <option value="all">All timestamps</option>
-            <option value="captured">EXIF / Takeout date</option>
-            <option value="file-only">File time fallback only</option>
+            <option value="all">Any timestamp</option>
+            <option value="captured">EXIF / Takeout</option>
+            <option value="file-only">File fallback only</option>
           </select>
         </label>
+        <button type="button" className="clear-filter-button" onClick={props.onClear}>Reset</button>
       </div>
-      <div className="filter-result-row">
-        <strong>{props.matchingCount.toLocaleString()}</strong>
-        <span>of {props.totalCount.toLocaleString()} photos match</span>
-        {props.viewportActive && <span className="filter-badge">map viewport active</span>}
-      </div>
+      <div className="filter-context"><span><strong>{props.matchingCount.toLocaleString()}</strong> of {props.totalCount.toLocaleString()} photos</span>{props.viewportActive && <span className="filter-badge">Map area active</span>}</div>
     </section>
   )
 }
