@@ -184,4 +184,5 @@ export interface LiteExportResult {
   renamed: number
   failures: LiteExportFailure[]
   manifestPath?: string
+  reportPath?: string
 }
