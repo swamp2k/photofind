@@ -114,7 +114,7 @@ async function writeJpegExif(
 
   if (piexif.ImageIFD.Software) exif['0th'][piexif.ImageIFD.Software] = 'PhotoFind Lite'
   const output = piexif.insert(piexif.dump(exif), binary)
-  return new Blob([binaryToUint8Array(output)], { type: 'image/jpeg' })
+  return new Blob([binaryToArrayBuffer(output)], { type: 'image/jpeg' })
 }
 
 function buildXmpSidecar(
@@ -148,10 +148,11 @@ function arrayBufferToBinary(buffer: ArrayBuffer): string {
   return chunks.join('')
 }
 
-function binaryToUint8Array(binary: string): Uint8Array {
-  const bytes = new Uint8Array(binary.length)
+function binaryToArrayBuffer(binary: string): ArrayBuffer {
+  const buffer = new ArrayBuffer(binary.length)
+  const bytes = new Uint8Array(buffer)
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index) & 0xff
-  return bytes
+  return buffer
 }
 
 function isJpeg(file: File, name: string): boolean {
