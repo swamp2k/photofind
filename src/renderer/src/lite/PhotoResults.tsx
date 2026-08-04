@@ -13,7 +13,7 @@ interface PhotoResultsProps {
   selectedId: string | null
   sessionFiles: Map<string, File>
   onShowMore(): void
-  onReview(items: LiteMediaRecord[], state: LiteReviewState): void
+  onReview(item: LiteMediaRecord, state: LiteReviewState): void
 }
 
 export function PhotoResults({ items, visibleCount, selectedId, sessionFiles, onShowMore, onReview }: PhotoResultsProps): JSX.Element {
@@ -30,7 +30,7 @@ export function PhotoResults({ items, visibleCount, selectedId, sessionFiles, on
         <span className="muted">Showing {Math.min(visibleCount, items.length).toLocaleString()} · click to preview · Ctrl-click to select · Shift-click for a range</span>
       </div>
 
-      <PhotoSelectionBar items={selection.selectedItems} onReview={onReview} onClear={selection.clear} />
+      <PhotoSelectionBar items={selection.selectedItems} onReview={(targets, state) => targets.forEach((item) => onReview(item, state))} onClear={selection.clear} />
 
       {items.length === 0 ? (
         <p className="muted">No photos match the current filters.</p>
@@ -59,7 +59,7 @@ export function PhotoResults({ items, visibleCount, selectedId, sessionFiles, on
                     <span className="photo-detail">{hasLocation(item) ? formatLocation(item) : 'No location'}{item.cameraModel ? ` · ${item.cameraModel}` : ''}</span>
                   </div>
                 </button>
-                <ReviewControls item={item} compact onReview={(target, state) => onReview([target], state)} />
+                <ReviewControls item={item} compact onReview={onReview} />
               </article>
             )
           })}
@@ -77,7 +77,7 @@ export function PhotoResults({ items, visibleCount, selectedId, sessionFiles, on
           sessionFiles={sessionFiles}
           onIndex={setOpenIndex}
           onClose={() => setOpenIndex(null)}
-          onReview={(item, state) => onReview([item], state)}
+          onReview={onReview}
         />
       )}
     </section>
