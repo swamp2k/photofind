@@ -1,6 +1,7 @@
-import type { LiteMediaRecord } from './types'
+import type { LiteMediaRecord, LiteQualityTier } from './types'
 
 export type LiteQualitySort = 'overall' | 'sharpness' | 'exposure' | 'resolution'
+export type LiteQualityFilter = 'all' | LiteQualityTier | 'good-or-better' | 'okay-or-better'
 
 export function sortByTechnicalQuality(items: LiteMediaRecord[], sort: LiteQualitySort = 'overall'): LiteMediaRecord[] {
   return [...items].sort((left, right) => {
@@ -21,6 +22,14 @@ export function bestTechnicalCandidate(items: LiteMediaRecord[]): LiteMediaRecor
 
 export function filterMinimumQuality(items: LiteMediaRecord[], minimumScore: number): LiteMediaRecord[] {
   return items.filter((item) => item.qualityStatus === 'ready' && (item.qualityScore ?? -1) >= minimumScore)
+}
+
+export function filterQuality(items: LiteMediaRecord[], filter: LiteQualityFilter): LiteMediaRecord[] {
+  const analyzed = items.filter((item) => item.qualityStatus === 'ready')
+  if (filter === 'all') return analyzed
+  if (filter === 'good-or-better') return analyzed.filter((item) => item.qualityTier === 'good' || item.qualityTier === 'great')
+  if (filter === 'okay-or-better') return analyzed.filter((item) => item.qualityTier === 'okay' || item.qualityTier === 'good' || item.qualityTier === 'great')
+  return analyzed.filter((item) => item.qualityTier === filter)
 }
 
 function scoreFor(item: LiteMediaRecord, sort: LiteQualitySort): number {
