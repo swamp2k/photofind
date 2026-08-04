@@ -48,6 +48,17 @@ describe('event grouping', () => {
     expect(events[0].evidence).toContain('same away location across days')
   })
 
+  it('bridges several quiet holiday days when location and source folder agree', () => {
+    const events = buildEvents([
+      photo('trip-start', 10, { relativePath: 'Takeout/Summer trip/start.jpg', latitude: 43.508, longitude: 16.44 }),
+      photo('trip-middle', 4 * 24 + 10, { relativePath: 'Takeout/Summer trip/middle.jpg', latitude: 43.51, longitude: 16.45 }),
+      photo('trip-end', 7 * 24 + 10, { relativePath: 'Takeout/Summer trip/end.jpg', latitude: 43.505, longitude: 16.445 })
+    ])
+    expect(events).toHaveLength(1)
+    expect(events[0].itemIds).toHaveLength(3)
+    expect(events[0].evidence).toEqual(expect.arrayContaining(['same away location across days', 'same source folder']))
+  })
+
   it('does not merge separate visits to the same away location years apart', () => {
     const threeYearsInHours = Math.round((3 * 365 * DAY) / HOUR)
     const events = buildEvents([
