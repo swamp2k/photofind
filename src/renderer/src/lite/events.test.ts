@@ -3,6 +3,7 @@ import { buildEvents } from './events'
 import type { LiteMediaRecord, LiteSimilarityGroup } from './types'
 
 const HOUR = 60 * 60 * 1000
+const DAY = 24 * HOUR
 
 function photo(id: string, hour: number, overrides: Partial<LiteMediaRecord> = {}): LiteMediaRecord {
   return {
@@ -34,6 +35,41 @@ describe('event grouping', () => {
     expect(events).toHaveLength(1)
     expect(events[0].evidence).toEqual(expect.arrayContaining(['nearby GPS', 'same source folder', 'shared people']))
     expect(events[0].personIds).toEqual(['person-a'])
+  })
+
+  it('keeps adjacent days at the same non-routine location in one event', () => {
+    const events = buildEvents([
+      photo('day-1', 10, { relativePath: 'Takeout/Trip/day-1.jpg', latitude: 43.508, longitude: 16.44 }),
+      photo('day-2', 34, { relativePath: 'Takeout/Trip/day-2.jpg', latitude: 43.51, longitude: 16.45 }),
+      photo('day-3', 58, { relativePath: 'Takeout/Trip/day-3.jpg', latitude: 43.505, longitude: 16.445 })
+    ])
+    expect(events).toHaveLength(1)
+    expect(events[0].itemIds).toHaveLength(3)
+    expect(events[0].evidence).toContain('same away location across days')
+  })
+
+  it('does not merge separate visits to the same away location years apart', () => {
+    const threeYearsInHours = Math.round((3 * 365 * DAY) / HOUR)
+    const events = buildEvents([
+      photo('visit-2019-a', 10, { latitude: 43.508, longitude: 16.44 }),
+      photo('visit-2019-b', 34, { latitude: 43.51, longitude: 16.45 }),
+      photo('visit-2022-a', threeYearsInHours, { latitude: 43.509, longitude: 16.441 }),
+      photo('visit-2022-b', threeYearsInHours + 24, { latitude: 43.51, longitude: 16.45 })
+    ])
+    expect(events).toHaveLength(2)
+    expect(events.map((event) => event.itemIds.length)).toEqual([2, 2])
+  })
+
+  it('does not turn a frequently visited home-like location into a multi-week event', () => {
+    const homeItems: LiteMediaRecord[] = []
+    for (let month = 0; month < 4; month += 1) {
+      for (let day = 0; day < 4; day += 1) {
+        const hour = month * 35 * 24 + day * 24
+        homeItems.push(photo(`home-${month}-${day}`, hour, { latitude: 56.2, longitude: 10.3 }))
+      }
+    }
+    const events = buildEvents(homeItems)
+    expect(events).toHaveLength(homeItems.length)
   })
 
   it('uses similarity groups to support a same-day continuation', () => {
