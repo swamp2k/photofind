@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import type { MouseEvent } from 'react'
 import { selectedItemsInOrder, updateExplorerSelection } from './selectionModel'
 import type { LiteMediaRecord, LiteReviewState } from './types'
 
@@ -6,7 +7,7 @@ export interface ExplorerPhotoSelection {
   selectedIds: ReadonlySet<string>
   selectedItems: LiteMediaRecord[]
   isSelected(itemId: string): boolean
-  handlePhotoClick(event: React.MouseEvent<HTMLElement>, itemId: string, openPreview: () => void): void
+  handlePhotoClick(event: MouseEvent<HTMLElement>, itemId: string, openPreview: () => void): void
   clear(): void
 }
 
@@ -25,10 +26,11 @@ export function useExplorerPhotoSelection(items: LiteMediaRecord[]): ExplorerPho
     setAnchorId((current) => current && validIds.has(current) ? current : null)
   }, [orderedIds])
 
-  function handlePhotoClick(event: React.MouseEvent<HTMLElement>, itemId: string, openPreview: () => void): void {
+  function handlePhotoClick(event: MouseEvent<HTMLElement>, itemId: string, openPreview: () => void): void {
     const toggle = event.ctrlKey || event.metaKey
     const range = event.shiftKey
     if (!toggle && !range) {
+      setSelectedIds(new Set())
       setAnchorId(itemId)
       openPreview()
       return
