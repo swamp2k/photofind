@@ -14,7 +14,7 @@ interface QualityPanelProps {
   busy: boolean
   reconnectRequired: boolean
   onAnalyze(): void
-  onReview(items: LiteMediaRecord[], state: LiteReviewState): void
+  onReview(item: LiteMediaRecord, state: LiteReviewState): void
 }
 
 const PAGE_SIZE = 240
@@ -105,7 +105,7 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
             <span className="muted">{ranked.length.toLocaleString()} matching analyzed photos</span>
           </div>
 
-          <PhotoSelectionBar items={selection.selectedItems} onReview={onReview} onClear={selection.clear} />
+          <PhotoSelectionBar items={selection.selectedItems} onReview={(targets, state) => targets.forEach((item) => onReview(item, state))} onClear={selection.clear} />
 
           {ranked.length === 0 ? <p className="muted">No analyzed photos match that quality tier.</p> : (
             <div className="quality-grid">
@@ -133,7 +133,7 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
                     </div>
                     <div className="quality-reasons">{(item.qualityReasons ?? []).slice(0, 3).map((reason) => <span key={reason}>{reason}</span>)}</div>
                   </button>
-                  <ReviewControls item={item} compact onReview={(target, state) => onReview([target], state)} />
+                  <ReviewControls item={item} compact onReview={onReview} />
                 </article>
               ))}
             </div>
@@ -150,7 +150,7 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
       )}
 
       {openIndex !== null && ranked[openIndex] && (
-        <PhotoLightbox items={ranked} index={openIndex} sessionFiles={sessionFiles} onIndex={setOpenIndex} onClose={() => setOpenIndex(null)} onReview={(item, state) => onReview([item], state)} />
+        <PhotoLightbox items={ranked} index={openIndex} sessionFiles={sessionFiles} onIndex={setOpenIndex} onClose={() => setOpenIndex(null)} onReview={onReview} />
       )}
     </section>
   )
