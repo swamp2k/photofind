@@ -7,6 +7,10 @@
   font-size: 12px;
 }
 
+.quality-stats {
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+}
+
 .photo-card.explorer-selected,
 .quality-card.explorer-selected {
   border-color: #7fa9e4;
