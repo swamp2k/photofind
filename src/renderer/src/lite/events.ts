@@ -4,7 +4,8 @@ import type { LiteEventRecord, LiteMediaRecord, LiteSimilarityGroup } from './ty
 const QUICK_GAP_MS = 90 * 60 * 1000
 const SUPPORTED_GAP_MS = 8 * 60 * 60 * 1000
 const HARD_GAP_MS = 18 * 60 * 60 * 1000
-const MULTIDAY_LOCATION_GAP_MS = 48 * 60 * 60 * 1000
+const LOCATION_ONLY_MULTIDAY_GAP_MS = 48 * 60 * 60 * 1000
+const SUPPORTED_MULTIDAY_GAP_MS = 7 * 24 * 60 * 60 * 1000
 const MAX_MULTIDAY_EVENT_SPAN_MS = 21 * 24 * 60 * 60 * 1000
 const NEARBY_KM = 25
 const MULTIDAY_NEARBY_KM = 35
@@ -57,17 +58,23 @@ function shouldContinueEvent(
 ): { continueEvent: boolean; evidence: string[] } {
   const gap = Math.max(0, captureTimeOf(next) - captureTimeOf(previous))
   const eventSpan = Math.max(0, captureTimeOf(next) - captureTimeOf(currentItems[0]))
+  const sameFolder = sourceFolderOf(previous.relativePath) === sourceFolderOf(next.relativePath)
+  const sharedPeople = sharesKnownPerson(currentItems, next)
+  const sharedVisualGroup = sharesSimilarityGroup(currentItems, next, similarityByItem)
+  const supportedLongGap = gap <= LOCATION_ONLY_MULTIDAY_GAP_MS || sameFolder || sharedPeople || sharedVisualGroup
 
   if (
     gap > HARD_GAP_MS
-    && gap <= MULTIDAY_LOCATION_GAP_MS
+    && gap <= SUPPORTED_MULTIDAY_GAP_MS
     && eventSpan <= MAX_MULTIDAY_EVENT_SPAN_MS
+    && supportedLongGap
     && isNearEventLocation(currentItems, next, MULTIDAY_NEARBY_KM)
     && !isRoutineLocation(next, routineLocations)
   ) {
     const evidence = ['same away location across days']
-    if (sourceFolderOf(previous.relativePath) === sourceFolderOf(next.relativePath)) evidence.push('same source folder')
-    if (sharesKnownPerson(currentItems, next)) evidence.push('shared people')
+    if (sameFolder) evidence.push('same source folder')
+    if (sharedPeople) evidence.push('shared people')
+    if (sharedVisualGroup) evidence.push('related visual group')
     return { continueEvent: true, evidence }
   }
 
@@ -75,10 +82,10 @@ function shouldContinueEvent(
 
   const evidence: string[] = []
   if (gap <= QUICK_GAP_MS) evidence.push('close in time')
-  if (sourceFolderOf(previous.relativePath) === sourceFolderOf(next.relativePath)) evidence.push('same source folder')
+  if (sameFolder) evidence.push('same source folder')
   if (hasNearbyLocation(currentItems, next)) evidence.push('nearby GPS')
-  if (sharesKnownPerson(currentItems, next)) evidence.push('shared people')
-  if (sharesSimilarityGroup(currentItems, next, similarityByItem)) evidence.push('related visual group')
+  if (sharedPeople) evidence.push('shared people')
+  if (sharedVisualGroup) evidence.push('related visual group')
 
   if (gap <= QUICK_GAP_MS) return { continueEvent: true, evidence }
   const contextualEvidence = evidence.filter((value) => value !== 'close in time').length
