@@ -1,0 +1,85 @@
+.event-toolbar-controls {
+  display: flex;
+  align-items: end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.event-toolbar-controls .event-person-filter { min-width: 150px; }
+.event-sort-direction { min-height: 38px; }
+
+.event-name-editor {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto auto;
+  gap: 8px;
+  align-items: end;
+  margin: 14px 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, .018);
+}
+.event-name-editor label { display: grid; gap: 5px; }
+.event-name-editor label > span { color: var(--muted); font-size: 11px; }
+.event-name-editor input { width: 100%; }
+.event-card-body em {
+  display: inline-flex;
+  width: max-content;
+  margin-top: 3px;
+  color: #bdadff;
+  font-size: 10px;
+  font-style: normal;
+  text-transform: uppercase;
+  letter-spacing: .055em;
+}
+.event-photo-thumb,
+.person-face-open,
+.map-selection-open,
+.map-stack-photo > div { position: relative; }
+.person-face-open,
+.map-selection-open {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: hidden;
+}
+.person-face-open:hover:not(:disabled),
+.map-selection-open:hover:not(:disabled) { transform: none; }
+.event-photo-grid article.explorer-selected,
+.person-face-entry.explorer-selected,
+.map-selection-card.explorer-selected,
+.map-stack-photo.explorer-selected,
+.compare-candidate.explorer-selected,
+.keeper-card.explorer-selected {
+  outline: 2px solid #7f77e8;
+  outline-offset: 1px;
+}
+.event-photo-grid .selection-check,
+.person-face-open .selection-check,
+.map-stack-photo .selection-check,
+.map-selection-open .selection-check,
+.compare-candidate-image .selection-check,
+.keeper-preview .selection-check {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  z-index: 3;
+}
+
+.curation-section .export-controls {
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+}
+.curation-section .export-option { min-height: 54px; }
+.curation-section .export-submit { align-self: stretch; }
+
+@media (max-width: 1050px) {
+  .event-name-editor { grid-template-columns: 1fr auto; }
+  .event-name-editor .quiet-button { grid-column: 1 / -1; justify-self: start; }
+  .curation-section .export-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 700px) {
+  .event-toolbar-controls { align-items: stretch; flex-direction: column; }
+  .event-name-editor { grid-template-columns: 1fr; }
+  .event-name-editor .quiet-button { grid-column: auto; }
+  .curation-section .export-controls { grid-template-columns: 1fr; }
+}
