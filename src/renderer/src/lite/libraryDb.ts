@@ -1,10 +1,11 @@
-import type { LiteLibraryRecord, LiteMediaRecord, LitePersonRecord } from './types'
+import type { LiteEventOverride, LiteLibraryRecord, LiteMediaRecord, LitePersonRecord } from './types'
 
 const DB_NAME = 'photofind-lite'
-const DB_VERSION = 2
+const DB_VERSION = 3
 const LIBRARIES_STORE = 'libraries'
 const MEDIA_STORE = 'media'
 const PEOPLE_STORE = 'people'
+const EVENT_OVERRIDES_STORE = 'eventOverrides'
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -28,6 +29,10 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(PEOPLE_STORE)) {
         const store = db.createObjectStore(PEOPLE_STORE, { keyPath: 'id' })
+        store.createIndex('libraryId', 'libraryId', { unique: false })
+      }
+      if (!db.objectStoreNames.contains(EVENT_OVERRIDES_STORE)) {
+        const store = db.createObjectStore(EVENT_OVERRIDES_STORE, { keyPath: 'id' })
         store.createIndex('libraryId', 'libraryId', { unique: false })
       }
     }
@@ -63,6 +68,35 @@ export async function loadPeople(libraryId: string): Promise<LitePersonRecord[]>
     const transaction = db.transaction(PEOPLE_STORE, 'readonly')
     const rows = await requestResult(transaction.objectStore(PEOPLE_STORE).index('libraryId').getAll(libraryId)) as LitePersonRecord[]
     return rows.sort((a, b) => b.faceRefs.length - a.faceRefs.length || (a.name ?? '').localeCompare(b.name ?? '') || a.id.localeCompare(b.id))
+  } finally {
+    db.close()
+  }
+}
+
+export async function loadEventOverrides(libraryId: string): Promise<LiteEventOverride[]> {
+  const db = await openDb()
+  try {
+    const transaction = db.transaction(EVENT_OVERRIDES_STORE, 'readonly')
+    const rows = await requestResult(transaction.objectStore(EVENT_OVERRIDES_STORE).index('libraryId').getAll(libraryId)) as LiteEventOverride[]
+    return rows.sort((a, b) => b.updatedAt - a.updatedAt)
+  } finally {
+    db.close()
+  }
+}
+
+export async function saveEventOverride(override: LiteEventOverride): Promise<void> {
+  const db = await openDb()
+  try {
+    await requestResult(db.transaction(EVENT_OVERRIDES_STORE, 'readwrite').objectStore(EVENT_OVERRIDES_STORE).put(override))
+  } finally {
+    db.close()
+  }
+}
+
+export async function deleteEventOverride(id: string): Promise<void> {
+  const db = await openDb()
+  try {
+    await requestResult(db.transaction(EVENT_OVERRIDES_STORE, 'readwrite').objectStore(EVENT_OVERRIDES_STORE).delete(id))
   } finally {
     db.close()
   }
@@ -147,7 +181,7 @@ export async function deleteLibrary(libraryId: string): Promise<void> {
   const db = await openDb()
   try {
     await new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction([LIBRARIES_STORE, MEDIA_STORE, PEOPLE_STORE], 'readwrite')
+      const transaction = db.transaction([LIBRARIES_STORE, MEDIA_STORE, PEOPLE_STORE, EVENT_OVERRIDES_STORE], 'readwrite')
       transaction.oncomplete = () => resolve()
       transaction.onerror = () => reject(transaction.error ?? new Error('Failed to remove PhotoFind index'))
       transaction.onabort = () => reject(transaction.error ?? new Error('PhotoFind removal transaction was aborted'))
@@ -155,6 +189,7 @@ export async function deleteLibrary(libraryId: string): Promise<void> {
       transaction.objectStore(LIBRARIES_STORE).delete(libraryId)
       deleteRowsForLibrary(transaction.objectStore(MEDIA_STORE), libraryId, transaction)
       deleteRowsForLibrary(transaction.objectStore(PEOPLE_STORE), libraryId, transaction)
+      deleteRowsForLibrary(transaction.objectStore(EVENT_OVERRIDES_STORE), libraryId, transaction)
     })
   } finally {
     db.close()
