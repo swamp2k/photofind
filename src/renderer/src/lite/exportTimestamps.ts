@@ -12,10 +12,11 @@ export interface LiteTimestampArtifacts {
   powershell: string
 }
 
-export function buildTimestampArtifacts(entries: LiteTimestampEntry[]): LiteTimestampArtifacts {
-  const jsonName = 'photofind-original-modified-times.json'
-  const pythonName = 'photofind-restore-modified-times.py'
-  const powershellName = 'photofind-restore-modified-times.ps1'
+export function buildTimestampArtifacts(entries: LiteTimestampEntry[], suffix = ''): LiteTimestampArtifacts {
+  const normalizedSuffix = suffix ? `-${suffix}` : ''
+  const jsonName = `photofind-original-modified-times${normalizedSuffix}.json`
+  const pythonName = `photofind-restore-modified-times${normalizedSuffix}.py`
+  const powershellName = `photofind-restore-modified-times${normalizedSuffix}.ps1`
   const payload = {
     note: 'PhotoFind cannot set filesystem modification times directly from a hosted browser. Run one of the included restore scripts after export to restore source mtimes.',
     files: entries.map((entry) => ({
