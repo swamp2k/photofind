@@ -44,7 +44,7 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
     setNameDraft(selected.customTitle ?? selected.title)
     setOpenIndex(null)
     selection.clear()
-  }, [selected?.id])
+  }, [selected?.id, selected?.title])
 
   return (
     <section className="events-section">
