@@ -69,15 +69,21 @@ async function analyzeOne(
     if (!file) throw new Error('Local file access is unavailable. Reconnect the source folder and retry.')
     const bitmap = await createImageBitmap(file)
     try {
+      const previousById = new Map((item.faces ?? []).map((face) => [face.id, face]))
       const result = await human.detect(bitmap)
       const faces = result.face
         .filter((face) => Array.isArray(face.embedding) && face.embedding.length > 0)
-        .map((face, index): LiteFaceObservation => ({
-          id: faceId(index, face.boxRaw),
-          box: normalizeBox(face.boxRaw),
-          confidence: round(Math.max(0, Math.min(1, face.faceScore || face.boxScore || face.score || 0))),
-          embedding: face.embedding!.map((value) => round(value))
-        }))
+        .map((face, index): LiteFaceObservation => {
+          const id = faceId(index, face.boxRaw)
+          const previous = previousById.get(id)
+          return {
+            id,
+            box: normalizeBox(face.boxRaw),
+            confidence: round(Math.max(0, Math.min(1, face.faceScore || face.boxScore || face.score || 0))),
+            embedding: face.embedding!.map((value) => round(value)),
+            ...(previous?.excludedPersonIds?.length ? { excludedPersonIds: [...previous.excludedPersonIds] } : {})
+          }
+        })
       return {
         ...item,
         faceAnalysisVersion: PEOPLE_ANALYSIS_VERSION,
