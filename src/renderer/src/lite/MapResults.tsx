@@ -1,7 +1,10 @@
+import { useMemo, useState } from 'react'
 import { formatCapture, formatLocation } from './formatters'
 import { GeoMap } from './GeoMap'
 import { hasLocation } from './filters'
 import { LocalThumbnail } from './LocalThumbnail'
+import { groupMappedLocations } from './mapLocations'
+import { PhotoLightbox } from './PhotoLightbox'
 import { ReviewControls } from './ReviewControls'
 import { SourcePath } from './SourcePathView'
 import type { LiteGeoBounds, LiteMediaRecord, LiteReviewState } from './types'
@@ -19,15 +22,34 @@ interface MapResultsProps {
 }
 
 export function MapResults(props: MapResultsProps): JSX.Element {
+  const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([])
+  const [openStackIndex, setOpenStackIndex] = useState<number | null>(null)
   const located = props.items.filter(hasLocation)
+  const locations = useMemo(() => groupMappedLocations(located), [located])
+  const byId = useMemo(() => new Map(located.map((item) => [item.id, item])), [located])
+  const selectedLocationItems = selectedLocationIds.map((id) => byId.get(id)).filter(isMediaRecord)
+  const stackedLocationCount = locations.filter((location) => location.items.length > 1).length
+
+  function selectMapItems(itemIds: string[]): void {
+    setSelectedLocationIds(itemIds)
+    setOpenStackIndex(null)
+    if (itemIds.length === 1) props.onSelect(itemIds[0])
+  }
+
   return (
     <section className="map-section">
       <div className="map-toolbar">
-        <label className="check-label">
-          <input type="checkbox" checked={props.filterToViewport} onChange={(event) => props.onFilterToViewport(event.target.checked)} />
-          <span>Filter photo results to visible map area</span>
-        </label>
-        <span className="muted">Map tiles: OpenStreetMap. Viewing an area sends tile requests for that area to the tile provider.</span>
+        <div className="map-toolbar-left">
+          <label className="check-label">
+            <input type="checkbox" checked={props.filterToViewport} onChange={(event) => props.onFilterToViewport(event.target.checked)} />
+            <span>Filter photo results to visible map area</span>
+          </label>
+          <span className="map-location-summary">
+            <strong>{located.length.toLocaleString()}</strong> geotagged photos · <strong>{locations.length.toLocaleString()}</strong> mapped locations
+            {stackedLocationCount > 0 && <> · <strong>{stackedLocationCount.toLocaleString()}</strong> stacked</>}
+          </span>
+        </div>
+        <span className="muted">Blue markers contain multiple photos at the same stored coordinates. Map tiles: OpenStreetMap.</span>
       </div>
       {located.length === 0 ? (
         <div className="map-empty">No geotagged photos match the current non-map filters.</div>
@@ -36,10 +58,33 @@ export function MapResults(props: MapResultsProps): JSX.Element {
           items={located}
           filterToViewport={props.filterToViewport}
           onBoundsChange={props.onBoundsChange}
-          onSelect={props.onSelect}
+          onSelectItems={selectMapItems}
         />
       )}
-      {props.selected && (
+
+      {selectedLocationItems.length > 1 && (
+        <section className="map-location-stack">
+          <div className="map-stack-heading">
+            <div>
+              <div className="eyebrow">Stacked location</div>
+              <h3>{selectedLocationItems.length.toLocaleString()} photos at the same coordinates</h3>
+              <p>{formatLocation(selectedLocationItems[0])} · click a photo to inspect it full-size</p>
+            </div>
+            <button type="button" className="quiet-button" onClick={() => setSelectedLocationIds([])}>Close</button>
+          </div>
+          <div className="map-stack-grid">
+            {selectedLocationItems.map((item, index) => (
+              <button type="button" className="map-stack-photo" key={item.id} onClick={() => setOpenStackIndex(index)} title={item.relativePath}>
+                <div><LocalThumbnail item={item} sessionFile={props.sessionFiles.get(item.id)} /></div>
+                <strong>{item.name}</strong>
+                <span>{formatCapture(item)}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {selectedLocationItems.length <= 1 && props.selected && (
         <article className="map-selection-card">
           <div className="map-selection-preview"><LocalThumbnail item={props.selected} sessionFile={props.sessionFiles.get(props.selected.id)} /></div>
           <div>
@@ -51,6 +96,21 @@ export function MapResults(props: MapResultsProps): JSX.Element {
           </div>
         </article>
       )}
+
+      {openStackIndex !== null && selectedLocationItems[openStackIndex] && (
+        <PhotoLightbox
+          items={selectedLocationItems}
+          index={openStackIndex}
+          sessionFiles={props.sessionFiles}
+          onIndex={setOpenStackIndex}
+          onClose={() => setOpenStackIndex(null)}
+          onReview={props.onReview}
+        />
+      )}
     </section>
   )
+}
+
+function isMediaRecord(item: LiteMediaRecord | undefined): item is LiteMediaRecord {
+  return Boolean(item)
 }
