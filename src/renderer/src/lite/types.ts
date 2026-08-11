@@ -240,6 +240,7 @@ export interface LiteExportResult {
   renamed: number
   metadataEmbedded: number
   sidecarsWritten: number
+  metadataUnchanged: number
   failures: LiteExportFailure[]
   manifestPath?: string
   reportPath?: string
