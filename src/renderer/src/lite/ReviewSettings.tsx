@@ -48,7 +48,7 @@ export function ReviewSettingsProvider({ children }: { children: ReactNode }): J
     <ReviewSettingsContext.Provider value={value}>
       {children}
       <button type="button" className="global-settings-button" aria-label="Open PhotoFind settings" title="Settings" onClick={() => setSettingsOpen(true)}>⚙</button>
-      {settingsOpen && <div className="settings-backdrop" role="presentation" onMouseDown={() => setSettingsOpen(false)}><div className="settings-drawer" role="dialog" aria-modal="true" aria-label="PhotoFind settings" onMouseDown={(event) => event.stopPropagation()}><button type="button" className="settings-close" aria-label="Close settings" onClick={() => setSettingsOpen(false)}>×</button><SettingsPanel /></div></div>}
+      {settingsOpen && <div className="settings-backdrop" role="presentation" onMouseDown={() => setSettingsOpen(false)}><div className="settings-drawer" role="dialog" aria-modal="true" aria-label="PhotoFind settings" onMouseDown={(event) => event.stopPropagation()}><button type="button" className="settings-close" aria-label="Close settings" onClick={() => setSettingsOpen(false)}>×</button><SettingsPanel settings={settings} bindings={bindings} onAutoAdvance={(next) => update({ ...settings, autoAdvance: next })} onKeymap={(next) => update({ ...settings, keymap: next })} /></div></div>}
     </ReviewSettingsContext.Provider>
   )
 }
