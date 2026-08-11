@@ -17,6 +17,13 @@ export function createEventOverride(event: LiteEventRecord, title: string, now =
   }
 }
 
+export function matchingEventOverride(event: LiteEventRecord, overrides: LiteEventOverride[]): LiteEventOverride | undefined {
+  const candidates = [...overrides]
+    .filter((override) => override.libraryId === event.libraryId)
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+  return candidates.find((override) => override.eventId === event.id) ?? bestOverlap(event, candidates)
+}
+
 export function applyEventOverrides(events: LiteEventRecord[], overrides: LiteEventOverride[]): LiteEventRecord[] {
   if (overrides.length === 0) return events
   const candidates = [...overrides].sort((a, b) => b.updatedAt - a.updatedAt)
