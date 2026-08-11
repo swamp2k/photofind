@@ -18,11 +18,11 @@ function photo(relativePath: string, effectiveCaptureTime?: number): LiteMediaRe
 
 describe('export path planning', () => {
   it('keeps flat exports flat', () => {
-    expect(exportPathParts(photo('Trip/IMG_1.JPG'), 'flat')).toEqual({ directories: [], fileName: 'IMG_1.JPG' })
+    expect(exportPathParts(photo('Trip/IMG_1.JPG'), 'flat', 'Motorcycle trip')).toEqual({ directories: [], fileName: 'IMG_1.JPG' })
   })
 
   it('preserves safe source folders', () => {
-    expect(exportPathParts(photo('Trip/Day 1/IMG_1.JPG'), 'source-folders')).toEqual({ directories: ['Trip', 'Day 1'], fileName: 'IMG_1.JPG' })
+    expect(exportPathParts(photo('Trip/Day 1/IMG_1.JPG'), 'source-folders', 'Motorcycle trip')).toEqual({ directories: ['Trip', 'Day 1'], fileName: 'IMG_1.JPG' })
   })
 
   it('builds date folders and handles undated photos', () => {
@@ -31,8 +31,16 @@ describe('export path planning', () => {
     expect(exportPathParts(photo('IMG.JPG'), 'date-month').directories).toEqual(['Undated'])
   })
 
-  it('sanitizes unsafe path characters', () => {
+  it('adds a named event to the month folder for date layouts', () => {
+    const captured = new Date(2011, 5, 14, 12, 0, 0).getTime()
+    expect(exportPathParts(photo('IMG.JPG', captured), 'date-month', 'Motorcycle trip').directories).toEqual(['2011', '06 - Motorcycle trip'])
+    expect(exportPathParts(photo('IMG.JPG', captured), 'date-day', 'Motorcycle trip').directories).toEqual(['2011', '06 - Motorcycle trip', '14'])
+  })
+
+  it('sanitizes unsafe source and event path characters', () => {
+    const captured = new Date(2011, 5, 14, 12, 0, 0).getTime()
     expect(exportPathParts(photo('Bad:Folder/IMG?.JPG'), 'source-folders')).toEqual({ directories: ['Bad_Folder'], fileName: 'IMG_.JPG' })
+    expect(exportPathParts(photo('IMG.JPG', captured), 'date-month', 'Trip: Spain / France').directories).toEqual(['2011', '06 - Trip_ Spain _ France'])
   })
 })
 
