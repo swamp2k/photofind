@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { LocalFaceCrop } from './LocalFaceCrop'
 import { faceReference, peoplePhotoCounts, rarePersonPairs } from './people'
+import { PhotoLightbox } from './PhotoLightbox'
+import { PhotoSelectionBar, useExplorerPhotoSelection } from './PhotoSelection'
 import { SourcePath } from './SourcePathView'
-import type { LiteFaceObservation, LiteMediaRecord, LitePeopleProgress, LitePersonRecord } from './types'
+import type { LiteFaceObservation, LiteMediaRecord, LitePeopleProgress, LitePersonRecord, LiteReviewState } from './types'
 
 interface PeoplePanelProps {
   items: LiteMediaRecord[]
@@ -17,6 +19,7 @@ interface PeoplePanelProps {
   onMerge(sourceId: string, targetId: string): void
   onSplit(faceRef: string): void
   onExclude(faceRef: string, personId: string): void
+  onReview(item: LiteMediaRecord, state: LiteReviewState): void
 }
 
 interface FaceEntry {
@@ -31,6 +34,7 @@ export function PeoplePanel(props: PeoplePanelProps): JSX.Element {
   const [showSingletons, setShowSingletons] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
   const [mergeTarget, setMergeTarget] = useState('')
+  const [openIndex, setOpenIndex] = useState<number | null>(null)
   const faceEntries = useMemo(() => collectFaceEntries(props.items), [props.items])
   const photoCounts = useMemo(() => peoplePhotoCounts(props.items), [props.items])
   const analyzedPhotos = props.items.filter((item) => item.kind === 'image' && item.faceAnalysisStatus === 'ready').length
@@ -39,6 +43,8 @@ export function PeoplePanel(props: PeoplePanelProps): JSX.Element {
   const visiblePeople = useMemo(() => props.people.filter((person) => (showIgnored || !person.ignored) && (showSingletons || person.faceRefs.length > 1)), [props.people, showIgnored, showSingletons])
   const selected = props.people.find((person) => person.id === selectedId) ?? visiblePeople[0] ?? null
   const selectedFaces = selected ? selected.faceRefs.map((ref) => faceEntries.get(ref)).filter(isFaceEntry) : []
+  const selectedPhotoItems = useMemo(() => uniquePhotos(selectedFaces), [selectedFaces])
+  const selection = useExplorerPhotoSelection(selectedPhotoItems)
   const pairs = useMemo(() => rarePersonPairs(props.items).filter((pair) => pair.photoCount <= 3).slice(0, 8), [props.items])
   const peopleById = useMemo(() => new Map(props.people.map((person) => [person.id, person])), [props.people])
 
@@ -47,12 +53,14 @@ export function PeoplePanel(props: PeoplePanelProps): JSX.Element {
     setSelectedId(selected.id)
     setNameDraft(selected.name ?? '')
     setMergeTarget('')
+    setOpenIndex(null)
+    selection.clear()
   }, [selected?.id])
 
   return (
     <section className="people-section">
       <div className="people-hero">
-        <div><div className="eyebrow">Lite 6 · private local intelligence</div><h2>People</h2><p>Find recurring faces without uploading photos or biometric embeddings. Clusters are suggestions: rename, merge, split, reject false matches or ignore them whenever PhotoFind guesses wrong.</p></div>
+        <div><div className="eyebrow">Lite 6 · private local intelligence</div><h2>People</h2><p>Find recurring faces without uploading photos or biometric embeddings. Click a face to open its photo; Ctrl-click or Shift-click selects photos for bulk actions.</p></div>
         <button className="primary" type="button" disabled={props.busy || props.reconnectRequired || props.items.length === 0} onClick={props.onAnalyze}>{props.busy ? 'Analyzing people…' : analyzedPhotos > 0 ? 'Refresh people analysis' : 'Analyze people locally'}</button>
       </div>
 
@@ -92,8 +100,19 @@ export function PeoplePanel(props: PeoplePanelProps): JSX.Element {
               <button type="button" className={selected.ignored ? '' : 'danger-outline'} onClick={() => props.onIgnore(selected.id, !selected.ignored)}>{selected.ignored ? 'Restore person' : 'Ignore this person'}</button>
 
               <div className="person-face-list-head"><strong>Faces in this cluster</strong><span>Correct false matches directly. “Not this person” becomes a persistent negative constraint, so future clustering will not silently attach that face to this person again.</span></div>
+              <PhotoSelectionBar items={selection.selectedItems} onReview={(targets, state) => targets.forEach((item) => props.onReview(item, state))} onClear={selection.clear} />
               <div className="person-face-list">
-                {selectedFaces.slice(0, 80).map((entry) => <article className="person-face-entry" key={entry.ref}><div className="person-face-crop"><LocalFaceCrop item={entry.item} face={entry.face} sessionFile={props.sessionFiles.get(entry.item.id)} size={110} /></div><div><strong>{entry.item.name}</strong><SourcePath item={entry.item} compact /><div className="person-face-actions"><button type="button" className="quiet-button" disabled={selected.faceRefs.length <= 1} onClick={() => props.onSplit(entry.ref)}>Split into new person</button><button type="button" className="danger-outline" onClick={() => props.onExclude(entry.ref, selected.id)}>Not this person</button></div></div></article>)}
+                {selectedFaces.slice(0, 80).map((entry) => {
+                  const photoIndex = selectedPhotoItems.findIndex((item) => item.id === entry.item.id)
+                  const photoSelected = selection.isSelected(entry.item.id)
+                  return <article className={photoSelected ? 'person-face-entry explorer-selected' : 'person-face-entry'} key={entry.ref}>
+                    <button type="button" className="person-face-crop person-face-open" aria-pressed={photoSelected} onClick={(event) => selection.handlePhotoClick(event, entry.item.id, () => setOpenIndex(Math.max(0, photoIndex)))}>
+                      <LocalFaceCrop item={entry.item} face={entry.face} sessionFile={props.sessionFiles.get(entry.item.id)} size={110} />
+                      {photoSelected && <span className="selection-check">✓</span>}
+                    </button>
+                    <div><strong>{entry.item.name}</strong><SourcePath item={entry.item} compact /><div className="person-face-actions"><button type="button" className="quiet-button" disabled={selected.faceRefs.length <= 1} onClick={() => props.onSplit(entry.ref)}>Split into new person</button><button type="button" className="danger-outline" onClick={() => props.onExclude(entry.ref, selected.id)}>Not this person</button></div></div>
+                  </article>
+                })}
               </div>
               {selectedFaces.length > 80 && <p className="muted">Showing the first 80 detected faces in this cluster.</p>}
             </>}
@@ -102,6 +121,8 @@ export function PeoplePanel(props: PeoplePanelProps): JSX.Element {
       )}
 
       {pairs.length > 0 && <details className="people-insights"><summary><span>Rare combinations</span><strong>{pairs.length}</strong></summary><p>Potentially meaningful combinations that appear together in only a few photos.</p><div>{pairs.map((pair) => <span key={pair.personIds.join('-')}><strong>{personLabel(peopleById.get(pair.personIds[0]))}</strong> + <strong>{personLabel(peopleById.get(pair.personIds[1]))}</strong> · {pair.photoCount} photo{pair.photoCount === 1 ? '' : 's'}</span>)}</div></details>}
+
+      {openIndex !== null && selectedPhotoItems[openIndex] && <PhotoLightbox items={selectedPhotoItems} index={openIndex} sessionFiles={props.sessionFiles} onIndex={setOpenIndex} onClose={() => setOpenIndex(null)} onReview={props.onReview} />}
     </section>
   )
 }
@@ -119,6 +140,17 @@ function collectFaceEntries(items: LiteMediaRecord[]): Map<string, FaceEntry> {
   const map = new Map<string, FaceEntry>()
   for (const item of items) for (const face of item.faces ?? []) map.set(faceReference(item.id, face.id), { item, face, ref: faceReference(item.id, face.id) })
   return map
+}
+
+function uniquePhotos(entries: FaceEntry[]): LiteMediaRecord[] {
+  const seen = new Set<string>()
+  const output: LiteMediaRecord[] = []
+  for (const entry of entries) {
+    if (seen.has(entry.item.id)) continue
+    seen.add(entry.item.id)
+    output.push(entry.item)
+  }
+  return output
 }
 
 function personLabel(person: LitePersonRecord | undefined): string {
