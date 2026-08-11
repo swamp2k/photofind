@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { clusterPeople, faceReference, mergePeople, rarePersonPairs, renamePerson, splitFaceIntoNewPerson } from './people'
+import { clusterPeople, excludeFaceFromPerson, faceReference, mergePeople, rarePersonPairs, renamePerson, splitFaceIntoNewPerson } from './people'
 import type { LiteFaceObservation, LiteMediaRecord, LitePersonRecord } from './types'
 
-function face(id: string, embedding: number[], personId?: string): LiteFaceObservation {
-  return { id, box: [0.1, 0.1, 0.3, 0.3], confidence: 0.9, embedding, ...(personId ? { personId } : {}) }
+function face(id: string, embedding: number[], personId?: string, excludedPersonIds?: string[]): LiteFaceObservation {
+  return { id, box: [0.1, 0.1, 0.3, 0.3], confidence: 0.9, embedding, ...(personId ? { personId } : {}), ...(excludedPersonIds?.length ? { excludedPersonIds } : {}) }
 }
 
 function photo(id: string, faces: LiteFaceObservation[]): LiteMediaRecord {
@@ -63,6 +63,19 @@ describe('people clustering', () => {
     const split = splitFaceIntoNewPerson(merged.items, merged.people, faceReference(items[1].id, 'b1'), 30, () => 'split')
     expect(split.people).toHaveLength(2)
     expect(split.items[1].faces?.[0].personId).toBe('person-split')
+  })
+
+  it('records a negative correction and will not reattach that face to the rejected person', () => {
+    const item = photo('a', [face('a1', [1, 0], 'person-a')])
+    const existing = [{ ...person('person-a', [1, 0], [faceReference(item.id, 'a1')]), name: 'A' }]
+    const corrected = excludeFaceFromPerson([item], existing, faceReference(item.id, 'a1'), 'person-a', 20)
+
+    expect(corrected.items[0].faces?.[0].personId).toBeUndefined()
+    expect(corrected.items[0].faces?.[0].excludedPersonIds).toEqual(['person-a'])
+
+    const reclustered = clusterPeople(corrected.items, existing, 30, () => 'new-person')
+    expect(reclustered.items[0].faces?.[0].personId).toBe('person-new-person')
+    expect(reclustered.items[0].faces?.[0].personId).not.toBe('person-a')
   })
 
   it('renames people and finds rare co-occurrences', () => {
