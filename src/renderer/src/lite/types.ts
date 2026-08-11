@@ -21,6 +21,7 @@ export interface LiteFaceObservation {
   confidence: number
   embedding: number[]
   personId?: string
+  excludedPersonIds?: string[]
 }
 
 export interface LiteMediaRecord {

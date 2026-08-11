@@ -10,7 +10,7 @@ import { availableYears, dateInputToEnd, dateInputToStart, filterPhotos, hasLoca
 import { deleteLibrary, listLibraries, loadMedia, loadPeople, putMediaRecords, replaceLibrary, savePeopleState } from './libraryDb'
 import { MapResults } from './MapResults'
 import { analyzePeople } from './peopleAnalysis'
-import { clusterPeople, mergePeople as mergePeopleState, renamePerson as renamePersonState, setPersonIgnored, splitFaceIntoNewPerson } from './people'
+import { clusterPeople, excludeFaceFromPerson, mergePeople as mergePeopleState, renamePerson as renamePersonState, setPersonIgnored, splitFaceIntoNewPerson } from './people'
 import { PeoplePanel } from './PeoplePanel'
 import { PhotoResults } from './PhotoResults'
 import { analyzeQuality } from './qualityAnalysis'
@@ -289,6 +289,16 @@ export function LiteApp(): JSX.Element {
     } catch (cause) { setError(`Face was not split into a new person: ${messageOf(cause)}`) }
   }
 
+  async function excludePersonFace(faceRef: string, personId: string): Promise<void> {
+    if (!activeLibrary) return
+    const result = excludeFaceFromPerson(mediaRef.current, people, faceRef, personId)
+    try {
+      await savePeopleState(activeLibrary.id, result.people, result.changed)
+      setMediaState(result.items)
+      setPeople(result.people)
+    } catch (cause) { setError(`Face correction was not saved: ${messageOf(cause)}`) }
+  }
+
   async function runExport(items: LiteMediaRecord[], layout: LiteExportLayout, includeReports: boolean, embedMetadata: boolean): Promise<void> {
     if (exportBusy || items.length === 0 || reconnectRequired) return
     setError(null)
@@ -453,7 +463,7 @@ export function LiteApp(): JSX.Element {
 
               {view === 'events' && <EventsPanel items={images} events={events} people={people} sessionFiles={sessionFiles} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'map' && <MapResults items={mapItems} filterToViewport={filterToViewport} selected={selectedMapItem} sessionFiles={sessionFiles} onFilterToViewport={setFilterToViewport} onBoundsChange={handleMapBounds} onSelect={setSelectedMapId} onShowSelected={() => { setView('photos'); setVisibleCount(PAGE_SIZE) }} onReview={(item, state) => updateReview([item], state)} />}
-              {view === 'people' && <PeoplePanel items={images} people={people} sessionFiles={sessionFiles} progress={peopleProgress} busy={peopleBusy} reconnectRequired={reconnectRequired} onAnalyze={() => void runPeopleAnalysis()} onRename={(personId, name) => void renamePerson(personId, name)} onIgnore={(personId, ignored) => void ignorePerson(personId, ignored)} onMerge={(sourceId, targetId) => void mergePerson(sourceId, targetId)} onSplit={(faceRef) => void splitPersonFace(faceRef)} />}
+              {view === 'people' && <PeoplePanel items={images} people={people} sessionFiles={sessionFiles} progress={peopleProgress} busy={peopleBusy} reconnectRequired={reconnectRequired} onAnalyze={() => void runPeopleAnalysis()} onRename={(personId, name) => void renamePerson(personId, name)} onIgnore={(personId, ignored) => void ignorePerson(personId, ignored)} onMerge={(sourceId, targetId) => void mergePerson(sourceId, targetId)} onSplit={(faceRef) => void splitPersonFace(faceRef)} onExclude={(faceRef, personId) => void excludePersonFace(faceRef, personId)} />}
               {view === 'photos' && <PhotoResults items={filteredImages} visibleCount={visibleCount} selectedId={selectedMapId} sessionFiles={sessionFiles} onShowMore={() => setVisibleCount((count) => count + PAGE_SIZE)} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'groups' && <SimilarityGroups items={images} groups={contextualGroups} reviewFilter={reviewFilter} sessionFiles={sessionFiles} progress={similarityProgress} busy={working} reconnectRequired={reconnectRequired} onAnalyze={() => void runSimilarityAnalysis()} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'quality' && <QualityPanel items={filteredImages} sessionFiles={sessionFiles} progress={qualityProgress} busy={working} reconnectRequired={reconnectRequired} onAnalyze={() => void runQualityAnalysis()} onReview={(item, state) => updateReview([item], state)} />}

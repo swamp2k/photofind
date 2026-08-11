@@ -4,6 +4,7 @@ import { hasLocation } from './filters'
 import { LocalPhotoImage } from './LocalPhotoImage'
 import { LocalThumbnail } from './LocalThumbnail'
 import { ReviewControls } from './ReviewControls'
+import { useReviewSettings } from './ReviewSettings'
 import { SourcePath } from './SourcePathView'
 import type { LiteMediaRecord, LiteReviewState } from './types'
 
@@ -19,6 +20,7 @@ interface PhotoLightboxProps {
 const ZOOM_LEVELS = [1, 2, 4]
 
 export function PhotoLightbox({ items, index, sessionFiles, onIndex, onClose, onReview }: PhotoLightboxProps): JSX.Element | null {
+  const { settings, bindings } = useReviewSettings()
   const item = items[index]
   const [zoomIndex, setZoomIndex] = useState(0)
   const [pan, setPan] = useState({ x: 0, y: 0 })
@@ -39,16 +41,23 @@ export function PhotoLightbox({ items, index, sessionFiles, onIndex, onClose, on
       if (event.key === '+' || event.key === '=') setZoomIndex((value) => Math.min(ZOOM_LEVELS.length - 1, value + 1))
       if (event.key === '-') setZoomIndex((value) => Math.max(0, value - 1))
       if (!item || !onReview) return
-      if (event.key.toLowerCase() === 'k') onReview(item, 'keep')
-      if (event.key.toLowerCase() === 'm') onReview(item, 'maybe')
-      if (event.key.toLowerCase() === 'r') onReview(item, 'reject')
-      if (event.key.toLowerCase() === 'u') onReview(item, 'unreviewed')
+      const key = event.key.toLowerCase()
+      if (key === bindings.keep) reviewAndMaybeAdvance('keep')
+      if (key === bindings.maybe) reviewAndMaybeAdvance('maybe')
+      if (key === bindings.reject) reviewAndMaybeAdvance('reject')
+      if (key === bindings.reset) reviewAndMaybeAdvance('unreviewed', false)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   })
 
   if (!item) return null
+
+  function reviewAndMaybeAdvance(state: LiteReviewState, advance = settings.autoAdvance): void {
+    if (!item || !onReview) return
+    onReview(item, state)
+    if (advance && index < items.length - 1) onIndex(index + 1)
+  }
 
   function cycleZoom(): void {
     setZoomIndex((value) => (value + 1) % ZOOM_LEVELS.length)
@@ -83,7 +92,7 @@ export function PhotoLightbox({ items, index, sessionFiles, onIndex, onClose, on
           </div>
           <div className="lightbox-actions">
             <button type="button" className="zoom-button" onClick={cycleZoom} aria-label={`Zoom ${zoom === 1 ? 'in' : zoom === 2 ? 'further' : 'reset'}`}>{zoom}×</button>
-            {onReview && <ReviewControls item={item} onReview={onReview} />}
+            {onReview && <ReviewControls item={item} onReview={(_item, state) => reviewAndMaybeAdvance(state, state !== 'unreviewed' && settings.autoAdvance)} />}
             <button type="button" className="close-button" onClick={onClose} aria-label="Close viewer">×</button>
           </div>
         </div>
@@ -136,7 +145,8 @@ export function PhotoLightbox({ items, index, sessionFiles, onIndex, onClose, on
             <div className="inspector-section shortcut-help">
               <span className="inspector-label">Shortcuts</span>
               <span>← → navigate · Z zoom</span>
-              {onReview && <span>K keep · M maybe · R reject · U reset</span>}
+              {onReview && <span>{bindings.keep.toUpperCase()} keep · {bindings.maybe.toUpperCase()} maybe · {bindings.reject.toUpperCase()} reject · U reset</span>}
+              {onReview && <span>Auto-advance: {settings.autoAdvance ? 'on' : 'off'}</span>}
             </div>
           </aside>
         </div>

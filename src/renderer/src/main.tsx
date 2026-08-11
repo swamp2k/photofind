@@ -9,6 +9,7 @@ import './lite5.css'
 import './visual-refresh.css'
 import './lite67.css'
 import './interaction-polish.css'
+import './review-settings.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

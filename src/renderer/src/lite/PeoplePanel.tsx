@@ -16,6 +16,7 @@ interface PeoplePanelProps {
   onIgnore(personId: string, ignored: boolean): void
   onMerge(sourceId: string, targetId: string): void
   onSplit(faceRef: string): void
+  onExclude(faceRef: string, personId: string): void
 }
 
 interface FaceEntry {
@@ -51,7 +52,7 @@ export function PeoplePanel(props: PeoplePanelProps): JSX.Element {
   return (
     <section className="people-section">
       <div className="people-hero">
-        <div><div className="eyebrow">Lite 6 · private local intelligence</div><h2>People</h2><p>Find recurring faces without uploading photos or biometric embeddings. Clusters are suggestions: rename, merge, split or ignore them whenever PhotoFind guesses wrong.</p></div>
+        <div><div className="eyebrow">Lite 6 · private local intelligence</div><h2>People</h2><p>Find recurring faces without uploading photos or biometric embeddings. Clusters are suggestions: rename, merge, split, reject false matches or ignore them whenever PhotoFind guesses wrong.</p></div>
         <button className="primary" type="button" disabled={props.busy || props.reconnectRequired || props.items.length === 0} onClick={props.onAnalyze}>{props.busy ? 'Analyzing people…' : analyzedPhotos > 0 ? 'Refresh people analysis' : 'Analyze people locally'}</button>
       </div>
 
@@ -66,7 +67,7 @@ export function PeoplePanel(props: PeoplePanelProps): JSX.Element {
         <PeopleStat label="Failures" value={failures} warn={failures > 0} />
       </div>
 
-      {analyzedPhotos === 0 ? <div className="people-empty"><h3>People analysis is opt-in</h3><p>The face detector and descriptor models are downloaded from PhotoFind itself only after you start analysis. Face boxes, embeddings and names stay in this browser index.</p><ul><li>No age, gender, race or emotion inference.</li><li>No face crops are uploaded or stored separately.</li><li>Source photos remain read-only.</li></ul></div> : props.people.length === 0 ? <div className="people-empty"><h3>No recurring faces found</h3><p>Analysis completed, but no usable face descriptors were available for clustering.</p></div> : (
+      {analyzedPhotos === 0 ? <div className="people-empty"><h3>People analysis is opt-in</h3><p>The face detector and descriptor models are downloaded from PhotoFind itself only after you start analysis. Face boxes, embeddings, corrections and names stay in this browser index.</p><ul><li>No age, gender, race or emotion inference.</li><li>No face crops are uploaded or stored separately.</li><li>Source photos remain read-only.</li></ul></div> : props.people.length === 0 ? <div className="people-empty"><h3>No recurring faces found</h3><p>Analysis completed, but no usable face descriptors were available for clustering.</p></div> : (
         <div className="people-workspace">
           <div className="people-browser">
             <div className="people-browser-toolbar"><strong>{visiblePeople.length.toLocaleString()} visible people</strong><label><input type="checkbox" checked={showSingletons} onChange={(event) => setShowSingletons(event.target.checked)} /> Show one-off faces</label><label><input type="checkbox" checked={showIgnored} onChange={(event) => setShowIgnored(event.target.checked)} /> Show ignored</label></div>
@@ -90,9 +91,9 @@ export function PeoplePanel(props: PeoplePanelProps): JSX.Element {
               <div className="person-editor"><label><span>Merge this cluster into</span><select value={mergeTarget} onChange={(event) => setMergeTarget(event.target.value)}><option value="">Choose another person…</option>{props.people.filter((person) => person.id !== selected.id && !person.ignored).map((person) => <option key={person.id} value={person.id}>{personLabel(person)} · {person.faceRefs.length} faces</option>)}</select></label><button type="button" disabled={!mergeTarget} onClick={() => { if (mergeTarget && window.confirm(`Merge “${personLabel(selected)}” into “${personLabel(peopleById.get(mergeTarget)!)}”? Every assignment remains local and can later be split again.`)) props.onMerge(selected.id, mergeTarget) }}>Merge</button></div>
               <button type="button" className={selected.ignored ? '' : 'danger-outline'} onClick={() => props.onIgnore(selected.id, !selected.ignored)}>{selected.ignored ? 'Restore person' : 'Ignore this person'}</button>
 
-              <div className="person-face-list-head"><strong>Faces in this cluster</strong><span>Split obvious false matches into a new person.</span></div>
+              <div className="person-face-list-head"><strong>Faces in this cluster</strong><span>Correct false matches directly. “Not this person” becomes a persistent negative constraint, so future clustering will not silently attach that face to this person again.</span></div>
               <div className="person-face-list">
-                {selectedFaces.slice(0, 80).map((entry) => <article className="person-face-entry" key={entry.ref}><div className="person-face-crop"><LocalFaceCrop item={entry.item} face={entry.face} sessionFile={props.sessionFiles.get(entry.item.id)} size={110} /></div><div><strong>{entry.item.name}</strong><SourcePath item={entry.item} compact /><button type="button" className="quiet-button" disabled={selected.faceRefs.length <= 1} onClick={() => props.onSplit(entry.ref)}>Split into new person</button></div></article>)}
+                {selectedFaces.slice(0, 80).map((entry) => <article className="person-face-entry" key={entry.ref}><div className="person-face-crop"><LocalFaceCrop item={entry.item} face={entry.face} sessionFile={props.sessionFiles.get(entry.item.id)} size={110} /></div><div><strong>{entry.item.name}</strong><SourcePath item={entry.item} compact /><div className="person-face-actions"><button type="button" className="quiet-button" disabled={selected.faceRefs.length <= 1} onClick={() => props.onSplit(entry.ref)}>Split into new person</button><button type="button" className="danger-outline" onClick={() => props.onExclude(entry.ref, selected.id)}>Not this person</button></div></div></article>)}
               </div>
               {selectedFaces.length > 80 && <p className="muted">Showing the first 80 detected faces in this cluster.</p>}
             </>}

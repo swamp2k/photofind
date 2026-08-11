@@ -60,17 +60,18 @@ export function clusterPeople(
   for (const entry of entries) {
     const embedding = normalizeEmbedding(entry.face.embedding)
     if (embedding.length === 0) continue
+    const excluded = new Set(entry.face.excludedPersonIds ?? [])
 
     let selected: WorkingCluster | undefined
     if (entry.face.personId) {
       const prior = clusters.get(entry.face.personId)
-      if (prior && cosineSimilarity(embedding, prior.centroid) >= PRESERVE_ASSIGNMENT_THRESHOLD) selected = prior
+      if (prior && !excluded.has(prior.id) && cosineSimilarity(embedding, prior.centroid) >= PRESERVE_ASSIGNMENT_THRESHOLD) selected = prior
     }
 
     if (!selected) {
       let bestScore = PEOPLE_CLUSTER_THRESHOLD
       for (const candidate of clusters.values()) {
-        if (candidate.centroid.length !== embedding.length) continue
+        if (excluded.has(candidate.id) || candidate.centroid.length !== embedding.length) continue
         const score = cosineSimilarity(embedding, candidate.centroid)
         if (score > bestScore) {
           bestScore = score
@@ -97,7 +98,7 @@ export function clusterPeople(
       const personId = assignments.get(faceReference(item.id, face.id))
       if (personId === face.personId) return face
       itemChanged = true
-      return { ...face, ...(personId ? { personId } : {}) }
+      return { ...face, personId }
     })
     if (!itemChanged) return item
     const updated = { ...item, faces }
@@ -192,6 +193,33 @@ export function splitFaceIntoNewPerson(
     updatedAt: now
   }]
   return { items: nextItems, changed, people: rebuildPeopleFromAssignments(nextItems, templates, now) }
+}
+
+export function excludeFaceFromPerson(
+  items: LiteMediaRecord[],
+  people: LitePersonRecord[],
+  faceRef: string,
+  personId: string,
+  now = Date.now()
+): LitePeopleStateResult {
+  const changed: LiteMediaRecord[] = []
+  const nextItems = items.map((item) => {
+    if (!item.faces?.length) return item
+    let didChange = false
+    const faces = item.faces.map((face) => {
+      if (faceReference(item.id, face.id) !== faceRef) return face
+      const excludedPersonIds = [...new Set([...(face.excludedPersonIds ?? []), personId])].sort()
+      if (face.personId !== personId && sameStrings(face.excludedPersonIds ?? [], excludedPersonIds)) return face
+      didChange = true
+      return { ...face, personId: face.personId === personId ? undefined : face.personId, excludedPersonIds }
+    })
+    if (!didChange) return item
+    const updated = { ...item, faces }
+    changed.push(updated)
+    return updated
+  })
+  if (changed.length === 0) return { items, changed: [], people }
+  return { items: nextItems, changed, people: rebuildPeopleFromAssignments(nextItems, people, now) }
 }
 
 export function peoplePhotoCounts(items: LiteMediaRecord[]): Map<string, number> {
@@ -307,6 +335,13 @@ function sameRefs(left: string[], right: string[]): boolean {
   if (left.length !== right.length) return false
   const sorted = [...right].sort()
   return left.every((value, index) => value === sorted[index])
+}
+
+function sameStrings(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false
+  const sortedLeft = [...left].sort()
+  const sortedRight = [...right].sort()
+  return sortedLeft.every((value, index) => value === sortedRight[index])
 }
 
 function isString(value: string | undefined): value is string {

@@ -1,0 +1,97 @@
+.global-settings-button {
+  position: fixed;
+  z-index: 70;
+  right: 18px;
+  bottom: 18px;
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: rgba(18, 24, 33, .94);
+  color: var(--text);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .35);
+  backdrop-filter: blur(12px);
+  font-size: 18px;
+}
+
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(4, 7, 11, .7);
+  backdrop-filter: blur(4px);
+}
+
+.settings-drawer {
+  position: relative;
+  width: min(560px, 94vw);
+  height: 100%;
+  overflow: auto;
+  padding: 28px;
+  border-left: 1px solid var(--border);
+  background: #0f151e;
+  box-shadow: -18px 0 50px rgba(0, 0, 0, .4);
+}
+
+.settings-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  font-size: 20px;
+}
+
+.settings-page { display: grid; gap: 16px; }
+.settings-hero { padding-right: 44px; }
+.settings-hero h1 { margin: 4px 0 6px; font-size: 28px; }
+.settings-hero p { margin: 0; color: var(--muted); line-height: 1.5; }
+
+.settings-card {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+}
+.settings-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.settings-card-head h2 { margin: 0 0 4px; font-size: 16px; }
+.settings-card-head p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+.settings-current-keys { white-space: nowrap; color: #cfe0fa; font-weight: 800; }
+
+.settings-toggle { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; }
+.settings-toggle input { margin-top: 3px; accent-color: var(--accent-strong); }
+.settings-toggle span { display: grid; gap: 4px; }
+.settings-toggle small { color: var(--muted); line-height: 1.45; }
+
+.keymap-options { display: grid; gap: 8px; }
+.keymap-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #111821;
+  cursor: pointer;
+}
+.keymap-option.active { border-color: #668fc9; background: #17263a; }
+.keymap-option input { accent-color: var(--accent-strong); }
+.keymap-option > span { display: grid; gap: 2px; }
+.keymap-option small { color: var(--muted); }
+.keymap-keys { display: flex; gap: 5px; }
+kbd { min-width: 24px; padding: 3px 6px; border: 1px solid #49586d; border-bottom-width: 2px; border-radius: 5px; background: #111821; color: #e8eef8; font: 700 11px/1.2 ui-monospace, monospace; text-align: center; }
+.settings-footnote { margin: 12px 0 0; color: var(--muted); font-size: 11px; }
+
+.person-face-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 7px; }
+.person-face-actions .danger-outline { font-size: 11px; }
+
+@media (max-width: 650px) {
+  .global-settings-button { right: 12px; bottom: 12px; }
+  .settings-drawer { width: 100%; padding: 20px; }
+  .keymap-option { grid-template-columns: auto minmax(0, 1fr); }
+  .keymap-keys { grid-column: 2; }
+}
