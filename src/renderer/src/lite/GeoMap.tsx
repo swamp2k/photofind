@@ -2,13 +2,14 @@ import { useEffect, useMemo, useRef } from 'react'
 import maplibregl, { type GeoJSONSource, type LngLatBoundsLike, type Map as MapLibreMap, type StyleSpecification } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { hasLocation } from './filters'
+import { groupMappedLocations } from './mapLocations'
 import type { LiteGeoBounds, LiteMediaRecord } from './types'
 
 interface GeoMapProps {
   items: LiteMediaRecord[]
   filterToViewport: boolean
   onBoundsChange(bounds: LiteGeoBounds | null): void
-  onSelect(itemId: string): void
+  onSelectItems(itemIds: string[]): void
 }
 
 const SOURCE_ID = 'photofind-photos'
@@ -28,13 +29,13 @@ const OSM_STYLE: StyleSpecification = {
   layers: [{ id: 'osm', type: 'raster', source: 'osm' }]
 }
 
-export function GeoMap({ items, filterToViewport, onBoundsChange, onSelect }: GeoMapProps): JSX.Element {
+export function GeoMap({ items, filterToViewport, onBoundsChange, onSelectItems }: GeoMapProps): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<MapLibreMap | null>(null)
   const initializedRef = useRef(false)
   const viewportEnabledRef = useRef(filterToViewport)
   const boundsCallbackRef = useRef(onBoundsChange)
-  const selectCallbackRef = useRef(onSelect)
+  const selectCallbackRef = useRef(onSelectItems)
   const latestItemsRef = useRef(items)
   const geoJson = useMemo(() => toFeatureCollection(items), [items])
   const geoJsonRef = useRef(geoJson)
@@ -42,10 +43,10 @@ export function GeoMap({ items, filterToViewport, onBoundsChange, onSelect }: Ge
   useEffect(() => {
     viewportEnabledRef.current = filterToViewport
     boundsCallbackRef.current = onBoundsChange
-    selectCallbackRef.current = onSelect
+    selectCallbackRef.current = onSelectItems
     latestItemsRef.current = items
     geoJsonRef.current = geoJson
-  }, [filterToViewport, onBoundsChange, onSelect, items, geoJson])
+  }, [filterToViewport, onBoundsChange, onSelectItems, items, geoJson])
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
@@ -57,6 +58,7 @@ export function GeoMap({ items, filterToViewport, onBoundsChange, onSelect }: Ge
       zoom: 5,
       attributionControl: {}
     })
+    const tooltip = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 14 })
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
     mapRef.current = map
 
@@ -90,8 +92,8 @@ export function GeoMap({ items, filterToViewport, onBoundsChange, onSelect }: Ge
         source: SOURCE_ID,
         filter: ['!', ['has', 'point_count']],
         paint: {
-          'circle-color': '#ffcf70',
-          'circle-radius': 6,
+          'circle-color': ['case', ['>', ['get', 'photoCount'], 1], '#66a5ff', '#ffcf70'],
+          'circle-radius': ['interpolate', ['linear'], ['get', 'photoCount'], 1, 7, 5, 9, 20, 13, 100, 18],
           'circle-stroke-width': 2,
           'circle-stroke-color': '#11151b'
         }
@@ -104,13 +106,26 @@ export function GeoMap({ items, filterToViewport, onBoundsChange, onSelect }: Ge
         map.easeTo({ center: coordinates, zoom: Math.min(map.getZoom() + 2, 16) })
       })
       map.on('click', POINTS_LAYER, (event) => {
-        const id = event.features?.[0]?.properties?.id
-        if (typeof id === 'string') selectCallbackRef.current(id)
+        const properties = event.features?.[0]?.properties
+        const itemIds = parseItemIds(properties?.itemIds)
+        if (itemIds.length > 0) selectCallbackRef.current(itemIds)
       })
       map.on('mouseenter', CLUSTERS_LAYER, () => { map.getCanvas().style.cursor = 'pointer' })
       map.on('mouseleave', CLUSTERS_LAYER, () => { map.getCanvas().style.cursor = '' })
-      map.on('mouseenter', POINTS_LAYER, () => { map.getCanvas().style.cursor = 'pointer' })
-      map.on('mouseleave', POINTS_LAYER, () => { map.getCanvas().style.cursor = '' })
+      map.on('mouseenter', POINTS_LAYER, (event) => {
+        map.getCanvas().style.cursor = 'pointer'
+        const feature = event.features?.[0]
+        if (!feature || feature.geometry.type !== 'Point') return
+        const photoCount = Number(feature.properties?.photoCount ?? 1)
+        tooltip
+          .setLngLat(feature.geometry.coordinates as [number, number])
+          .setText(photoCount === 1 ? '1 photo' : `${photoCount.toLocaleString()} photos at this location`)
+          .addTo(map)
+      })
+      map.on('mouseleave', POINTS_LAYER, () => {
+        map.getCanvas().style.cursor = ''
+        tooltip.remove()
+      })
 
       initializedRef.current = true
       fitMapToItems(map, latestItemsRef.current)
@@ -120,6 +135,7 @@ export function GeoMap({ items, filterToViewport, onBoundsChange, onSelect }: Ge
     map.on('moveend', emitCurrentBounds)
     return () => {
       initializedRef.current = false
+      tooltip.remove()
       map.remove()
       mapRef.current = null
     }
@@ -172,10 +188,23 @@ function emitBounds(map: MapLibreMap, enabled: boolean, callback: (bounds: LiteG
 function toFeatureCollection(items: LiteMediaRecord[]) {
   return {
     type: 'FeatureCollection' as const,
-    features: items.filter(hasLocation).map((item) => ({
+    features: groupMappedLocations(items).map((location) => ({
       type: 'Feature' as const,
-      geometry: { type: 'Point' as const, coordinates: [item.longitude!, item.latitude!] },
-      properties: { id: item.id }
+      geometry: { type: 'Point' as const, coordinates: [location.longitude, location.latitude] },
+      properties: {
+        itemIds: JSON.stringify(location.items.map((item) => item.id)),
+        photoCount: location.items.length
+      }
     }))
+  }
+}
+
+function parseItemIds(value: unknown): string[] {
+  if (typeof value !== 'string') return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === 'string') : []
+  } catch {
+    return []
   }
 }
