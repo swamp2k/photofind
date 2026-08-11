@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { formatCapture } from './formatters'
 import { LocalPhotoImage } from './LocalPhotoImage'
 import { PhotoLightbox } from './PhotoLightbox'
+import { PhotoSelectionBar, useExplorerPhotoSelection } from './PhotoSelection'
 import { bestTechnicalCandidate } from './qualityRanking'
 import { reviewStateOf } from './review'
 import { SourcePath } from './SourcePathView'
@@ -27,9 +28,11 @@ export function ComparePanel({ items, groups, sessionFiles, onReview, onPickBest
   const technicalBest = useMemo(() => bestTechnicalCandidate(candidates), [candidates])
   const [selectedId, setSelectedId] = useState<string | null>(technicalBest?.id ?? candidates[0]?.id ?? null)
   const selected = candidates.find((item) => item.id === selectedId) ?? candidates[0]
+  const selection = useExplorerPhotoSelection(candidates)
 
   function moveGroup(direction: -1 | 1): void {
     setOpenIndex(null)
+    selection.clear()
     setGroupIndex((current) => Math.max(0, Math.min(groups.length - 1, current + direction)))
   }
 
@@ -42,6 +45,7 @@ export function ComparePanel({ items, groups, sessionFiles, onReview, onPickBest
   useEffect(() => {
     setSelectedId(technicalBest?.id ?? candidates[0]?.id ?? null)
     setOpenIndex(null)
+    selection.clear()
   }, [group?.id])
 
   useEffect(() => {
@@ -79,14 +83,18 @@ export function ComparePanel({ items, groups, sessionFiles, onReview, onPickBest
 
       {technicalBest && <div className="technical-suggestion"><span>✦</span><div><strong>Technical suggestion: {technicalBest.name}</strong><p>Highest current technical score in this group. Keeping it does not reject the alternatives.</p></div><button type="button" onClick={keepSuggestionAndAdvance}>Keep suggestion {resolvedGroupIndex < groups.length - 1 ? '& next' : ''}</button></div>}
 
+      <PhotoSelectionBar items={selection.selectedItems} onReview={(targets, state) => targets.forEach((item) => onReview(item, state))} onClear={selection.clear} />
+
       <div className="compare-candidates">
-        {candidates.slice(0, 8).map((item, index) => (
-          <article className={selected?.id === item.id ? 'compare-candidate selected' : 'compare-candidate'} key={item.id}>
-            <button type="button" className="compare-candidate-image" onClick={() => { setSelectedId(item.id); setOpenIndex(index) }} title={`Open larger preview of ${item.name}`}>
+        {candidates.slice(0, 8).map((item, index) => {
+          const explorerSelected = selection.isSelected(item.id)
+          return <article className={[selected?.id === item.id ? 'compare-candidate selected' : 'compare-candidate', explorerSelected ? 'explorer-selected' : ''].filter(Boolean).join(' ')} key={item.id}>
+            <button type="button" className="compare-candidate-image" aria-pressed={explorerSelected} onClick={(event) => selection.handlePhotoClick(event, item.id, () => { setSelectedId(item.id); setOpenIndex(index) })} title={`Open larger preview of ${item.name}`}>
               <LocalPhotoImage item={item} sessionFile={sessionFiles.get(item.id)} />
               {technicalBest?.id === item.id && <span className="technical-crown">Best technical</span>}
               <span className={`candidate-review ${reviewStateOf(item)}`}>{reviewStateOf(item)}</span>
-              <span className="compare-enlarge-hint">Click to enlarge</span>
+              {explorerSelected && <span className="selection-check">✓</span>}
+              <span className="compare-enlarge-hint">Click to enlarge · Ctrl/Shift to select</span>
             </button>
             <div className="compare-candidate-meta">
               <strong>{item.name}</strong>
@@ -97,7 +105,7 @@ export function ComparePanel({ items, groups, sessionFiles, onReview, onPickBest
               <button type="button" className={selected?.id === item.id ? 'candidate-select active' : 'candidate-select'} onClick={() => setSelectedId(item.id)}>{selected?.id === item.id ? 'Selected' : 'Select this photo'}</button>
             </div>
           </article>
-        ))}
+        })}
       </div>
       {candidates.length > 8 && <p className="muted">Showing the first 8 of {candidates.length} related photos in this group. The larger preview can navigate the complete group.</p>}
 
