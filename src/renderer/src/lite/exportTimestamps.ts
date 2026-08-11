@@ -61,7 +61,7 @@ foreach ($Entry in $Payload.files) {
     $Restored++
   } catch {
     $Failed++
-    Write-Host "FAILED $Path`: $($_.Exception.Message)"
+    Write-Host ("FAILED {0}: {1}" -f $Path, $_.Exception.Message)
   }
 }
 Write-Host "Restored modified time on $Restored files; $Failed failed."
