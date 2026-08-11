@@ -33,8 +33,10 @@ describe('export metadata helpers', () => {
 
   it('creates an XMP fallback for a non-JPEG with reliable normalized metadata', async () => {
     const captureTime = new Date('2025-07-09T12:05:07.000Z').getTime()
+    const modifiedTime = new Date('2025-07-10T08:00:00.000Z').getTime()
     const source = new File([new Uint8Array([1, 2, 3])], 'photo.png', { type: 'image/png' })
     const prepared = await prepareMetadataAwareExport(photo({
+      lastModified: modifiedTime,
       effectiveCaptureTime: captureTime,
       captureTimeSource: 'takeout',
       latitude: 56.125,
@@ -47,20 +49,26 @@ describe('export metadata helpers', () => {
     expect(prepared.sidecar).toBeDefined()
     const xmp = await prepared.sidecar!.text()
     expect(xmp).toContain('2025-07-09T12:05:07.000Z')
+    expect(xmp).toContain('xmp:ModifyDate="2025-07-10T08:00:00.000Z"')
     expect(xmp).toContain('exif:GPSLatitude="56.125"')
     expect(xmp).toContain('exif:GPSLongitude="10.25"')
     expect(xmp).toContain('Trip/photo.png')
   })
 
-  it('does not promote file modification time into exported capture metadata', async () => {
+  it('preserves file modification time as a modified-time hint without promoting it to capture time', async () => {
+    const modifiedTime = new Date('2025-07-09T12:05:07.000Z').getTime()
     const source = new File([new Uint8Array([1, 2, 3])], 'photo.png', { type: 'image/png' })
     const prepared = await prepareMetadataAwareExport(photo({
-      effectiveCaptureTime: new Date('2025-07-09T12:05:07.000Z').getTime(),
+      lastModified: modifiedTime,
+      effectiveCaptureTime: modifiedTime,
       captureTimeSource: 'file'
     }), source, true)
 
-    expect(prepared.metadataMode).toBe('unchanged')
-    expect(prepared.sidecar).toBeUndefined()
-    expect(prepared.notes[0]).toContain('No reliable normalized date or location')
+    expect(prepared.metadataMode).toBe('sidecar')
+    expect(prepared.sidecar).toBeDefined()
+    const xmp = await prepared.sidecar!.text()
+    expect(xmp).toContain('xmp:ModifyDate="2025-07-09T12:05:07.000Z"')
+    expect(xmp).not.toContain('DateTimeOriginal')
+    expect(xmp).not.toContain('xmp:CreateDate')
   })
 })
