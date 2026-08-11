@@ -10,6 +10,12 @@ export interface LitePreparedExport {
   notes: string[]
 }
 
+interface NormalizedExportMetadata {
+  captureTime?: number
+  modifiedTime?: number
+  location?: { latitude: number; longitude: number }
+}
+
 export async function prepareMetadataAwareExport(
   item: LiteMediaRecord,
   source: File,
@@ -18,8 +24,8 @@ export async function prepareMetadataAwareExport(
   if (!embedMetadata) return { blob: source, metadataMode: 'unchanged', notes: [] }
 
   const normalized = exportMetadataFor(item)
-  if (!normalized.captureTime && !normalized.location) {
-    return { blob: source, metadataMode: 'unchanged', notes: ['No reliable normalized date or location was available to write.'] }
+  if (!normalized.captureTime && !normalized.modifiedTime && !normalized.location) {
+    return { blob: source, metadataMode: 'unchanged', notes: ['No reliable normalized date, source modified time or location was available to write.'] }
   }
 
   if (isJpeg(source, item.name)) {
@@ -28,7 +34,7 @@ export async function prepareMetadataAwareExport(
       return {
         blob,
         metadataMode: 'embedded',
-        notes: ['Reliable normalized date/location metadata was embedded in the exported JPEG copy.']
+        notes: ['Reliable capture/GPS metadata and the original filesystem modified-time hint were embedded in the exported JPEG copy where available.']
       }
     } catch (cause) {
       return {
@@ -44,7 +50,7 @@ export async function prepareMetadataAwareExport(
     blob: source,
     metadataMode: 'sidecar',
     sidecar: buildXmpSidecar(item, normalized),
-    notes: ['This format was copied unchanged and received an XMP sidecar with normalized metadata.']
+    notes: ['This format was copied unchanged and received an XMP sidecar with normalized metadata and its original filesystem modified-time hint.']
   }
 }
 
@@ -68,24 +74,20 @@ export function xmpSidecarName(exportedFileName: string): string {
   return `${dot > 0 ? exportedFileName.slice(0, dot) : exportedFileName}.xmp`
 }
 
-function exportMetadataFor(item: LiteMediaRecord): {
-  captureTime?: number
-  location?: { latitude: number; longitude: number }
-} {
+function exportMetadataFor(item: LiteMediaRecord): NormalizedExportMetadata {
   const captureTime = item.captureTimeSource !== 'file' && isFinitePositive(item.effectiveCaptureTime)
     ? item.effectiveCaptureTime
     : undefined
+  const modifiedTime = isFinitePositive(item.lastModified) ? item.lastModified : undefined
   const location = validLocation(item.latitude, item.longitude)
   return {
     ...(captureTime ? { captureTime } : {}),
+    ...(modifiedTime ? { modifiedTime } : {}),
     ...(location ? { location } : {})
   }
 }
 
-async function writeJpegExif(
-  source: File,
-  metadata: { captureTime?: number; location?: { latitude: number; longitude: number } }
-): Promise<Blob> {
+async function writeJpegExif(source: File, metadata: NormalizedExportMetadata): Promise<Blob> {
   const binary = arrayBufferToBinary(await source.arrayBuffer())
   let exif: ReturnType<typeof piexif.load>
   try {
@@ -97,9 +99,12 @@ async function writeJpegExif(
   exif.Exif ??= {}
   exif.GPS ??= {}
 
+  if (metadata.modifiedTime) {
+    exif['0th'][piexif.ImageIFD.DateTime] = formatExifDate(metadata.modifiedTime)
+  }
+
   if (metadata.captureTime) {
     const value = formatExifDate(metadata.captureTime)
-    exif['0th'][piexif.ImageIFD.DateTime] = value
     exif.Exif[piexif.ExifIFD.DateTimeOriginal] = value
     exif.Exif[piexif.ExifIFD.DateTimeDigitized] = value
   }
@@ -117,11 +122,9 @@ async function writeJpegExif(
   return new Blob([binaryToArrayBuffer(output)], { type: 'image/jpeg' })
 }
 
-function buildXmpSidecar(
-  item: LiteMediaRecord,
-  metadata: { captureTime?: number; location?: { latitude: number; longitude: number } }
-): Blob {
+function buildXmpSidecar(item: LiteMediaRecord, metadata: NormalizedExportMetadata): Blob {
   const capture = metadata.captureTime ? new Date(metadata.captureTime).toISOString() : undefined
+  const modified = metadata.modifiedTime ? new Date(metadata.modifiedTime).toISOString() : undefined
   const latitude = metadata.location?.latitude
   const longitude = metadata.location?.longitude
   const attributes = [
@@ -131,6 +134,7 @@ function buildXmpSidecar(
     'xmlns:exif="http://ns.adobe.com/exif/1.0/"',
     'xmlns:dc="http://purl.org/dc/elements/1.1/"',
     ...(capture ? [`xmp:CreateDate="${escapeXml(capture)}"`, `exif:DateTimeOriginal="${escapeXml(capture)}"`] : []),
+    ...(modified ? [`xmp:ModifyDate="${escapeXml(modified)}"`] : []),
     ...(typeof latitude === 'number' ? [`exif:GPSLatitude="${latitude}"`] : []),
     ...(typeof longitude === 'number' ? [`exif:GPSLongitude="${longitude}"`] : [])
   ].join(' ')

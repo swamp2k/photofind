@@ -1,4 +1,5 @@
 import { prepareMetadataAwareExport, xmpSidecarName, type LiteExportMetadataMode } from './exportMetadata'
+import { buildTimestampArtifacts, type LiteTimestampEntry } from './exportTimestamps'
 import { reviewStateOf } from './review'
 import type { LiteExportFailure, LiteExportLayout, LiteExportProgress, LiteExportResult, LiteMediaRecord } from './types'
 
@@ -10,6 +11,9 @@ interface ExportOptions {
   onProgress?(progress: LiteExportProgress): void
   includeReports?: boolean
   embedMetadata?: boolean
+  includeEventName?: boolean
+  eventNameForItem?(item: LiteMediaRecord): string | undefined
+  preserveModifiedDates?: boolean
 }
 
 interface ManifestEntry {
@@ -19,7 +23,9 @@ interface ManifestEntry {
   sidecarPath?: string
   metadataNotes?: string[]
   reviewState: string
+  eventName?: string
   captureTime?: string
+  originalModifiedTime?: string
   qualityScore?: number
   qualityTier?: string
   latitude?: number
@@ -31,6 +37,7 @@ export async function exportLocalPhotos(options: ExportOptions): Promise<LiteExp
   const root = options.destination
   const failures: LiteExportFailure[] = []
   const manifest: ManifestEntry[] = []
+  const timestampEntries: LiteTimestampEntry[] = []
   let exported = 0
   let renamed = 0
   let metadataEmbedded = 0
@@ -43,19 +50,24 @@ export async function exportLocalPhotos(options: ExportOptions): Promise<LiteExp
     let metadataMode: LiteExportMetadataMode | undefined
     let metadataNotes: string[] | undefined
     let sidecarPath: string | undefined
+    const eventName = options.includeEventName ? options.eventNameForItem?.(item)?.trim() || undefined : undefined
     try {
       const source = await options.resolveFile(item)
       if (!source) throw new Error('Local file access is unavailable. Reconnect the source folder and retry.')
       const prepared = await prepareMetadataAwareExport(item, source, options.embedMetadata !== false)
       metadataMode = prepared.metadataMode
       metadataNotes = prepared.notes
-      const plan = exportPathParts(item, options.layout)
+      const plan = exportPathParts(item, options.layout, eventName)
       const directory = await ensureDirectories(root, plan.directories)
       const unique = await allocateUniqueName(directory, plan.fileName)
       if (unique.renamed) renamed += 1
       await writeBlob(directory, unique.name, prepared.blob)
       exportedPath = [...plan.directories, unique.name].join('/')
       exported += 1
+
+      if (Number.isFinite(item.lastModified) && item.lastModified > 0) {
+        timestampEntries.push({ path: exportedPath, lastModifiedMs: item.lastModified })
+      }
 
       if (prepared.metadataMode === 'embedded') metadataEmbedded += 1
       else if (prepared.metadataMode === 'unchanged') metadataUnchanged += 1
@@ -71,11 +83,11 @@ export async function exportLocalPhotos(options: ExportOptions): Promise<LiteExp
         }
       }
 
-      manifest.push(manifestEntry(item, { exportedPath, metadataMode, metadataNotes, sidecarPath }))
+      manifest.push(manifestEntry(item, { exportedPath, metadataMode, metadataNotes, sidecarPath, eventName }))
     } catch (cause) {
       const message = messageOf(cause)
       failures.push({ itemId: item.id, relativePath: item.relativePath, message })
-      manifest.push({ ...manifestEntry(item, { exportedPath, metadataMode, metadataNotes, sidecarPath }), error: message })
+      manifest.push({ ...manifestEntry(item, { exportedPath, metadataMode, metadataNotes, sidecarPath, eventName }), error: message })
     }
 
     options.onProgress?.({
@@ -91,11 +103,49 @@ export async function exportLocalPhotos(options: ExportOptions): Promise<LiteExp
     await Promise.resolve()
   }
 
+  const timestamp = fileTimestamp(new Date())
+  const timestampRestoreFiles: string[] = []
+  let timestampRestoreCount = 0
+  if (options.preserveModifiedDates !== false && timestampEntries.length > 0) {
+    const artifacts = buildTimestampArtifacts(timestampEntries, timestamp)
+    try {
+      await writeText(root, artifacts.jsonName, artifacts.json, 'application/json')
+      timestampRestoreFiles.push(artifacts.jsonName)
+      timestampRestoreCount = timestampEntries.length
+    } catch (cause) {
+      failures.push({ itemId: '__timestamp-json__', relativePath: 'Original modified-time restoration data', message: messageOf(cause) })
+    }
+    try {
+      await writeText(root, artifacts.pythonName, artifacts.python, 'text/x-python')
+      timestampRestoreFiles.push(artifacts.pythonName)
+    } catch (cause) {
+      failures.push({ itemId: '__timestamp-python__', relativePath: 'Python modified-time restoration script', message: messageOf(cause) })
+    }
+    try {
+      await writeText(root, artifacts.powershellName, artifacts.powershell, 'text/plain')
+      timestampRestoreFiles.push(artifacts.powershellName)
+    } catch (cause) {
+      failures.push({ itemId: '__timestamp-powershell__', relativePath: 'PowerShell modified-time restoration script', message: messageOf(cause) })
+    }
+  }
+
   let manifestPath: string | undefined
   let reportPath: string | undefined
   if (options.includeReports !== false) {
-    const timestamp = fileTimestamp(new Date())
-    const summary = { exportedAt: new Date().toISOString(), layout: options.layout, exported, renamed, metadataEmbedded, sidecarsWritten, metadataUnchanged, failures, items: manifest }
+    const summary = {
+      exportedAt: new Date().toISOString(),
+      layout: options.layout,
+      includeEventName: options.includeEventName === true,
+      exported,
+      renamed,
+      metadataEmbedded,
+      sidecarsWritten,
+      metadataUnchanged,
+      timestampRestoreCount,
+      timestampRestoreFiles,
+      failures,
+      items: manifest
+    }
     try {
       const manifestName = await allocateUniqueName(root, `photofind-selection-${timestamp}.json`)
       await writeText(root, manifestName.name, JSON.stringify(summary, null, 2), 'application/json')
@@ -106,17 +156,17 @@ export async function exportLocalPhotos(options: ExportOptions): Promise<LiteExp
 
     try {
       const reportName = await allocateUniqueName(root, `photofind-selection-${timestamp}.html`)
-      await writeText(root, reportName.name, buildHtmlReport(manifest, { exported, failed: failures.length, metadataEmbedded, sidecarsWritten }), 'text/html')
+      await writeText(root, reportName.name, buildHtmlReport(manifest, { exported, failed: failures.length, metadataEmbedded, sidecarsWritten, timestampRestoreCount }), 'text/html')
       reportPath = reportName.name
     } catch (cause) {
       failures.push({ itemId: '__html-report__', relativePath: 'HTML selection report', message: messageOf(cause) })
     }
   }
 
-  return { exported, renamed, metadataEmbedded, sidecarsWritten, metadataUnchanged, failures, manifestPath, reportPath }
+  return { exported, renamed, metadataEmbedded, sidecarsWritten, metadataUnchanged, timestampRestoreCount, timestampRestoreFiles, failures, manifestPath, reportPath }
 }
 
-export function exportPathParts(item: LiteMediaRecord, layout: LiteExportLayout): { directories: string[]; fileName: string } {
+export function exportPathParts(item: LiteMediaRecord, layout: LiteExportLayout, eventName?: string): { directories: string[]; fileName: string } {
   const fileName = sanitizeFileName(item.name)
   if (layout === 'flat') return { directories: [], fileName }
   if (layout === 'source-folders') {
@@ -128,9 +178,10 @@ export function exportPathParts(item: LiteMediaRecord, layout: LiteExportLayout)
   if (!date || Number.isNaN(date.getTime())) return { directories: ['Undated'], fileName }
   const year = String(date.getFullYear()).padStart(4, '0')
   const month = String(date.getMonth() + 1).padStart(2, '0')
-  if (layout === 'date-month') return { directories: [year, month], fileName }
+  const monthFolder = eventName ? `${month} - ${sanitizeSegment(eventName)}` : month
+  if (layout === 'date-month') return { directories: [year, monthFolder], fileName }
   const day = String(date.getDate()).padStart(2, '0')
-  return { directories: [year, month, day], fileName }
+  return { directories: [year, monthFolder, day], fileName }
 }
 
 export function collisionCandidate(fileName: string, attempt: number): string {
@@ -145,12 +196,14 @@ function manifestEntry(item: LiteMediaRecord, exportInfo: {
   metadataMode?: LiteExportMetadataMode
   metadataNotes?: string[]
   sidecarPath?: string
+  eventName?: string
 }): ManifestEntry {
   return {
     sourcePath: item.relativePath,
     ...exportInfo,
     reviewState: reviewStateOf(item),
     ...(typeof item.effectiveCaptureTime === 'number' ? { captureTime: new Date(item.effectiveCaptureTime).toISOString() } : {}),
+    ...(Number.isFinite(item.lastModified) && item.lastModified > 0 ? { originalModifiedTime: new Date(item.lastModified).toISOString() } : {}),
     ...(typeof item.qualityScore === 'number' ? { qualityScore: item.qualityScore } : {}),
     ...(item.qualityTier ? { qualityTier: item.qualityTier } : {}),
     ...(typeof item.latitude === 'number' ? { latitude: item.latitude } : {}),
@@ -205,15 +258,15 @@ function sanitizeSegment(value: string): string {
 
 function buildHtmlReport(
   entries: ManifestEntry[],
-  summary: { exported: number; failed: number; metadataEmbedded: number; sidecarsWritten: number }
+  summary: { exported: number; failed: number; metadataEmbedded: number; sidecarsWritten: number; timestampRestoreCount: number }
 ): string {
   const rows = entries.map((entry) => {
     const link = entry.exportedPath ? `<a href="${escapeAttribute(encodeURI(entry.exportedPath))}">${escapeHtml(entry.exportedPath)}</a>` : 'Not exported'
     const quality = typeof entry.qualityScore === 'number' ? `${entry.qualityScore}/100${entry.qualityTier ? ` (${escapeHtml(entry.qualityTier)})` : ''}` : 'Not analyzed'
     const metadata = entry.metadataMode === 'embedded' ? 'Embedded in file' : entry.metadataMode === 'sidecar' ? `XMP sidecar${entry.sidecarPath ? `: ${escapeHtml(entry.sidecarPath)}` : ''}` : 'Original metadata unchanged'
-    return `<tr><td>${link}</td><td>${escapeHtml(entry.reviewState)}</td><td>${quality}</td><td>${escapeHtml(entry.captureTime ?? '')}</td><td>${metadata}</td><td>${escapeHtml(entry.error ?? '')}</td></tr>`
+    return `<tr><td>${link}</td><td>${escapeHtml(entry.eventName ?? '')}</td><td>${escapeHtml(entry.reviewState)}</td><td>${quality}</td><td>${escapeHtml(entry.captureTime ?? '')}</td><td>${escapeHtml(entry.originalModifiedTime ?? '')}</td><td>${metadata}</td><td>${escapeHtml(entry.error ?? '')}</td></tr>`
   }).join('')
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>PhotoFind selection</title><style>body{font:14px system-ui;margin:24px;color:#222}table{border-collapse:collapse;width:100%}th,td{padding:8px;border:1px solid #ccc;text-align:left;vertical-align:top}th{background:#eee}small{color:#666}</style></head><body><h1>PhotoFind selection</h1><p>${summary.exported} photos exported · ${summary.metadataEmbedded} with embedded metadata · ${summary.sidecarsWritten} XMP sidecars · ${summary.failed} failures</p><p><small>Generated locally by PhotoFind. Source files were not modified.</small></p><table><thead><tr><th>Exported file</th><th>Review</th><th>Technical quality</th><th>Capture time</th><th>Metadata</th><th>Error</th></tr></thead><tbody>${rows}</tbody></table></body></html>`
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>PhotoFind selection</title><style>body{font:14px system-ui;margin:24px;color:#222}table{border-collapse:collapse;width:100%}th,td{padding:8px;border:1px solid #ccc;text-align:left;vertical-align:top}th{background:#eee}small{color:#666}</style></head><body><h1>PhotoFind selection</h1><p>${summary.exported} photos exported · ${summary.metadataEmbedded} with embedded metadata · ${summary.sidecarsWritten} XMP sidecars · ${summary.failed} failures</p><p><small>Generated locally by PhotoFind. Source files were not modified. ${summary.timestampRestoreCount > 0 ? `Filesystem modified times for ${summary.timestampRestoreCount} files are recorded in the included restoration pack.` : ''}</small></p><table><thead><tr><th>Exported file</th><th>Event</th><th>Review</th><th>Technical quality</th><th>Capture time</th><th>Original modified time</th><th>Metadata</th><th>Error</th></tr></thead><tbody>${rows}</tbody></table></body></html>`
 }
 
 function escapeHtml(value: string): string {

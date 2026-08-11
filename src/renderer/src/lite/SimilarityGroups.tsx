@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { formatCapture } from './formatters'
 import { LocalThumbnail } from './LocalThumbnail'
 import { PhotoLightbox } from './PhotoLightbox'
+import { PhotoSelectionBar, useExplorerPhotoSelection } from './PhotoSelection'
 import { qualityTierLabel } from './quality'
 import { bestTechnicalCandidate } from './qualityRanking'
 import { ReviewControls } from './ReviewControls'
@@ -40,6 +41,21 @@ export function SimilarityGroups({ items, groups, reviewFilter, sessionFiles, pr
   const similarCount = reviewGroups.filter((group) => group.kind === 'similar').length
   const openGroup = openGroupId ? groups.find((group) => group.id === openGroupId) ?? null : null
   const openItems = openGroup ? openGroup.itemIds.map((id) => byId.get(id)).filter(isMediaRecord) : []
+  const selectableItems = useMemo(() => {
+    const seen = new Set<string>()
+    const output: LiteMediaRecord[] = []
+    for (const group of visibleGroups.slice(0, 100)) {
+      for (const id of group.itemIds.slice(0, 10)) {
+        if (seen.has(id)) continue
+        const item = byId.get(id)
+        if (!item) continue
+        seen.add(id)
+        output.push(item)
+      }
+    }
+    return output
+  }, [byId, visibleGroups])
+  const selection = useExplorerPhotoSelection(selectableItems)
 
   return (
     <section className="similarity-section">
@@ -47,7 +63,7 @@ export function SimilarityGroups({ items, groups, reviewFilter, sessionFiles, pr
         <div>
           <div className="eyebrow">Lite 3 · local analysis</div>
           <h2>Duplicates, bursts & similar moments</h2>
-          <p className="muted">PhotoFind hashes and visually fingerprints photos in a browser worker. Derived fingerprints stay in this browser index.</p>
+          <p className="muted">PhotoFind hashes and visually fingerprints photos in a browser worker. Click to preview; Ctrl-click or Shift-click to select photos across groups.</p>
         </div>
         <button className="primary" type="button" disabled={busy || reconnectRequired || total === 0} onClick={onAnalyze}>
           {busy ? 'Analyzing…' : analyzed > 0 ? 'Refresh similarity analysis' : 'Analyze similarity'}
@@ -85,6 +101,7 @@ export function SimilarityGroups({ items, groups, reviewFilter, sessionFiles, pr
             <button className={kind === 'burst' ? 'active' : ''} onClick={() => setKind('burst')}>Bursts <span>{burstCount}</span></button>
             <button className={kind === 'similar' ? 'active' : ''} onClick={() => setKind('similar')}>Similar <span>{similarCount}</span></button>
           </div>
+          <PhotoSelectionBar items={selection.selectedItems} onReview={(targets, state) => targets.forEach((item) => onReview(item, state))} onClear={selection.clear} />
           <div className="similarity-groups">
             {visibleGroups.slice(0, 100).map((group) => {
               const groupItems = group.itemIds.map((id) => byId.get(id)).filter(isMediaRecord)
@@ -106,20 +123,22 @@ export function SimilarityGroups({ items, groups, reviewFilter, sessionFiles, pr
                     <button type="button" onClick={() => { setOpenGroupId(group.id); setOpenIndex(Math.max(0, bestIndex)) }}>Compare</button>
                   </div>
                   <div className="compare-strip">
-                    {groupItems.slice(0, 10).map((item, index) => (
-                      <article className={best?.id === item.id ? 'compare-thumb best' : 'compare-thumb'} key={item.id}>
-                        <button type="button" className="compare-open" onClick={() => { setOpenGroupId(group.id); setOpenIndex(index) }}>
+                    {groupItems.slice(0, 10).map((item, index) => {
+                      const selected = selection.isSelected(item.id)
+                      return <article className={[best?.id === item.id ? 'compare-thumb best' : 'compare-thumb', selected ? 'explorer-selected' : ''].filter(Boolean).join(' ')} key={item.id}>
+                        <button type="button" className="compare-open" aria-pressed={selected} onClick={(event) => selection.handlePhotoClick(event, item.id, () => { setOpenGroupId(group.id); setOpenIndex(index) })}>
                           <div className="compare-image">
                             <LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} />
                             {best?.id === item.id && <span className="best-badge">Best technical</span>}
                             {item.qualityStatus === 'ready' && <span className={`mini-quality ${item.qualityTier ?? 'okay'}`}>{item.qualityScore}</span>}
+                            {selected && <span className="selection-check">✓</span>}
                           </div>
                           <span>{formatCapture(item)}</span>
                         </button>
                         <SourcePath item={item} compact />
                         <ReviewControls item={item} compact onReview={onReview} />
                       </article>
-                    ))}
+                    })}
                     {groupItems.length > 10 && <div className="compare-more">+{groupItems.length - 10}</div>}
                   </div>
                 </article>

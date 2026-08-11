@@ -127,6 +127,7 @@ export interface LiteEventRecord {
   id: string
   libraryId: string
   title: string
+  customTitle?: string
   startTime: number
   endTime: number
   itemIds: string[]
@@ -135,6 +136,15 @@ export interface LiteEventRecord {
   latitude?: number
   longitude?: number
   evidence: string[]
+}
+
+export interface LiteEventOverride {
+  id: string
+  eventId: string
+  libraryId: string
+  title: string
+  itemIds: string[]
+  updatedAt: number
 }
 
 export type LiteScanPhase = 'files' | 'metadata'
@@ -241,6 +251,8 @@ export interface LiteExportResult {
   metadataEmbedded: number
   sidecarsWritten: number
   metadataUnchanged: number
+  timestampRestoreCount: number
+  timestampRestoreFiles?: string[]
   failures: LiteExportFailure[]
   manifestPath?: string
   reportPath?: string
