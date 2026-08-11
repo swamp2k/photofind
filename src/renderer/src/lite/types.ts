@@ -21,6 +21,7 @@ export interface LiteFaceObservation {
   confidence: number
   embedding: number[]
   personId?: string
+  excludedPersonIds?: string[]
 }
 
 export interface LiteMediaRecord {
@@ -239,7 +240,6 @@ export interface LiteExportResult {
   renamed: number
   metadataEmbedded: number
   sidecarsWritten: number
-  metadataUnchanged: number
   failures: LiteExportFailure[]
   manifestPath?: string
   reportPath?: string
