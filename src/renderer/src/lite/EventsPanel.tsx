@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { usePhotoFindContextMenu } from './ContextMenu'
+import { isMeaningfulEvent } from './events'
 import { formatCapture } from './formatters'
 import { LocalThumbnail } from './LocalThumbnail'
 import { PhotoLightbox } from './PhotoLightbox'
@@ -20,10 +21,12 @@ interface EventsPanelProps {
 
 type EventSort = 'name' | 'captured' | 'modified'
 type SortDirection = 'asc' | 'desc'
+type EventScope = 'meaningful' | 'all'
 
 export function EventsPanel({ items, events, people, sessionFiles, onReview, onRename }: EventsPanelProps): JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [personFilter, setPersonFilter] = useState('')
+  const [scope, setScope] = useState<EventScope>('meaningful')
   const [sortBy, setSortBy] = useState<EventSort>('captured')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
   const [openIndex, setOpenIndex] = useState<number | null>(null)
@@ -32,17 +35,22 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
   const { openContextMenu } = usePhotoFindContextMenu()
   const byId = useMemo(() => new Map(items.map((item) => [item.id, item])), [items])
   const peopleById = useMemo(() => new Map(people.map((person) => [person.id, person])), [people])
+  const meaningfulCount = useMemo(() => events.filter(isMeaningfulEvent).length, [events])
   const visibleEvents = useMemo(() => {
-    const filtered = personFilter ? events.filter((event) => event.personIds.includes(personFilter)) : events
+    let filtered = scope === 'meaningful' ? events.filter(isMeaningfulEvent) : events
+    if (personFilter) filtered = filtered.filter((event) => event.personIds.includes(personFilter))
     return [...filtered].sort((left, right) => compareEvents(left, right, byId, sortBy, sortDirection))
-  }, [byId, events, personFilter, sortBy, sortDirection])
+  }, [byId, events, personFilter, scope, sortBy, sortDirection])
   const selected = visibleEvents.find((event) => event.id === selectedId) ?? visibleEvents[0] ?? null
   const selectedItems = selected ? selected.itemIds.map((id) => byId.get(id)).filter(isMediaRecord) : []
   const selection = useExplorerPhotoSelection(selectedItems)
   const namedPeople = people.filter((person) => !person.ignored && person.name)
 
   useEffect(() => {
-    if (!selected) return
+    if (!selected) {
+      setSelectedId(null)
+      return
+    }
     setSelectedId(selected.id)
     setOpenIndex(null)
     selection.clear()
@@ -85,22 +93,19 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
   }
 
   return (
-    <section className="events-section">
-      <div className="events-hero">
-        <div><div className="eyebrow">Lite 7 · derived local context</div><h2>Events</h2><p>PhotoFind groups nearby moments using time, place, source folder, visual similarity and known people. Right-click an event for contextual actions such as Rename.</p></div>
-        <div className="event-toolbar-controls">
-          <label className="event-person-filter"><span>Person</span><select value={personFilter} onChange={(event) => setPersonFilter(event.target.value)}><option value="">All people</option>{namedPeople.map((person) => <option value={person.id} key={person.id}>{person.name}</option>)}</select></label>
-          <label className="event-person-filter"><span>Sort</span><select value={sortBy} onChange={(event) => setSortBy(event.target.value as EventSort)}><option value="name">Name</option><option value="captured">Date (EXIF / captured)</option><option value="modified">Date (modified)</option></select></label>
-          <button type="button" className="quiet-button event-sort-direction" onClick={() => setSortDirection((value) => value === 'asc' ? 'desc' : 'asc')} title="Reverse event sort">{sortDirection === 'asc' ? '↑ Ascending' : '↓ Descending'}</button>
-        </div>
+    <section className="events-section compact-mode-section">
+      <div className="compact-view-toolbar event-toolbar-controls">
+        <label className="event-person-filter"><span>Show</span><select value={scope} onChange={(event) => { setScope(event.target.value as EventScope); setSelectedId(null) }}><option value="meaningful">Meaningful events ({meaningfulCount.toLocaleString()})</option><option value="all">All moments ({events.length.toLocaleString()})</option></select></label>
+        <label className="event-person-filter"><span>Person</span><select value={personFilter} onChange={(event) => setPersonFilter(event.target.value)}><option value="">All people</option>{namedPeople.map((person) => <option value={person.id} key={person.id}>{person.name}</option>)}</select></label>
+        <label className="event-person-filter"><span>Sort</span><select value={sortBy} onChange={(event) => setSortBy(event.target.value as EventSort)}><option value="name">Name</option><option value="captured">Date (EXIF / captured)</option><option value="modified">Date (modified)</option></select></label>
+        <button type="button" className="quiet-button event-sort-direction" onClick={() => setSortDirection((value) => value === 'asc' ? 'desc' : 'asc')} title="Reverse event sort">{sortDirection === 'asc' ? '↑ Ascending' : '↓ Descending'}</button>
+        <span className="compact-toolbar-note">Everyday day-buckets are hidden by default; named events, known dates, trips and stronger photo sessions stay visible.</span>
       </div>
 
-      <div className="event-stats"><span><strong>{visibleEvents.length.toLocaleString()}</strong> events</span><span><strong>{visibleEvents.reduce((sum, event) => sum + event.itemIds.length, 0).toLocaleString()}</strong> photos</span><span><strong>{visibleEvents.filter((event) => event.personIds.length > 0).length.toLocaleString()}</strong> with known people</span><span><strong>{visibleEvents.filter((event) => typeof event.latitude === 'number').length.toLocaleString()}</strong> located</span></div>
-
-      {events.length === 0 ? <div className="events-empty"><h3>No events to show</h3><p>Index photos with usable timestamps. Similarity and People analysis add better supporting context but are not mandatory.</p></div> : visibleEvents.length === 0 ? <div className="events-empty"><h3>No events match this person</h3><p>Clear the person filter or choose another named cluster.</p></div> : (
+      {events.length === 0 ? <div className="compact-empty-state"><strong>No events to show.</strong><span>Index photos with usable timestamps. Known dates, GPS, People and similarity analysis can all strengthen grouping.</span></div> : visibleEvents.length === 0 ? <div className="compact-empty-state"><strong>No events match these filters.</strong><span>Choose All moments or clear the person filter.</span></div> : (
         <div className="events-workspace">
           <div className="event-list">
-            {visibleEvents.slice(0, 250).map((event) => {
+            {visibleEvents.slice(0, 500).map((event) => {
               const eventItems = event.itemIds.map((id) => byId.get(id)).filter(isMediaRecord)
               return <button
                 type="button"
@@ -111,14 +116,14 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
                 title="Right-click for event actions"
               >
                 <div className="event-mosaic">{eventItems.slice(0, 4).map((item) => <div key={item.id}><LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} /></div>)}</div>
-                <div className="event-card-body"><strong>{event.title}</strong><span>{formatEventRange(event)} · {event.itemIds.length.toLocaleString()} photos</span><small>{event.personIds.map((id) => peopleById.get(id)?.name).filter(Boolean).slice(0, 3).join(', ') || event.folderPaths.slice(0, 2).map(sourceFolderLabel).join(', ')}</small>{event.customTitle && <em>Named event</em>}</div>
+                <div className="event-card-body"><strong>{event.title}</strong><span>{formatEventRange(event)} · {event.itemIds.length.toLocaleString()} photos</span><small>{event.personIds.map((id) => peopleById.get(id)?.name).filter(Boolean).slice(0, 3).join(', ') || event.folderPaths.slice(0, 2).map(sourceFolderLabel).join(', ')}</small>{event.customTitle ? <em>Named event</em> : event.knownDateTitle ? <em>Known date</em> : null}</div>
               </button>
             })}
           </div>
 
           <article className="event-detail">
             {!selected ? <p className="muted">Choose an event.</p> : <>
-              <header className="event-detail-head" onContextMenu={(mouseEvent) => showEventContextMenu(mouseEvent, selected)} title="Right-click for event actions"><div><span className="inspector-label">Detected event</span><h3>{selected.title}</h3><p>{formatEventRange(selected)} · {selected.itemIds.length.toLocaleString()} photos · right-click for event actions</p></div>{selected.personIds.length > 0 && <div className="event-people">{selected.personIds.slice(0, 6).map((id) => <span key={id}>{peopleById.get(id)?.name || 'Unnamed person'}</span>)}</div>}</header>
+              <header className="event-detail-head" onContextMenu={(mouseEvent) => showEventContextMenu(mouseEvent, selected)} title="Right-click for event actions"><div><span className="inspector-label">{selected.knownDateTitle ? 'Known date event' : selected.significance === 'everyday' ? 'Everyday moment' : 'Detected event'}</span><h3>{selected.title}</h3><p>{formatEventRange(selected)} · {selected.itemIds.length.toLocaleString()} photos · right-click for event actions</p></div>{selected.personIds.length > 0 && <div className="event-people">{selected.personIds.slice(0, 6).map((id) => <span key={id}>{peopleById.get(id)?.name || 'Unnamed person'}</span>)}</div>}</header>
 
               <div className="event-evidence"><strong>Why these photos are together</strong><div>{selected.evidence.length > 0 ? selected.evidence.map((value) => <span key={value}>{value}</span>) : <span>single moment</span>}</div></div>
               <div className="event-folders"><strong>Source folders</strong><div>{summarizeSourceFolders(selectedItems).map((summary) => <SourceFolderButton key={summary.folder} folder={summary.folder} count={summary.count} />)}</div></div>
