@@ -83,7 +83,7 @@ function renderSegment(segment: string, values: ExportTemplateValues): string | 
 
 export function sanitizeTemplateSegment(value: string): string {
   const cleaned = value
-    .replace(/[<>:"|?*\u0000-\u001f]/g, '_')
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
     .replace(/[. ]+$/g, '')
     .trim()
   if (!cleaned || cleaned === '.' || cleaned === '..') return ''
