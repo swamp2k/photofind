@@ -4,12 +4,13 @@ import { ComparePanel } from './ComparePanel'
 import { usePhotoFindContextMenu } from './ContextMenu'
 import { CurationPanel } from './CurationPanel'
 import { applyEventOverrides, createEventOverride, matchingEventOverride } from './eventOverrides'
-import { buildEvents } from './events'
+import { buildEvents, isMeaningfulEvent } from './events'
 import { EventsPanel } from './EventsPanel'
 import { exportLocalPhotos } from './exporter'
 import { ensureReadPermission, ensureWritePermission, localFolderAccessMode, pickExportDirectory, pickLocalDirectory, pickLocalDirectoryFiles, supportsWritableExport } from './fileAccess'
 import { availableYears, dateInputToEnd, dateInputToStart, filterPhotos, hasLocation } from './filters'
-import { deleteEventOverride, deleteLibrary, listLibraries, loadEventOverrides, loadMedia, loadPeople, putMediaRecords, replaceLibrary, saveEventOverride, savePeopleState } from './libraryDb'
+import { KnownDatesDialog } from './KnownDatesDialog'
+import { deleteEventOverride, deleteLibrary, listLibraries, loadEventOverrides, loadMedia, loadPeople, putMediaRecords, replaceLibrary, saveEventOverride, saveLibraryKnownDates, savePeopleState } from './libraryDb'
 import { MapResults } from './MapResults'
 import { analyzePeople } from './peopleAnalysis'
 import { clusterPeople, excludeFaceFromPerson, mergePeople as mergePeopleState, renamePerson as renamePersonState, setPersonIgnored, splitFaceIntoNewPerson } from './people'
@@ -27,7 +28,7 @@ import { SimilarityGroups } from './SimilarityGroups'
 import { isInExactSourceFolder, sourceFolderLabel } from './sourcePath'
 import { SourceNavigationProvider } from './SourceNavigation'
 import { isStarred, setPhotoStarred } from './starred'
-import type { LiteDateMetadataFilter, LiteEventOverride, LiteEventRecord, LiteExportLayout, LiteExportProgress, LiteExportResult, LiteGeoBounds, LiteLibraryAccessMode, LiteLibraryRecord, LiteLocationFilter, LiteMediaRecord, LitePeopleProgress, LitePersonRecord, LitePhotoFilters, LiteQualityProgress, LiteReviewFilter, LiteReviewState, LiteScanProgress, LiteSimilarityProgress } from './types'
+import type { LiteDateMetadataFilter, LiteEventOverride, LiteEventRecord, LiteExportLayout, LiteExportProgress, LiteExportResult, LiteGeoBounds, LiteKnownDateRecord, LiteLibraryAccessMode, LiteLibraryRecord, LiteLocationFilter, LiteMediaRecord, LitePeopleProgress, LitePersonRecord, LitePhotoFilters, LiteQualityProgress, LiteReviewFilter, LiteReviewState, LiteScanProgress, LiteSimilarityProgress } from './types'
 
 const PAGE_SIZE = 120
 type BrowseView = 'photos' | 'starred' | 'events' | 'map' | 'people' | 'groups' | 'quality' | 'review' | 'compare' | 'selection'
@@ -38,6 +39,9 @@ export function LiteApp(): JSX.Element {
   const [media, setMedia] = useState<LiteMediaRecord[]>([])
   const mediaRef = useRef<LiteMediaRecord[]>([])
   const reviewQueue = useRef<Promise<void>>(Promise.resolve())
+  const similarityAbortRef = useRef<AbortController | null>(null)
+  const qualityAbortRef = useRef<AbortController | null>(null)
+  const peopleAbortRef = useRef<AbortController | null>(null)
   const { registerPhotoActions } = usePhotoFindContextMenu()
   const [people, setPeople] = useState<LitePersonRecord[]>([])
   const [eventOverrides, setEventOverrides] = useState<LiteEventOverride[]>([])
@@ -54,6 +58,7 @@ export function LiteApp(): JSX.Element {
   const [peopleBusy, setPeopleBusy] = useState(false)
   const [reviewWrites, setReviewWrites] = useState(0)
   const [exportBusy, setExportBusy] = useState(false)
+  const [knownDatesOpen, setKnownDatesOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [view, setView] = useState<BrowseView>('photos')
@@ -104,8 +109,10 @@ export function LiteApp(): JSX.Element {
   }, [folderScopedImages, personNamesById, searchQuery])
   const reviewCounts = useMemo(() => countReviewStates(images), [images])
   const similarityGroups = useMemo(() => buildSimilarityGroups(images), [images])
-  const baseEvents = useMemo(() => buildEvents(images, similarityGroups), [images, similarityGroups])
+  const knownDates = activeLibrary?.knownDates
+  const baseEvents = useMemo(() => buildEvents(images, similarityGroups, knownDates ?? []), [images, similarityGroups, knownDates])
   const events = useMemo(() => applyEventOverrides(baseEvents, eventOverrides), [baseEvents, eventOverrides])
+  const meaningfulEvents = useMemo(() => events.filter(isMeaningfulEvent), [events])
   const namedEventByItemId = useMemo(() => {
     const map = new Map<string, string>()
     for (const event of events) {
@@ -116,6 +123,7 @@ export function LiteApp(): JSX.Element {
   }, [events])
   const qualityReadyCount = useMemo(() => images.filter((item) => item.qualityStatus === 'ready').length, [images])
   const greatQualityCount = useMemo(() => images.filter((item) => item.qualityTier === 'great').length, [images])
+  const peopleAnalyzedCount = useMemo(() => images.filter((item) => item.faceAnalysisStatus === 'ready').length, [images])
   const visiblePeopleCount = useMemo(() => people.filter((person) => !person.ignored).length, [people])
   const years = useMemo(() => availableYears(images), [images])
   const baseFilters = useMemo<LitePhotoFilters>(() => ({
@@ -207,6 +215,8 @@ export function LiteApp(): JSX.Element {
 
   async function runSimilarityAnalysis(): Promise<void> {
     if (!activeLibrary || reconnectRequired || working) return
+    const controller = new AbortController()
+    similarityAbortRef.current = controller
     setError(null)
     setSimilarityBusy(true)
     setSimilarityProgress({ complete: 0, total: images.length, reused: 0, currentPath: '' })
@@ -214,12 +224,15 @@ export function LiteApp(): JSX.Element {
       const updated = await analyzeSimilarity(mediaRef.current, {
         resolveFile: resolveLocalFile,
         onProgress: setSimilarityProgress,
-        persistBatch: putMediaRecords
+        persistBatch: putMediaRecords,
+        signal: controller.signal
       })
       setMediaState(updated)
     } catch (cause) {
-      setError(`Similarity analysis stopped: ${messageOf(cause)}`)
+      if (isAbort(cause)) await reloadPersistedMedia(activeLibrary.id)
+      else setError(`Similarity analysis stopped: ${messageOf(cause)}`)
     } finally {
+      if (similarityAbortRef.current === controller) similarityAbortRef.current = null
       setSimilarityBusy(false)
       setSimilarityProgress(null)
     }
@@ -227,6 +240,8 @@ export function LiteApp(): JSX.Element {
 
   async function runQualityAnalysis(): Promise<void> {
     if (!activeLibrary || reconnectRequired || working) return
+    const controller = new AbortController()
+    qualityAbortRef.current = controller
     setError(null)
     setQualityBusy(true)
     setQualityProgress({ complete: 0, total: images.length, reused: 0, currentPath: '' })
@@ -234,12 +249,15 @@ export function LiteApp(): JSX.Element {
       const updated = await analyzeQuality(mediaRef.current, {
         resolveFile: resolveLocalFile,
         onProgress: setQualityProgress,
-        persistBatch: putMediaRecords
+        persistBatch: putMediaRecords,
+        signal: controller.signal
       })
       setMediaState(updated)
     } catch (cause) {
-      setError(`Quality analysis stopped: ${messageOf(cause)}`)
+      if (isAbort(cause)) await reloadPersistedMedia(activeLibrary.id)
+      else setError(`Quality analysis stopped: ${messageOf(cause)}`)
     } finally {
+      if (qualityAbortRef.current === controller) qualityAbortRef.current = null
       setQualityBusy(false)
       setQualityProgress(null)
     }
@@ -247,6 +265,8 @@ export function LiteApp(): JSX.Element {
 
   async function runPeopleAnalysis(): Promise<void> {
     if (!activeLibrary || reconnectRequired || working) return
+    const controller = new AbortController()
+    peopleAbortRef.current = controller
     setError(null)
     setPeopleBusy(true)
     setPeopleProgress({ phase: 'models', complete: 0, total: images.length, reused: 0, facesFound: 0, currentPath: 'Loading local face models…' })
@@ -255,16 +275,31 @@ export function LiteApp(): JSX.Element {
         existingPeople: people,
         resolveFile: resolveLocalFile,
         persistBatch: putMediaRecords,
-        onProgress: setPeopleProgress
+        onProgress: setPeopleProgress,
+        signal: controller.signal
       })
       await savePeopleState(activeLibrary.id, result.people, result.changed)
       setMediaState(result.items)
       setPeople(result.people)
     } catch (cause) {
-      setError(`People analysis stopped: ${messageOf(cause)}`)
+      if (isAbort(cause)) await reloadPersistedMedia(activeLibrary.id)
+      else setError(`People analysis stopped: ${messageOf(cause)}`)
     } finally {
+      if (peopleAbortRef.current === controller) peopleAbortRef.current = null
       setPeopleBusy(false)
       setPeopleProgress(null)
+    }
+  }
+
+  function stopSimilarityAnalysis(): void { similarityAbortRef.current?.abort() }
+  function stopQualityAnalysis(): void { qualityAbortRef.current?.abort() }
+  function stopPeopleAnalysis(): void { peopleAbortRef.current?.abort() }
+
+  async function reloadPersistedMedia(libraryId: string): Promise<void> {
+    try {
+      setMediaState(await loadMedia(libraryId))
+    } catch (cause) {
+      setError(`Analysis stopped, but the partial local results could not be reloaded: ${messageOf(cause)}`)
     }
   }
 
@@ -359,6 +394,18 @@ export function LiteApp(): JSX.Element {
     } catch (cause) { setError(`Event name was not saved: ${messageOf(cause)}`) }
   }
 
+  async function replaceKnownDates(records: LiteKnownDateRecord[]): Promise<void> {
+    if (!activeLibrary) return
+    try {
+      const updated = await saveLibraryKnownDates(activeLibrary.id, records)
+      setActiveLibrary(updated)
+      setLibraries((current) => current.map((library) => library.id === updated.id ? updated : library))
+    } catch (cause) {
+      setError(`Known dates were not saved: ${messageOf(cause)}`)
+      throw cause
+    }
+  }
+
   async function runExport(items: LiteMediaRecord[], layout: LiteExportLayout, includeReports: boolean, embedMetadata: boolean, includeEventName: boolean, preserveModifiedDates: boolean): Promise<void> {
     if (exportBusy || items.length === 0 || reconnectRequired) return
     setError(null)
@@ -400,14 +447,15 @@ export function LiteApp(): JSX.Element {
     }
   }
 
-  async function applyScanResult(library: LiteLibraryRecord, scannedMedia: LiteMediaRecord[], nextSessionFiles: Map<string, File>, existing: boolean): Promise<void> {
-    const reconciled = clusterPeople(scannedMedia, existing ? people : [])
-    await replaceLibrary(library, reconciled.items)
-    await savePeopleState(library.id, reconciled.people, reconciled.changed)
-    setActiveLibrary(library)
+  async function applyScanResult(library: LiteLibraryRecord, scannedMedia: LiteMediaRecord[], nextSessionFiles: Map<string, File>, existingLibrary: LiteLibraryRecord | null): Promise<void> {
+    const reconciled = clusterPeople(scannedMedia, existingLibrary ? people : [])
+    const persistedLibrary = existingLibrary?.knownDates !== undefined ? { ...library, knownDates: existingLibrary.knownDates } : library
+    await replaceLibrary(persistedLibrary, reconciled.items)
+    await savePeopleState(persistedLibrary.id, reconciled.people, reconciled.changed)
+    setActiveLibrary(persistedLibrary)
     setMediaState(reconciled.items)
     setPeople(reconciled.people)
-    if (!existing) setEventOverrides([])
+    if (!existingLibrary) setEventOverrides([])
     setSessionFiles(nextSessionFiles)
     resetBrowseState()
     await refreshLibraries()
@@ -419,7 +467,7 @@ export function LiteApp(): JSX.Element {
     try {
       const previous = existing ? await loadMedia(existing.id) : []
       const result = await scanDirectory(handle, existing ? { id: existing.id, createdAt: existing.createdAt } : null, previous, setProgress)
-      await applyScanResult(result.library, result.media, new Map(), Boolean(existing))
+      await applyScanResult(result.library, result.media, new Map(), existing)
     } finally { setBusy(false); setProgress(null) }
   }
 
@@ -430,7 +478,7 @@ export function LiteApp(): JSX.Element {
       const previous = existing ? await loadMedia(existing.id) : []
       const result = await scanFileSelection(files, existing ? { id: existing.id, createdAt: existing.createdAt } : null, previous, setProgress)
       if (existing && result.library.name !== existing.name) throw new Error(`Selected “${result.library.name}”, but this index belongs to “${existing.name}”. Choose the original folder.`)
-      await applyScanResult(result.library, result.media, result.sessionFiles, Boolean(existing))
+      await applyScanResult(result.library, result.media, result.sessionFiles, existing)
     } finally { setBusy(false); setProgress(null) }
   }
 
@@ -444,7 +492,7 @@ export function LiteApp(): JSX.Element {
   }
 
   function resetBrowseState(): void {
-    setVisibleCount(PAGE_SIZE); setView('photos'); setSearchQuery(''); setSourceFolderFilter(null); setYear(null); setFromDate(''); setToDate(''); setLocationFilter('all'); setDateMetadataFilter('all'); setReviewFilter('all'); setFilterToViewport(false); setMapBounds(null); setSelectedMapId(null); setSimilarityProgress(null); setQualityProgress(null); setPeopleProgress(null); setExportProgress(null); setExportResult(null)
+    setKnownDatesOpen(false); setVisibleCount(PAGE_SIZE); setView('photos'); setSearchQuery(''); setSourceFolderFilter(null); setYear(null); setFromDate(''); setToDate(''); setLocationFilter('all'); setDateMetadataFilter('all'); setReviewFilter('all'); setFilterToViewport(false); setMapBounds(null); setSelectedMapId(null); setSimilarityProgress(null); setQualityProgress(null); setPeopleProgress(null); setExportProgress(null); setExportResult(null)
   }
 
   function clearFilters(): void {
@@ -490,7 +538,7 @@ export function LiteApp(): JSX.Element {
             <nav className="mode-nav" aria-label="PhotoFind modes">
               <ModeButton icon="▦" label="Library" active={view === 'photos'} disabled={!activeLibrary} onClick={() => setView('photos')} />
               <ModeButton icon="★" label="Starred" count={starredImages.length} active={view === 'starred'} disabled={!activeLibrary} onClick={() => { setView('starred'); setVisibleCount(PAGE_SIZE) }} />
-              <ModeButton icon="◷" label="Events" count={events.length} active={view === 'events'} disabled={!activeLibrary} onClick={() => setView('events')} />
+              <ModeButton icon="◷" label="Events" count={meaningfulEvents.length} active={view === 'events'} disabled={!activeLibrary} onClick={() => setView('events')} />
               <ModeButton icon="⌖" label="Map" count={locatedCount} active={view === 'map'} disabled={!activeLibrary} onClick={() => setView('map')} />
               <ModeButton icon="◎" label="People" count={visiblePeopleCount} active={view === 'people'} disabled={!activeLibrary} onClick={() => setView('people')} />
               <ModeButton icon="◫" label="Duplicates" count={similarityGroups.length} active={view === 'groups'} disabled={!activeLibrary} onClick={() => setView('groups')} />
@@ -519,9 +567,22 @@ export function LiteApp(): JSX.Element {
                 ? <ReviewSession title={activeLibrary.name} items={filteredImages} sessionFiles={sessionFiles} onReview={updateReview} onExit={() => setView('photos')} />
                 : <ComparePanel items={images} groups={contextualGroups} sessionFiles={sessionFiles} onReview={(item, state) => updateReview([item], state)} onPickBest={pickBest} />
             ) : <>
-              <section className="collection-header">
+              <section className="collection-header compact-collection-header">
                 <div><span className="mode-kicker">{viewTitle(view)}</span><h1>{activeLibrary.name}</h1><p>{viewDescription(view)} · indexed {new Date(activeLibrary.updatedAt).toLocaleString()}</p></div>
-                <div className="collection-actions"><div className="collection-totals"><span><strong>{activeLibrary.imageCount.toLocaleString()}</strong> photos</span><span className="keep"><strong>{reviewCounts.keep.toLocaleString()}</strong> keep</span><span className="maybe"><strong>{reviewCounts.maybe.toLocaleString()}</strong> maybe</span>{starredImages.length > 0 && <span><strong>{starredImages.length.toLocaleString()}</strong> starred</span>}{greatQualityCount > 0 && <span><strong>{greatQualityCount.toLocaleString()}</strong> great</span>}</div><button disabled={working} onClick={() => void rescanActive()}>{libraryMode(activeLibrary) === 'selection' ? (reconnectRequired ? 'Reconnect folder' : 'Reselect & rescan') : 'Rescan'}</button></div>
+                <div className="collection-actions">
+                  <div className="collection-totals"><span><strong>{activeLibrary.imageCount.toLocaleString()}</strong> photos</span><span className="keep"><strong>{reviewCounts.keep.toLocaleString()}</strong> keep</span><span className="maybe"><strong>{reviewCounts.maybe.toLocaleString()}</strong> maybe</span>{starredImages.length > 0 && <span><strong>{starredImages.length.toLocaleString()}</strong> starred</span>}{greatQualityCount > 0 && <span><strong>{greatQualityCount.toLocaleString()}</strong> great</span>}</div>
+                  <div className="collection-action-buttons">
+                    {view === 'events' && <button type="button" disabled={working} onClick={() => setKnownDatesOpen(true)}>Known dates{knownDates?.length ? ` (${knownDates.length})` : ''}</button>}
+                    {view === 'people' && <button
+                      type="button"
+                      className={peopleBusy ? 'danger-outline' : 'primary'}
+                      disabled={!peopleBusy && (working || reconnectRequired || images.length === 0)}
+                      title={peopleBusy ? 'Stops after the current local face operation completes.' : undefined}
+                      onClick={peopleBusy ? stopPeopleAnalysis : () => void runPeopleAnalysis()}
+                    >{peopleBusy ? 'Stop people analysis' : peopleAnalyzedCount > 0 ? 'Refresh people analysis' : 'Analyze people'}</button>}
+                    <button disabled={working} onClick={() => void rescanActive()}>{libraryMode(activeLibrary) === 'selection' ? (reconnectRequired ? 'Reconnect folder' : 'Reselect & rescan') : 'Rescan'}</button>
+                  </div>
+                </div>
               </section>
 
               {reconnectRequired && <div className="notice warning inline-notice">Reconnect this folder to restore previews, analysis and export access.</div>}
@@ -536,17 +597,19 @@ export function LiteApp(): JSX.Element {
 
               {view === 'events' && <EventsPanel items={images} events={events} people={people} sessionFiles={sessionFiles} onReview={(item, state) => updateReview([item], state)} onRename={(event, title) => void renameEvent(event, title)} />}
               {view === 'map' && <MapResults items={mapItems} filterToViewport={filterToViewport} selected={selectedMapItem} sessionFiles={sessionFiles} onFilterToViewport={setFilterToViewport} onBoundsChange={handleMapBounds} onSelect={setSelectedMapId} onShowSelected={() => { setView('photos'); setVisibleCount(PAGE_SIZE) }} onReview={(item, state) => updateReview([item], state)} />}
-              {view === 'people' && <PeoplePanel items={images} people={people} sessionFiles={sessionFiles} progress={peopleProgress} busy={peopleBusy} reconnectRequired={reconnectRequired} onAnalyze={() => void runPeopleAnalysis()} onRename={(personId, name) => void renamePerson(personId, name)} onIgnore={(personId, ignored) => void ignorePerson(personId, ignored)} onMerge={(sourceId, targetId) => void mergePerson(sourceId, targetId)} onSplit={(faceRef) => void splitPersonFace(faceRef)} onExclude={(faceRef, personId) => void excludePersonFace(faceRef, personId)} onReview={(item, state) => updateReview([item], state)} />}
+              {view === 'people' && <PeoplePanel items={images} people={people} sessionFiles={sessionFiles} progress={peopleProgress} busy={peopleBusy} reconnectRequired={reconnectRequired} onRename={(personId, name) => void renamePerson(personId, name)} onIgnore={(personId, ignored) => void ignorePerson(personId, ignored)} onMerge={(sourceId, targetId) => void mergePerson(sourceId, targetId)} onSplit={(faceRef) => void splitPersonFace(faceRef)} onExclude={(faceRef, personId) => void excludePersonFace(faceRef, personId)} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'photos' && <PhotoResults items={filteredImages} visibleCount={visibleCount} selectedId={selectedMapId} sessionFiles={sessionFiles} onShowMore={() => setVisibleCount((count) => count + PAGE_SIZE)} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'starred' && <PhotoResults items={starredFilteredImages} visibleCount={visibleCount} selectedId={null} sessionFiles={sessionFiles} onShowMore={() => setVisibleCount((count) => count + PAGE_SIZE)} onReview={(item, state) => updateReview([item], state)} />}
-              {view === 'groups' && <SimilarityGroups items={images} groups={contextualGroups} reviewFilter={reviewFilter} sessionFiles={sessionFiles} progress={similarityProgress} busy={working} reconnectRequired={reconnectRequired} onAnalyze={() => void runSimilarityAnalysis()} onReview={(item, state) => updateReview([item], state)} />}
-              {view === 'quality' && <QualityPanel items={filteredImages} sessionFiles={sessionFiles} progress={qualityProgress} busy={working} reconnectRequired={reconnectRequired} onAnalyze={() => void runQualityAnalysis()} onReview={(item, state) => updateReview([item], state)} />}
-              {view === 'selection' && <CurationPanel items={images} events={events} sessionFiles={sessionFiles} exportSupported={exportSupported} reconnectRequired={reconnectRequired} busy={exportBusy} progress={exportProgress} result={exportResult} onReview={(item, state) => updateReview([item], state)} onExport={(items, layout, reports, metadata, eventNames, modifiedDates) => void runExport(items, layout, reports, metadata, eventNames, modifiedDates)} />}
+              {view === 'groups' && <SimilarityGroups items={images} groups={contextualGroups} reviewFilter={reviewFilter} sessionFiles={sessionFiles} progress={similarityProgress} busy={similarityBusy} reconnectRequired={reconnectRequired} onAnalyze={() => void runSimilarityAnalysis()} onAbort={stopSimilarityAnalysis} onReview={(item, state) => updateReview([item], state)} />}
+              {view === 'quality' && <QualityPanel items={filteredImages} sessionFiles={sessionFiles} progress={qualityProgress} busy={qualityBusy} reconnectRequired={reconnectRequired} onAnalyze={() => void runQualityAnalysis()} onAbort={stopQualityAnalysis} onReview={(item, state) => updateReview([item], state)} />}
+              {view === 'selection' && <CurationPanel items={images} events={meaningfulEvents} sessionFiles={sessionFiles} exportSupported={exportSupported} reconnectRequired={reconnectRequired} busy={exportBusy} progress={exportProgress} result={exportResult} onReview={(item, state) => updateReview([item], state)} onExport={(items, layout, reports, metadata, eventNames, modifiedDates) => void runExport(items, layout, reports, metadata, eventNames, modifiedDates)} />}
 
               <Diagnostics unknown={unknown} diagnostics={diagnostics} />
             </>}
           </main>
         </div>
+
+        {knownDatesOpen && activeLibrary && <KnownDatesDialog libraryId={activeLibrary.id} records={activeLibrary.knownDates ?? []} years={years} onReplace={replaceKnownDates} onClose={() => setKnownDatesOpen(false)} />}
       </div>
     </SourceNavigationProvider>
   )
@@ -597,12 +660,12 @@ function viewTitle(view: Exclude<BrowseView, 'review' | 'compare'>): string {
 
 function viewDescription(view: Exclude<BrowseView, 'review' | 'compare'>): string {
   if (view === 'starred') return 'The photos that made you stop and say “this one is special”'
-  if (view === 'events') return 'Browse and name locally derived moments across time, place, folders and people'
+  if (view === 'events') return 'Meaningful moments from time, place and your known dates; everyday day-buckets stay out of the way by default'
   if (view === 'map') return 'Explore the collection by location'
   if (view === 'people') return 'Name and correct private, browser-local face clusters'
   if (view === 'groups') return 'Find duplicates, bursts and similar scenes with their source folders'
   if (view === 'quality') return 'Find technically strong frames without confusing quality with importance'
-  if (view === 'selection') return 'Filter keepers by event and export self-contained copies'
+  if (view === 'selection') return 'Filter keepers by meaningful event and export self-contained copies'
   return 'Browse and find the photos that matter'
 }
 
