@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { usePhotoFindContextMenu } from './ContextMenu'
 import { formatCapture } from './formatters'
 import { LocalThumbnail } from './LocalThumbnail'
 import { PhotoLightbox } from './PhotoLightbox'
@@ -26,7 +27,9 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
   const [sortBy, setSortBy] = useState<EventSort>('captured')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
   const [openIndex, setOpenIndex] = useState<number | null>(null)
-  const [nameDraft, setNameDraft] = useState('')
+  const [renameTarget, setRenameTarget] = useState<LiteEventRecord | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
+  const { openContextMenu } = usePhotoFindContextMenu()
   const byId = useMemo(() => new Map(items.map((item) => [item.id, item])), [items])
   const peopleById = useMemo(() => new Map(people.map((person) => [person.id, person])), [people])
   const visibleEvents = useMemo(() => {
@@ -41,15 +44,50 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
   useEffect(() => {
     if (!selected) return
     setSelectedId(selected.id)
-    setNameDraft(selected.customTitle ?? selected.title)
     setOpenIndex(null)
     selection.clear()
-  }, [selected?.id, selected?.title])
+  }, [selected?.id])
+
+  function beginRename(event: LiteEventRecord): void {
+    setRenameTarget(event)
+    setRenameDraft(event.customTitle ?? event.title)
+  }
+
+  function showEventContextMenu(mouseEvent: ReactMouseEvent, event: LiteEventRecord): void {
+    openContextMenu(mouseEvent, {
+      title: event.title,
+      actions: [
+        {
+          id: 'open-event',
+          label: selected?.id === event.id ? 'Event is open' : 'Open event',
+          disabled: selected?.id === event.id,
+          onSelect: () => { setSelectedId(event.id); setOpenIndex(null) }
+        },
+        {
+          id: 'rename-event',
+          label: 'Rename event…',
+          separatorBefore: true,
+          onSelect: () => beginRename(event)
+        },
+        ...(event.customTitle ? [{
+          id: 'reset-event-name',
+          label: 'Use generated name',
+          onSelect: () => onRename(event, '')
+        }] : [])
+      ]
+    })
+  }
+
+  function saveRename(): void {
+    if (!renameTarget) return
+    onRename(renameTarget, renameDraft)
+    setRenameTarget(null)
+  }
 
   return (
     <section className="events-section">
       <div className="events-hero">
-        <div><div className="eyebrow">Lite 7 · derived local context</div><h2>Events</h2><p>PhotoFind groups nearby moments using time, place, source folder, visual similarity and known people. Rename useful events locally; source folders remain unchanged.</p></div>
+        <div><div className="eyebrow">Lite 7 · derived local context</div><h2>Events</h2><p>PhotoFind groups nearby moments using time, place, source folder, visual similarity and known people. Right-click an event for contextual actions such as Rename.</p></div>
         <div className="event-toolbar-controls">
           <label className="event-person-filter"><span>Person</span><select value={personFilter} onChange={(event) => setPersonFilter(event.target.value)}><option value="">All people</option>{namedPeople.map((person) => <option value={person.id} key={person.id}>{person.name}</option>)}</select></label>
           <label className="event-person-filter"><span>Sort</span><select value={sortBy} onChange={(event) => setSortBy(event.target.value as EventSort)}><option value="name">Name</option><option value="captured">Date (EXIF / captured)</option><option value="modified">Date (modified)</option></select></label>
@@ -64,7 +102,14 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
           <div className="event-list">
             {visibleEvents.slice(0, 250).map((event) => {
               const eventItems = event.itemIds.map((id) => byId.get(id)).filter(isMediaRecord)
-              return <button type="button" className={selected?.id === event.id ? 'event-card selected' : 'event-card'} key={event.id} onClick={() => { setSelectedId(event.id); setOpenIndex(null) }}>
+              return <button
+                type="button"
+                className={selected?.id === event.id ? 'event-card selected' : 'event-card'}
+                key={event.id}
+                onClick={() => { setSelectedId(event.id); setOpenIndex(null) }}
+                onContextMenu={(mouseEvent) => showEventContextMenu(mouseEvent, event)}
+                title="Right-click for event actions"
+              >
                 <div className="event-mosaic">{eventItems.slice(0, 4).map((item) => <div key={item.id}><LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} /></div>)}</div>
                 <div className="event-card-body"><strong>{event.title}</strong><span>{formatEventRange(event)} · {event.itemIds.length.toLocaleString()} photos</span><small>{event.personIds.map((id) => peopleById.get(id)?.name).filter(Boolean).slice(0, 3).join(', ') || event.folderPaths.slice(0, 2).map(sourceFolderLabel).join(', ')}</small>{event.customTitle && <em>Named event</em>}</div>
               </button>
@@ -73,13 +118,7 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
 
           <article className="event-detail">
             {!selected ? <p className="muted">Choose an event.</p> : <>
-              <header className="event-detail-head"><div><span className="inspector-label">Detected event</span><h3>{selected.title}</h3><p>{formatEventRange(selected)} · {selected.itemIds.length.toLocaleString()} photos</p></div>{selected.personIds.length > 0 && <div className="event-people">{selected.personIds.slice(0, 6).map((id) => <span key={id}>{peopleById.get(id)?.name || 'Unnamed person'}</span>)}</div>}</header>
-
-              <div className="event-name-editor">
-                <label><span>Event name</span><input value={nameDraft} onChange={(event) => setNameDraft(event.target.value)} placeholder="Name this event…" /></label>
-                <button type="button" onClick={() => onRename(selected, nameDraft)}>Save name</button>
-                {selected.customTitle && <button type="button" className="quiet-button" onClick={() => onRename(selected, '')}>Use generated name</button>}
-              </div>
+              <header className="event-detail-head" onContextMenu={(mouseEvent) => showEventContextMenu(mouseEvent, selected)} title="Right-click for event actions"><div><span className="inspector-label">Detected event</span><h3>{selected.title}</h3><p>{formatEventRange(selected)} · {selected.itemIds.length.toLocaleString()} photos · right-click for event actions</p></div>{selected.personIds.length > 0 && <div className="event-people">{selected.personIds.slice(0, 6).map((id) => <span key={id}>{peopleById.get(id)?.name || 'Unnamed person'}</span>)}</div>}</header>
 
               <div className="event-evidence"><strong>Why these photos are together</strong><div>{selected.evidence.length > 0 ? selected.evidence.map((value) => <span key={value}>{value}</span>) : <span>single moment</span>}</div></div>
               <div className="event-folders"><strong>Source folders</strong><div>{summarizeSourceFolders(selectedItems).map((summary) => <SourceFolderButton key={summary.folder} folder={summary.folder} count={summary.count} />)}</div></div>
@@ -99,6 +138,19 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
               {selectedItems.length > 300 && <p className="muted">Showing the first 300 photos in this event.</p>}
             </>}
           </article>
+        </div>
+      )}
+
+      {renameTarget && (
+        <div className="pf-dialog-backdrop" role="presentation" onMouseDown={() => setRenameTarget(null)}>
+          <form className="pf-dialog event-rename-dialog" role="dialog" aria-modal="true" aria-label="Rename event" onMouseDown={(event) => event.stopPropagation()} onSubmit={(event) => { event.preventDefault(); saveRename() }}>
+            <div><span className="mode-kicker">Event</span><h3>Rename event</h3><p>{formatEventRange(renameTarget)} · {renameTarget.itemIds.length.toLocaleString()} photos</p></div>
+            <label><span>Event name</span><input autoFocus value={renameDraft} onChange={(event) => setRenameDraft(event.target.value)} /></label>
+            <div className="pf-dialog-actions">
+              <button type="button" className="quiet-button" onClick={() => setRenameTarget(null)}>Cancel</button>
+              <button type="submit" className="primary" disabled={!renameDraft.trim()}>Save name</button>
+            </div>
+          </form>
         </div>
       )}
 

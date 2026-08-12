@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { collisionCandidate, exportPathParts } from './exporter'
-import type { LiteMediaRecord } from './types'
+import type { LiteExportLayout, LiteMediaRecord } from './types'
 
 function photo(relativePath: string, effectiveCaptureTime?: number): LiteMediaRecord {
   return {
@@ -17,24 +17,36 @@ function photo(relativePath: string, effectiveCaptureTime?: number): LiteMediaRe
 }
 
 describe('export path planning', () => {
-  it('keeps flat exports flat', () => {
+  it('keeps legacy flat exports flat', () => {
     expect(exportPathParts(photo('Trip/IMG_1.JPG'), 'flat', 'Motorcycle trip')).toEqual({ directories: [], fileName: 'IMG_1.JPG' })
   })
 
-  it('preserves safe source folders', () => {
+  it('preserves safe source folders for the legacy source layout', () => {
     expect(exportPathParts(photo('Trip/Day 1/IMG_1.JPG'), 'source-folders', 'Motorcycle trip')).toEqual({ directories: ['Trip', 'Day 1'], fileName: 'IMG_1.JPG' })
   })
 
-  it('builds date folders and handles undated photos', () => {
+  it('builds legacy date folders and handles undated photos', () => {
     const captured = new Date(2025, 6, 9, 12, 0, 0).getTime()
     expect(exportPathParts(photo('IMG.JPG', captured), 'date-day').directories).toEqual(['2025', '07', '09'])
     expect(exportPathParts(photo('IMG.JPG'), 'date-month').directories).toEqual(['Undated'])
   })
 
-  it('adds a named event to the month folder for date layouts', () => {
-    const captured = new Date(2011, 5, 14, 12, 0, 0).getTime()
-    expect(exportPathParts(photo('IMG.JPG', captured), 'date-month', 'Motorcycle trip').directories).toEqual(['2011', '06 - Motorcycle trip'])
-    expect(exportPathParts(photo('IMG.JPG', captured), 'date-day', 'Motorcycle trip').directories).toEqual(['2011', '06 - Motorcycle trip', '14'])
+  it('supports the requested dynamic year/date/event template', () => {
+    const captured = new Date(2016, 3, 25, 12, 0, 0).getTime()
+    const template = 'template:{YYYY}/{YYYY}.{MM}.{DD} - {EVENT}' as LiteExportLayout
+    expect(exportPathParts(photo('IMG.JPG', captured), template, 'MC kørsel til Bakken').directories)
+      .toEqual(['2016', '2016.04.25 - MC kørsel til Bakken'])
+  })
+
+  it('removes empty event decoration when a dynamic template has no named event', () => {
+    const captured = new Date(2016, 3, 25, 12, 0, 0).getTime()
+    const template = 'template:{YYYY}/{MM} - {EVENT}' as LiteExportLayout
+    expect(exportPathParts(photo('IMG.JPG', captured), template).directories).toEqual(['2016', '04'])
+  })
+
+  it('allows literal text that happens to equal an old layout name', () => {
+    const template = 'template:flat' as LiteExportLayout
+    expect(exportPathParts(photo('IMG.JPG'), template).directories).toEqual(['flat'])
   })
 
   it('sanitizes unsafe source and event path characters', () => {

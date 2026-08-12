@@ -1,4 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import {
+  DEFAULT_EXPORT_FOLDER_TEMPLATE,
+  EXPORT_FOLDER_TEMPLATE_PRESETS,
+  EXPORT_FOLDER_TEMPLATE_TOKENS,
+  previewExportFolderTemplate,
+  validateExportFolderTemplate
+} from './exportPathTemplate'
 import { LocalThumbnail } from './LocalThumbnail'
 import { PhotoLightbox } from './PhotoLightbox'
 import { PhotoSelectionBar, useExplorerPhotoSelection } from './PhotoSelection'
@@ -23,27 +30,52 @@ type ExportScope = 'keep' | 'keep-maybe'
 
 export function CurationPanel(props: CurationPanelProps): JSX.Element {
   const [scope, setScope] = useState<ExportScope>('keep')
-  const [layout, setLayout] = useState<LiteExportLayout>('date-day')
   const [eventFilter, setEventFilter] = useState('')
-  const [includeEventName, setIncludeEventName] = useState(true)
+  const [folderTemplate, setFolderTemplate] = useState(DEFAULT_EXPORT_FOLDER_TEMPLATE)
   const [includeReports, setIncludeReports] = useState(true)
   const [embedMetadata, setEmbedMetadata] = useState(true)
   const [preserveModifiedDates, setPreserveModifiedDates] = useState(true)
   const [openIndex, setOpenIndex] = useState<number | null>(null)
+  const templateInputRef = useRef<HTMLInputElement | null>(null)
   const keep = useMemo(() => props.items.filter((item) => item.kind === 'image' && reviewStateOf(item) === 'keep'), [props.items])
   const maybe = useMemo(() => props.items.filter((item) => item.kind === 'image' && reviewStateOf(item) === 'maybe'), [props.items])
   const eventByItemId = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const event of props.events) for (const id of event.itemIds) map.set(id, event.id)
+    const map = new Map<string, LiteEventRecord>()
+    for (const event of props.events) for (const id of event.itemIds) map.set(id, event)
     return map
   }, [props.events])
-  const eventMatches = (item: LiteMediaRecord): boolean => !eventFilter || eventByItemId.get(item.id) === eventFilter
-  const filteredKeep = useMemo(() => keep.filter(eventMatches), [keep, eventFilter, eventByItemId])
-  const filteredMaybe = useMemo(() => maybe.filter(eventMatches), [maybe, eventFilter, eventByItemId])
+  const filteredKeep = useMemo(() => keep.filter((item) => !eventFilter || eventByItemId.get(item.id)?.id === eventFilter), [keep, eventFilter, eventByItemId])
+  const filteredMaybe = useMemo(() => maybe.filter((item) => !eventFilter || eventByItemId.get(item.id)?.id === eventFilter), [maybe, eventFilter, eventByItemId])
   const selected = scope === 'keep' ? filteredKeep : [...filteredKeep, ...filteredMaybe]
   const selection = useExplorerPhotoSelection(filteredKeep)
-  const dateLayout = layout === 'date-day' || layout === 'date-month'
   const sortedEvents = useMemo(() => [...props.events].sort((a, b) => a.startTime - b.startTime || a.title.localeCompare(b.title)), [props.events])
+  const templateError = validateExportFolderTemplate(folderTemplate)
+  const previewItem = selected[0] ?? filteredKeep[0] ?? keep[0]
+  const previewEventName = previewItem ? eventByItemId.get(previewItem.id)?.customTitle : undefined
+  const templatePreview = previewExportFolderTemplate(previewItem, folderTemplate, previewEventName)
+
+  function insertToken(token: string): void {
+    const input = templateInputRef.current
+    if (!input) {
+      setFolderTemplate((value) => `${value}${token}`)
+      return
+    }
+    const start = input.selectionStart ?? folderTemplate.length
+    const end = input.selectionEnd ?? start
+    const next = `${folderTemplate.slice(0, start)}${token}${folderTemplate.slice(end)}`
+    setFolderTemplate(next)
+    requestAnimationFrame(() => {
+      input.focus()
+      input.setSelectionRange(start + token.length, start + token.length)
+    })
+  }
+
+  function startExport(): void {
+    if (templateError) return
+    // Keep the existing export API stable while marking this value explicitly as a template.
+    const encodedTemplate = `template:${folderTemplate}` as LiteExportLayout
+    props.onExport(selected, encodedTemplate, includeReports, embedMetadata, folderTemplate.includes('{EVENT}'), preserveModifiedDates)
+  }
 
   return (
     <section className="curation-section">
@@ -57,7 +89,7 @@ export function CurationPanel(props: CurationPanelProps): JSX.Element {
       </div>
 
       <div className="export-card">
-        <div className="export-card-heading"><div><h3>Export local copies</h3><p>Filter by event, build readable date/event folders, and preserve the original time hints PhotoFind knows about.</p></div><span className="local-only-pill">Local write</span></div>
+        <div className="export-card-heading"><div><h3>Export local copies</h3><p>Build the folder structure from placeholders. Anything outside a placeholder is literal custom text.</p></div><span className="local-only-pill">Local write</span></div>
         <div className="export-controls">
           <label>Selection
             <select value={scope} onChange={(event) => setScope(event.target.value as ExportScope)}>
@@ -65,24 +97,41 @@ export function CurationPanel(props: CurationPanelProps): JSX.Element {
               <option value="keep-maybe">Keep + Maybe ({(filteredKeep.length + filteredMaybe.length).toLocaleString()})</option>
             </select>
           </label>
-          <label>Event
+          <label>Event filter
             <select value={eventFilter} onChange={(event) => { setEventFilter(event.target.value); setOpenIndex(null); selection.clear() }}>
               <option value="">All events</option>
               {sortedEvents.map((event) => <option value={event.id} key={event.id}>{event.title} · {event.itemIds.length} photos</option>)}
             </select>
           </label>
-          <label>Folder layout
-            <select value={layout} onChange={(event) => setLayout(event.target.value as LiteExportLayout)}>
-              <option value="date-day">Year / month / day</option>
-              <option value="date-month">Year / month</option>
-              <option value="source-folders">Preserve source folders</option>
-              <option value="flat">One flat folder</option>
-            </select>
-          </label>
-          <label className="check-label export-option">
-            <input type="checkbox" checked={includeEventName} disabled={!dateLayout} onChange={(event) => setIncludeEventName(event.target.checked)} />
-            <span><strong>Include named event in month folder</strong><small>{dateLayout ? 'Example: 2011 / 06 - Motorcycle trip. Only events you explicitly renamed are included.' : 'Available with Year/month date layouts.'}</small></span>
-          </label>
+
+          <div className="export-template-editor">
+            <div className="export-template-heading">
+              <label htmlFor="export-folder-template">Folder template</label>
+              <select aria-label="Folder template preset" defaultValue="" onChange={(event) => { if (event.target.value !== '__choose__') setFolderTemplate(event.target.value); event.currentTarget.value = '__choose__' }}>
+                <option value="__choose__">Presets…</option>
+                {EXPORT_FOLDER_TEMPLATE_PRESETS.map((preset) => <option value={preset.value} key={preset.label}>{preset.label}</option>)}
+              </select>
+            </div>
+            <input
+              ref={templateInputRef}
+              id="export-folder-template"
+              className={templateError ? 'template-input invalid' : 'template-input'}
+              value={folderTemplate}
+              onChange={(event) => setFolderTemplate(event.target.value)}
+              spellCheck={false}
+              placeholder="{YYYY}/{MM} - {EVENT}"
+            />
+            <div className="template-token-row" aria-label="Insert folder placeholder">
+              {EXPORT_FOLDER_TEMPLATE_TOKENS.map((token) => <button type="button" className="token-button" key={token} onClick={() => insertToken(token)}>{token}</button>)}
+              <span>Custom text is written directly in the template.</span>
+            </div>
+            <div className={templateError ? 'template-preview invalid' : 'template-preview'}>
+              <span>{templateError ? 'Template error' : 'Preview'}</span>
+              <code>{templateError ?? templatePreview}</code>
+            </div>
+            <small><strong>{'{EVENT}'}</strong> uses only an event name you explicitly assigned. If no name exists, PhotoFind removes the empty placeholder and trailing separators cleanly.</small>
+          </div>
+
           <label className="check-label export-option">
             <input type="checkbox" checked={embedMetadata} onChange={(event) => setEmbedMetadata(event.target.checked)} />
             <span><strong>Embed repaired metadata</strong><small>JPEG copies receive reliable capture/GPS metadata and the original modified-time hint. Other formats get XMP.</small></span>
@@ -95,7 +144,7 @@ export function CurationPanel(props: CurationPanelProps): JSX.Element {
             <input type="checkbox" checked={includeReports} onChange={(event) => setIncludeReports(event.target.checked)} />
             <span><strong>Write selection reports</strong><small>Standalone JSON and readable HTML summaries.</small></span>
           </label>
-          <button className="primary export-submit" type="button" disabled={props.busy || selected.length === 0 || !props.exportSupported || props.reconnectRequired} onClick={() => props.onExport(selected, layout, includeReports, embedMetadata, dateLayout && includeEventName, preserveModifiedDates)}>
+          <button className="primary export-submit" type="button" disabled={props.busy || selected.length === 0 || !props.exportSupported || props.reconnectRequired || Boolean(templateError)} onClick={startExport}>
             {props.busy ? 'Exporting…' : `Export ${selected.length.toLocaleString()} photos`}
           </button>
         </div>
