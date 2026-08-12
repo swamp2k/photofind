@@ -14,12 +14,13 @@ interface QualityPanelProps {
   busy: boolean
   reconnectRequired: boolean
   onAnalyze(): void
+  onAbort(): void
   onReview(item: LiteMediaRecord, state: LiteReviewState): void
 }
 
 const PAGE_SIZE = 240
 
-export function QualityPanel({ items, sessionFiles, progress, busy, reconnectRequired, onAnalyze, onReview }: QualityPanelProps): JSX.Element {
+export function QualityPanel({ items, sessionFiles, progress, busy, reconnectRequired, onAnalyze, onAbort, onReview }: QualityPanelProps): JSX.Element {
   const [qualityFilter, setQualityFilter] = useState<LiteQualityFilter>('all')
   const [sort, setSort] = useState<LiteQualitySort>('overall')
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
@@ -51,8 +52,8 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
           <h2>Find the technically strongest frames</h2>
           <p className="muted">PhotoFind measures sharpness, exposure, resolution and directional blur risk locally. This score says nothing about how important a memory is.</p>
         </div>
-        <button className="primary" type="button" disabled={busy || reconnectRequired || photos.length === 0} onClick={onAnalyze}>
-          {busy ? 'Analyzing…' : analyzed.length > 0 ? 'Refresh quality analysis' : 'Analyze quality'}
+        <button className={busy ? 'danger-outline' : 'primary'} type="button" disabled={reconnectRequired || photos.length === 0} onClick={busy ? onAbort : onAnalyze}>
+          {busy ? 'Stop quality analysis' : analyzed.length > 0 ? 'Refresh quality analysis' : 'Analyze quality'}
         </button>
       </div>
 
