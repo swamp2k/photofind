@@ -39,5 +39,5 @@ export function LocalPhotoImage({ item, sessionFile, className, style, eager = f
 
   if (error) return <div className="local-photo-error">{error}</div>
   if (!url) return <div className="local-photo-loading">Loading local photo…</div>
-  return <img className={className} style={style} src={url} alt={item.name} loading={eager ? 'eager' : 'lazy'} draggable={draggable} onLoad={onLoad} onError={() => setError('This browser cannot decode the selected photo.')} />
+  return <img data-photofind-photo-id={item.id} className={className} style={style} src={url} alt={item.name} loading={eager ? 'eager' : 'lazy'} draggable={draggable} onLoad={onLoad} onError={() => setError('This browser cannot decode the selected photo.')} />
 }

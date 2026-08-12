@@ -41,5 +41,5 @@ export function LocalFaceCrop({ item, face, sessionFile, size = 160 }: { item: L
   }, [face, item, sessionFile, size])
 
   if (failed) return <div className="face-crop-fallback">Face preview unavailable</div>
-  return <canvas ref={canvas} width={size} height={size} aria-label={`Face from ${item.name}`} />
+  return <canvas ref={canvas} data-photofind-photo-id={item.id} width={size} height={size} aria-label={`Face from ${item.name}`} />
 }

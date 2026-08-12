@@ -1,5 +1,6 @@
 import { classifyMedia } from './classify'
 import { copyReusableMetadata, enrichMediaMetadata, LITE_METADATA_VERSION } from './metadata'
+import { copyStarredState } from './starred'
 import { matchTakeoutSidecars, type LiteTakeoutMatch } from './takeout'
 import type { LiteLibraryRecord, LiteMediaRecord, LiteScanProgress, LiteScanResult, LiteSelectionScanResult } from './types'
 
@@ -162,11 +163,11 @@ async function enrichMedia(
 
 function copyPersistentAndDerivedState(fresh: LiteMediaRecord, previous: LiteMediaRecord | undefined): LiteMediaRecord {
   if (!previous) return fresh
-  const reviewed = {
+  const reviewed = copyStarredState({
     ...fresh,
     reviewState: previous.reviewState,
     reviewUpdatedAt: previous.reviewUpdatedAt
-  }
+  }, previous)
   if (previous.sizeBytes !== fresh.sizeBytes || previous.lastModified !== fresh.lastModified) return reviewed
   return {
     ...reviewed,
