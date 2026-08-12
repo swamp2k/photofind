@@ -117,11 +117,18 @@ describe('event grouping', () => {
     expect(events.every((event) => !isMeaningfulEvent(event))).toBe(true)
   })
 
-  it('keeps substantial one-day photo sessions in the meaningful event view', () => {
-    const items = Array.from({ length: 12 }, (_, index) => photo(`session-${index}`, 1 + index * 0.05))
+  it('keeps concentrated high-volume photo sessions in the meaningful event view', () => {
+    const items = Array.from({ length: 20 }, (_, index) => photo(`session-${index}`, 1 + index * 0.05))
     const event = buildEvents(items)[0]
     expect(event.significance).toBe('moment')
     expect(isMeaningfulEvent(event)).toBe(true)
+  })
+
+  it('does not promote a high-volume day spread across many hours by count alone', () => {
+    const items = Array.from({ length: 20 }, (_, index) => photo(`spread-${index}`, index * 0.6))
+    const event = buildEvents(items)[0]
+    expect(event.significance).toBe('everyday')
+    expect(isMeaningfulEvent(event)).toBe(false)
   })
 
   it('treats a user-named everyday event as meaningful', () => {
