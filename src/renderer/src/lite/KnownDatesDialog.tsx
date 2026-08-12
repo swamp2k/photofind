@@ -30,7 +30,7 @@ export function KnownDatesDialog({ libraryId, records, years, onReplace, onClose
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
   const sorted = useMemo(() => [...records].sort(compareKnownDates), [records])
-  const importYears = years.length > 0 ? years : [new Date().getFullYear()]
+  const importYears = useMemo(() => years.length > 0 ? [...years].sort((a, b) => a - b) : [new Date().getFullYear()], [years])
 
   async function addManual(): Promise<void> {
     setStatus(null)
