@@ -14,6 +14,7 @@ interface QualityAnalysisOptions {
   resolveFile(item: LiteMediaRecord): Promise<File | null>
   onProgress?(progress: LiteQualityProgress): void
   persistBatch?(records: LiteMediaRecord[]): Promise<void>
+  signal?: AbortSignal
 }
 
 export async function analyzeQuality(
@@ -29,6 +30,7 @@ export async function analyzeQuality(
 
   try {
     for (const item of targets) {
+      options.signal?.throwIfAborted()
       const fingerprint = qualityFingerprint(item)
       if (isReusable(item, fingerprint)) {
         updates.set(item.id, item)
@@ -39,11 +41,12 @@ export async function analyzeQuality(
       }
 
       const file = await options.resolveFile(item)
+      options.signal?.throwIfAborted()
       let updated: LiteMediaRecord
       if (!file) {
         updated = failedRecord(item, fingerprint, 'Local file access is unavailable. Reconnect the source folder and retry.')
       } else {
-        const result = await analyzeFile(worker, item.id, file)
+        const result = await analyzeFile(worker, item.id, file, options.signal)
         updated = applyWorkerResult(item, fingerprint, result)
       }
 
@@ -53,9 +56,11 @@ export async function analyzeQuality(
       options.onProgress?.({ complete, total: targets.length, reused, currentPath: item.relativePath })
 
       if (pendingPersist.length >= PERSIST_BATCH_SIZE) await flushPending(options.persistBatch, pendingPersist)
+      options.signal?.throwIfAborted()
       await Promise.resolve()
     }
     await flushPending(options.persistBatch, pendingPersist)
+    options.signal?.throwIfAborted()
   } finally {
     worker.terminate()
   }
@@ -122,8 +127,8 @@ function failedRecord(item: LiteMediaRecord, fingerprint: string, error: string)
   }
 }
 
-function analyzeFile(worker: Worker, id: string, file: File): Promise<WorkerResult> {
-  return new Promise((resolve) => {
+function analyzeFile(worker: Worker, id: string, file: File, signal?: AbortSignal): Promise<WorkerResult> {
+  return new Promise((resolve, reject) => {
     const onMessage = (event: MessageEvent<WorkerResult>): void => {
       if (event.data.id !== id) return
       cleanup()
@@ -133,12 +138,19 @@ function analyzeFile(worker: Worker, id: string, file: File): Promise<WorkerResu
       cleanup()
       resolve({ id, error: event.message || 'Quality worker failed.' })
     }
+    const onAbort = (): void => {
+      cleanup()
+      reject(new DOMException('Quality analysis aborted.', 'AbortError'))
+    }
     const cleanup = (): void => {
       worker.removeEventListener('message', onMessage)
       worker.removeEventListener('error', onError)
+      signal?.removeEventListener('abort', onAbort)
     }
     worker.addEventListener('message', onMessage)
     worker.addEventListener('error', onError)
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) return onAbort()
     worker.postMessage({ id, file })
   })
 }
