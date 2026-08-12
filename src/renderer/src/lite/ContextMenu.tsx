@@ -15,6 +15,17 @@ export interface PhotoFindContextMenuSpec {
   actions: PhotoFindContextMenuAction[]
 }
 
+export interface PhotoContextDescriptor {
+  id: string
+  name: string
+  starred: boolean
+}
+
+export interface PhotoContextActions {
+  resolvePhoto(id: string): PhotoContextDescriptor | null
+  setStarred(id: string, starred: boolean): void | Promise<void>
+}
+
 interface OpenMenuState extends PhotoFindContextMenuSpec {
   x: number
   y: number
@@ -23,6 +34,7 @@ interface OpenMenuState extends PhotoFindContextMenuSpec {
 interface ContextMenuApi {
   openContextMenu(event: ReactMouseEvent, spec: PhotoFindContextMenuSpec): void
   closeContextMenu(): void
+  registerPhotoActions(actions: PhotoContextActions | null): void
 }
 
 const ContextMenuContext = createContext<ContextMenuApi | null>(null)
@@ -31,6 +43,7 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
   const [menu, setMenu] = useState<OpenMenuState | null>(null)
   const claimed = useRef(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const photoActionsRef = useRef<PhotoContextActions | null>(null)
 
   const api = useMemo<ContextMenuApi>(() => ({
     openContextMenu(event, spec) {
@@ -41,6 +54,9 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
     },
     closeContextMenu() {
       setMenu(null)
+    },
+    registerPhotoActions(actions) {
+      photoActionsRef.current = actions
     }
   }), [])
 
@@ -49,7 +65,27 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
       event.preventDefault()
       claimed.current = false
       const target = event.target
+
+      const photoId = photoIdFromTarget(target)
+      const photoActions = photoActionsRef.current
+      const photo = photoId && photoActions ? photoActions.resolvePhoto(photoId) : null
+      if (photo && photoActions) {
+        event.stopPropagation()
+        claimed.current = true
+        setMenu(positionMenu(event.clientX, event.clientY, {
+          title: photo.name,
+          actions: [{
+            id: 'toggle-starred',
+            label: photo.starred ? 'Remove star' : 'Star photo',
+            hint: '★',
+            onSelect: () => photoActions.setStarred(photo.id, !photo.starred)
+          }]
+        }))
+        return
+      }
+
       if (isTextControl(target)) {
+        event.stopPropagation()
         claimed.current = true
         setMenu(positionMenu(event.clientX, event.clientY, textControlMenu(target)))
         return
@@ -133,6 +169,12 @@ export function usePhotoFindContextMenu(): ContextMenuApi {
   const value = useContext(ContextMenuContext)
   if (!value) throw new Error('usePhotoFindContextMenu must be used inside PhotoFindContextMenuProvider.')
   return value
+}
+
+function photoIdFromTarget(target: EventTarget | null): string | null {
+  if (!(target instanceof Element)) return null
+  const owner = target.closest<HTMLElement>('[data-photofind-photo-id]')
+  return owner?.dataset.photofindPhotoId ?? null
 }
 
 function positionMenu(x: number, y: number, spec: PhotoFindContextMenuSpec): OpenMenuState {
