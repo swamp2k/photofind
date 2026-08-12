@@ -13,7 +13,6 @@ interface PeoplePanelProps {
   progress: LitePeopleProgress | null
   busy: boolean
   reconnectRequired: boolean
-  onAnalyze(): void
   onRename(personId: string, name: string): void
   onIgnore(personId: string, ignored: boolean): void
   onMerge(sourceId: string, targetId: string): void
@@ -38,8 +37,6 @@ export function PeoplePanel(props: PeoplePanelProps): JSX.Element {
   const faceEntries = useMemo(() => collectFaceEntries(props.items), [props.items])
   const photoCounts = useMemo(() => peoplePhotoCounts(props.items), [props.items])
   const analyzedPhotos = props.items.filter((item) => item.kind === 'image' && item.faceAnalysisStatus === 'ready').length
-  const failures = props.items.filter((item) => item.kind === 'image' && item.faceAnalysisStatus === 'failed').length
-  const faceCount = faceEntries.size
   const visiblePeople = useMemo(() => props.people.filter((person) => (showIgnored || !person.ignored) && (showSingletons || person.faceRefs.length > 1)), [props.people, showIgnored, showSingletons])
   const selected = props.people.find((person) => person.id === selectedId) ?? visiblePeople[0] ?? null
   const selectedFaces = selected ? selected.faceRefs.map((ref) => faceEntries.get(ref)).filter(isFaceEntry) : []
@@ -58,27 +55,16 @@ export function PeoplePanel(props: PeoplePanelProps): JSX.Element {
   }, [selected?.id])
 
   return (
-    <section className="people-section">
-      <div className="people-hero">
-        <div><div className="eyebrow">Lite 6 · private local intelligence</div><h2>People</h2><p>Find recurring faces without uploading photos or biometric embeddings. Click a face to open its photo; Ctrl-click or Shift-click selects photos for bulk actions.</p></div>
-        <button className="primary" type="button" disabled={props.busy || props.reconnectRequired || props.items.length === 0} onClick={props.onAnalyze}>{props.busy ? 'Analyzing people…' : analyzedPhotos > 0 ? 'Refresh people analysis' : 'Analyze people locally'}</button>
-      </div>
-
+    <section className="people-section compact-mode-section">
       {props.reconnectRequired && <div className="notice warning inline-notice">Reconnect the source folder before running People analysis.</div>}
       {props.progress && <PeopleProgress progress={props.progress} />}
 
-      <div className="people-stats">
-        <PeopleStat label="Photos analyzed" value={analyzedPhotos} />
-        <PeopleStat label="Faces found" value={faceCount} />
-        <PeopleStat label="People clusters" value={props.people.filter((person) => !person.ignored).length} />
-        <PeopleStat label="Ignored" value={props.people.filter((person) => person.ignored).length} />
-        <PeopleStat label="Failures" value={failures} warn={failures > 0} />
-      </div>
-
-      {analyzedPhotos === 0 ? <div className="people-empty"><h3>People analysis is opt-in</h3><p>The face detector and descriptor models are downloaded from PhotoFind itself only after you start analysis. Face boxes, embeddings, corrections and names stay in this browser index.</p><ul><li>No age, gender, race or emotion inference.</li><li>No face crops are uploaded or stored separately.</li><li>Source photos remain read-only.</li></ul></div> : props.people.length === 0 ? <div className="people-empty"><h3>No recurring faces found</h3><p>Analysis completed, but no usable face descriptors were available for clustering.</p></div> : (
+      {analyzedPhotos === 0 ? (
+        props.busy ? null : <div className="compact-empty-state"><strong>People analysis has not been run yet.</strong><span>Use “Analyze people” in the top toolbar. Face detection and embeddings remain local to this browser.</span></div>
+      ) : props.people.length === 0 ? <div className="compact-empty-state"><strong>No recurring faces found.</strong><span>Analysis completed, but no usable recurring face clusters were available.</span></div> : (
         <div className="people-workspace">
           <div className="people-browser">
-            <div className="people-browser-toolbar"><strong>{visiblePeople.length.toLocaleString()} visible people</strong><label><input type="checkbox" checked={showSingletons} onChange={(event) => setShowSingletons(event.target.checked)} /> Show one-off faces</label><label><input type="checkbox" checked={showIgnored} onChange={(event) => setShowIgnored(event.target.checked)} /> Show ignored</label></div>
+            <div className="people-browser-toolbar"><strong>{visiblePeople.length.toLocaleString()} visible people</strong><span className="muted">{analyzedPhotos.toLocaleString()} photos analyzed</span><label><input type="checkbox" checked={showSingletons} onChange={(event) => setShowSingletons(event.target.checked)} /> Show one-off faces</label><label><input type="checkbox" checked={showIgnored} onChange={(event) => setShowIgnored(event.target.checked)} /> Show ignored</label></div>
             <div className="people-grid">
               {visiblePeople.map((person) => {
                 const first = faceEntries.get(person.faceRefs[0])
@@ -99,7 +85,7 @@ export function PeoplePanel(props: PeoplePanelProps): JSX.Element {
               <div className="person-editor"><label><span>Merge this cluster into</span><select value={mergeTarget} onChange={(event) => setMergeTarget(event.target.value)}><option value="">Choose another person…</option>{props.people.filter((person) => person.id !== selected.id && !person.ignored).map((person) => <option key={person.id} value={person.id}>{personLabel(person)} · {person.faceRefs.length} faces</option>)}</select></label><button type="button" disabled={!mergeTarget} onClick={() => { if (mergeTarget && window.confirm(`Merge “${personLabel(selected)}” into “${personLabel(peopleById.get(mergeTarget)!)}”? Every assignment remains local and can later be split again.`)) props.onMerge(selected.id, mergeTarget) }}>Merge</button></div>
               <button type="button" className={selected.ignored ? '' : 'danger-outline'} onClick={() => props.onIgnore(selected.id, !selected.ignored)}>{selected.ignored ? 'Restore person' : 'Ignore this person'}</button>
 
-              <div className="person-face-list-head"><strong>Faces in this cluster</strong><span>Correct false matches directly. “Not this person” becomes a persistent negative constraint, so future clustering will not silently attach that face to this person again.</span></div>
+              <div className="person-face-list-head"><strong>Faces in this cluster</strong><span>Correct false matches directly. “Not this person” becomes a persistent negative constraint.</span></div>
               <PhotoSelectionBar items={selection.selectedItems} onReview={(targets, state) => targets.forEach((item) => props.onReview(item, state))} onClear={selection.clear} />
               <div className="person-face-list">
                 {selectedFaces.slice(0, 80).map((entry) => {
@@ -130,10 +116,6 @@ export function PeoplePanel(props: PeoplePanelProps): JSX.Element {
 function PeopleProgress({ progress }: { progress: LitePeopleProgress }): JSX.Element {
   const label = progress.phase === 'models' ? 'Loading same-origin face models' : progress.phase === 'clustering' ? 'Clustering face descriptors locally' : 'Analyzing photos locally'
   return <div className="analysis-progress people-progress"><div><strong>{label}</strong><span>{progress.complete.toLocaleString()} / {progress.total.toLocaleString()} · {progress.reused.toLocaleString()} reused · {progress.facesFound.toLocaleString()} faces</span></div><progress max={Math.max(1, progress.total)} value={progress.complete} /><span className="muted" title={progress.currentPath}>{progress.currentPath}</span></div>
-}
-
-function PeopleStat({ label, value, warn = false }: { label: string; value: number; warn?: boolean }): JSX.Element {
-  return <div className={warn ? 'people-stat warn' : 'people-stat'}><span>{label}</span><strong>{value.toLocaleString()}</strong></div>
 }
 
 function collectFaceEntries(items: LiteMediaRecord[]): Map<string, FaceEntry> {
