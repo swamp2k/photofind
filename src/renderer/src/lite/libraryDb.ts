@@ -108,7 +108,7 @@ export async function saveLibraryKnownDates(libraryId: string, knownDates: LiteK
     const store = db.transaction(LIBRARIES_STORE, 'readwrite').objectStore(LIBRARIES_STORE)
     const current = await requestResult(store.get(libraryId)) as LiteLibraryRecord | undefined
     if (!current) throw new Error('The local PhotoFind library no longer exists.')
-    const next: LiteLibraryRecord = { ...current, knownDates, updatedAt: Date.now() }
+    const next: LiteLibraryRecord = { ...current, knownDates }
     await requestResult(store.put(next))
     return next
   } finally {
