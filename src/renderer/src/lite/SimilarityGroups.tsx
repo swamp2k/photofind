@@ -20,10 +20,11 @@ interface SimilarityGroupsProps {
   busy: boolean
   reconnectRequired: boolean
   onAnalyze(): void
+  onAbort(): void
   onReview(item: LiteMediaRecord, state: LiteReviewState): void
 }
 
-export function SimilarityGroups({ items, groups, reviewFilter, sessionFiles, progress, busy, reconnectRequired, onAnalyze, onReview }: SimilarityGroupsProps): JSX.Element {
+export function SimilarityGroups({ items, groups, reviewFilter, sessionFiles, progress, busy, reconnectRequired, onAnalyze, onAbort, onReview }: SimilarityGroupsProps): JSX.Element {
   const [kind, setKind] = useState<'all' | 'exact' | 'burst' | 'similar'>('all')
   const [openGroupId, setOpenGroupId] = useState<string | null>(null)
   const [openIndex, setOpenIndex] = useState(0)
@@ -65,8 +66,8 @@ export function SimilarityGroups({ items, groups, reviewFilter, sessionFiles, pr
           <h2>Duplicates, bursts & similar moments</h2>
           <p className="muted">PhotoFind hashes and visually fingerprints photos in a browser worker. Click to preview; Ctrl-click or Shift-click to select photos across groups.</p>
         </div>
-        <button className="primary" type="button" disabled={busy || reconnectRequired || total === 0} onClick={onAnalyze}>
-          {busy ? 'Analyzing…' : analyzed > 0 ? 'Refresh similarity analysis' : 'Analyze similarity'}
+        <button className={busy ? 'danger-outline' : 'primary'} type="button" disabled={reconnectRequired || total === 0} onClick={busy ? onAbort : onAnalyze}>
+          {busy ? 'Stop similarity analysis' : analyzed > 0 ? 'Refresh similarity analysis' : 'Analyze similarity'}
         </button>
       </div>
 
