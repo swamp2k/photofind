@@ -116,9 +116,9 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
             })}
           </div>
 
-          <article className="event-detail" onContextMenu={(mouseEvent) => selected && showEventContextMenu(mouseEvent, selected)}>
+          <article className="event-detail">
             {!selected ? <p className="muted">Choose an event.</p> : <>
-              <header className="event-detail-head"><div><span className="inspector-label">Detected event</span><h3>{selected.title}</h3><p>{formatEventRange(selected)} · {selected.itemIds.length.toLocaleString()} photos · right-click for event actions</p></div>{selected.personIds.length > 0 && <div className="event-people">{selected.personIds.slice(0, 6).map((id) => <span key={id}>{peopleById.get(id)?.name || 'Unnamed person'}</span>)}</div>}</header>
+              <header className="event-detail-head" onContextMenu={(mouseEvent) => showEventContextMenu(mouseEvent, selected)} title="Right-click for event actions"><div><span className="inspector-label">Detected event</span><h3>{selected.title}</h3><p>{formatEventRange(selected)} · {selected.itemIds.length.toLocaleString()} photos · right-click for event actions</p></div>{selected.personIds.length > 0 && <div className="event-people">{selected.personIds.slice(0, 6).map((id) => <span key={id}>{peopleById.get(id)?.name || 'Unnamed person'}</span>)}</div>}</header>
 
               <div className="event-evidence"><strong>Why these photos are together</strong><div>{selected.evidence.length > 0 ? selected.evidence.map((value) => <span key={value}>{value}</span>) : <span>single moment</span>}</div></div>
               <div className="event-folders"><strong>Source folders</strong><div>{summarizeSourceFolders(selectedItems).map((summary) => <SourceFolderButton key={summary.folder} folder={summary.folder} count={summary.count} />)}</div></div>
