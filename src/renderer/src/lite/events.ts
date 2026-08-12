@@ -8,6 +8,8 @@ const HARD_GAP_MS = 18 * 60 * 60 * 1000
 const LOCATION_ONLY_MULTIDAY_GAP_MS = 48 * 60 * 60 * 1000
 const SUPPORTED_MULTIDAY_GAP_MS = 7 * 24 * 60 * 60 * 1000
 const MAX_MULTIDAY_EVENT_SPAN_MS = 21 * 24 * 60 * 60 * 1000
+const CONCENTRATED_SESSION_MIN_PHOTOS = 20
+const CONCENTRATED_SESSION_MAX_SPAN_MS = 6 * 60 * 60 * 1000
 const NEARBY_KM = 25
 const MULTIDAY_NEARBY_KM = 35
 const ROUTINE_CELL_DEGREES = 0.08
@@ -157,8 +159,14 @@ function classifySignificance(
   const nonRoutineLocated = items.some((item) => hasCoordinates(item) && !isRoutineLocation(item, routineLocations))
   if (nonRoutineLocated && items.length >= 3) return 'moment'
   if ((evidence.has('shared people') || evidence.has('related visual group')) && items.length >= 4) return 'moment'
-  if (items.length >= 12) return 'moment'
+  if (isConcentratedPhotoSession(items)) return 'moment'
   return 'everyday'
+}
+
+function isConcentratedPhotoSession(items: LiteMediaRecord[]): boolean {
+  if (items.length < CONCENTRATED_SESSION_MIN_PHOTOS) return false
+  const span = Math.max(0, captureTimeOf(items.at(-1)!) - captureTimeOf(items[0]))
+  return span <= CONCENTRATED_SESSION_MAX_SPAN_MS
 }
 
 export function isMeaningfulEvent(event: LiteEventRecord): boolean {
