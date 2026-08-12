@@ -35,6 +35,7 @@ interface ManifestEntry {
 }
 
 const LEGACY_LAYOUTS = new Set<string>(['flat', 'date-day', 'date-month', 'source-folders'])
+const TEMPLATE_PREFIX = 'template:'
 
 export async function exportLocalPhotos(options: ExportOptions): Promise<LiteExportResult> {
   const root = options.destination
@@ -46,9 +47,11 @@ export async function exportLocalPhotos(options: ExportOptions): Promise<LiteExp
   let metadataEmbedded = 0
   let sidecarsWritten = 0
   let metadataUnchanged = 0
-  const layoutValue = String(options.layout)
-  const templateMode = !LEGACY_LAYOUTS.has(layoutValue)
-  const needsEventName = templateMode ? layoutValue.includes('{EVENT}') : options.includeEventName === true
+  const rawLayout = String(options.layout)
+  const explicitTemplate = rawLayout.startsWith(TEMPLATE_PREFIX)
+  const folderTemplate = explicitTemplate ? rawLayout.slice(TEMPLATE_PREFIX.length) : rawLayout
+  const templateMode = explicitTemplate || !LEGACY_LAYOUTS.has(rawLayout)
+  const needsEventName = templateMode ? folderTemplate.includes('{EVENT}') : options.includeEventName === true
 
   for (let index = 0; index < options.items.length; index += 1) {
     const item = options.items[index]
@@ -140,7 +143,7 @@ export async function exportLocalPhotos(options: ExportOptions): Promise<LiteExp
   if (options.includeReports !== false) {
     const summary = {
       exportedAt: new Date().toISOString(),
-      folderTemplate: layoutValue,
+      folderTemplate: templateMode ? folderTemplate : rawLayout,
       exported,
       renamed,
       metadataEmbedded,
@@ -173,12 +176,15 @@ export async function exportLocalPhotos(options: ExportOptions): Promise<LiteExp
 
 export function exportPathParts(item: LiteMediaRecord, layout: LiteExportLayout, eventName?: string): { directories: string[]; fileName: string } {
   const fileName = sanitizeFileName(item.name)
-  const layoutValue = String(layout)
-  if (!LEGACY_LAYOUTS.has(layoutValue)) {
-    return { directories: renderExportFolderTemplate(item, layoutValue, eventName), fileName }
+  const rawLayout = String(layout)
+  if (rawLayout.startsWith(TEMPLATE_PREFIX)) {
+    return { directories: renderExportFolderTemplate(item, rawLayout.slice(TEMPLATE_PREFIX.length), eventName), fileName }
   }
-  if (layoutValue === 'flat') return { directories: [], fileName }
-  if (layoutValue === 'source-folders') {
+  if (!LEGACY_LAYOUTS.has(rawLayout)) {
+    return { directories: renderExportFolderTemplate(item, rawLayout, eventName), fileName }
+  }
+  if (rawLayout === 'flat') return { directories: [], fileName }
+  if (rawLayout === 'source-folders') {
     const parts = item.relativePath.replaceAll('\\', '/').split('/').filter(Boolean)
     return { directories: parts.slice(0, -1).map(sanitizeSegment), fileName }
   }
@@ -188,7 +194,7 @@ export function exportPathParts(item: LiteMediaRecord, layout: LiteExportLayout,
   const year = String(date.getFullYear()).padStart(4, '0')
   const month = String(date.getMonth() + 1).padStart(2, '0')
   const monthFolder = eventName ? `${month} - ${sanitizeSegment(eventName)}` : month
-  if (layoutValue === 'date-month') return { directories: [year, monthFolder], fileName }
+  if (rawLayout === 'date-month') return { directories: [year, monthFolder], fileName }
   const day = String(date.getDate()).padStart(2, '0')
   return { directories: [year, monthFolder, day], fileName }
 }
