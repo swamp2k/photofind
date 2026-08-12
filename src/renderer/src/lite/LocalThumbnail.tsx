@@ -35,5 +35,5 @@ export function LocalThumbnail({ item, sessionFile }: { item: LiteMediaRecord; s
   if (failed) return <div className="thumb-fallback">Reconnect folder to preview</div>
   if (!url) return <div className="thumb-loading">Loading…</div>
 
-  return <img src={url} alt={item.name} loading="lazy" onError={() => setFailed(true)} />
+  return <img data-photofind-photo-id={item.id} src={url} alt={item.name} loading="lazy" onError={() => setFailed(true)} />
 }
