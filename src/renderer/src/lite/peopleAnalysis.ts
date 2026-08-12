@@ -14,12 +14,15 @@ interface PeopleAnalysisOptions {
   resolveFile(item: LiteMediaRecord): Promise<File | null>
   persistBatch(items: LiteMediaRecord[]): Promise<void>
   onProgress?(progress: LitePeopleProgress): void
+  signal?: AbortSignal
 }
 
 export async function analyzePeople(items: LiteMediaRecord[], options: PeopleAnalysisOptions): Promise<LitePeopleStateResult> {
   const photos = items.filter((item) => item.kind === 'image')
+  options.signal?.throwIfAborted()
   options.onProgress?.({ phase: 'models', complete: 0, total: photos.length, reused: 0, facesFound: 0, currentPath: 'Loading local face models…' })
   const human = await loadHuman()
+  options.signal?.throwIfAborted()
 
   const updatedById = new Map<string, LiteMediaRecord>()
   const pending: LiteMediaRecord[] = []
@@ -28,6 +31,7 @@ export async function analyzePeople(items: LiteMediaRecord[], options: PeopleAna
   let facesFound = 0
 
   for (const item of photos) {
+    options.signal?.throwIfAborted()
     const fingerprint = `${PEOPLE_ANALYSIS_VERSION}|${item.sizeBytes}|${item.lastModified}`
     let next: LiteMediaRecord
     if (item.faceAnalysisVersion === PEOPLE_ANALYSIS_VERSION && item.faceFingerprint === fingerprint && item.faceAnalysisStatus === 'ready') {
@@ -35,7 +39,7 @@ export async function analyzePeople(items: LiteMediaRecord[], options: PeopleAna
       reused += 1
       facesFound += item.faces?.length ?? 0
     } else {
-      next = await analyzeOne(item, fingerprint, human, options.resolveFile)
+      next = await analyzeOne(item, fingerprint, human, options.resolveFile, options.signal)
       facesFound += next.faces?.length ?? 0
       pending.push(next)
       if (pending.length >= PERSIST_BATCH_SIZE) {
@@ -47,13 +51,15 @@ export async function analyzePeople(items: LiteMediaRecord[], options: PeopleAna
     updatedById.set(item.id, next)
     complete += 1
     options.onProgress?.({ phase: 'faces', complete, total: photos.length, reused, facesFound, currentPath: item.relativePath })
-    await yieldToBrowser()
+    await yieldToBrowser(options.signal)
   }
 
   if (pending.length > 0) await options.persistBatch(pending)
+  options.signal?.throwIfAborted()
   const analyzedItems = items.map((item) => updatedById.get(item.id) ?? item)
   options.onProgress?.({ phase: 'clustering', complete: photos.length, total: photos.length, reused, facesFound, currentPath: 'Grouping similar faces locally…' })
   const clustered = clusterPeople(analyzedItems, options.existingPeople)
+  options.signal?.throwIfAborted()
   if (clustered.changed.length > 0) await options.persistBatch(clustered.changed)
   return clustered
 }
@@ -62,15 +68,20 @@ async function analyzeOne(
   item: LiteMediaRecord,
   fingerprint: string,
   human: HumanInstance,
-  resolveFile: (item: LiteMediaRecord) => Promise<File | null>
+  resolveFile: (item: LiteMediaRecord) => Promise<File | null>,
+  signal?: AbortSignal
 ): Promise<LiteMediaRecord> {
   try {
+    signal?.throwIfAborted()
     const file = await resolveFile(item)
+    signal?.throwIfAborted()
     if (!file) throw new Error('Local file access is unavailable. Reconnect the source folder and retry.')
     const bitmap = await createImageBitmap(file)
     try {
+      signal?.throwIfAborted()
       const previousById = new Map((item.faces ?? []).map((face) => [face.id, face]))
       const result = await human.detect(bitmap)
+      signal?.throwIfAborted()
       const faces = result.face
         .filter((face) => Array.isArray(face.embedding) && face.embedding.length > 0)
         .map((face, index): LiteFaceObservation => {
@@ -97,6 +108,7 @@ async function analyzeOne(
       bitmap.close()
     }
   } catch (cause) {
+    if (isAbort(cause)) throw cause
     return {
       ...item,
       faceAnalysisVersion: PEOPLE_ANALYSIS_VERSION,
@@ -170,8 +182,24 @@ function round(value: number): number {
   return Math.round(value * 1_000_000) / 1_000_000
 }
 
-function yieldToBrowser(): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, 0))
+function yieldToBrowser(signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, 0)
+    const onAbort = (): void => {
+      window.clearTimeout(timeout)
+      signal?.removeEventListener('abort', onAbort)
+      reject(new DOMException('People analysis aborted.', 'AbortError'))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) onAbort()
+  })
+}
+
+function isAbort(cause: unknown): boolean {
+  return cause instanceof DOMException && cause.name === 'AbortError'
 }
 
 function messageOf(cause: unknown): string {

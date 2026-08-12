@@ -12,6 +12,9 @@ export type LiteFaceAnalysisStatus = 'ready' | 'failed'
 export type LiteReviewState = 'unreviewed' | 'keep' | 'maybe' | 'reject'
 export type LiteReviewFilter = 'all' | LiteReviewState
 export type LiteExportLayout = 'flat' | 'date-day' | 'date-month' | 'source-folders'
+export type LiteKnownDateKind = 'birthday' | 'vacation' | 'holiday' | 'custom'
+export type LiteKnownDateSource = 'manual' | 'holiday-api'
+export type LiteEventSignificance = 'known-date' | 'away' | 'moment' | 'everyday'
 
 export type LiteFaceBox = [number, number, number, number]
 
@@ -85,6 +88,20 @@ export interface LiteMediaRecord {
   reviewUpdatedAt?: number
 }
 
+export interface LiteKnownDateRecord {
+  id: string
+  libraryId: string
+  title: string
+  kind: LiteKnownDateKind
+  source: LiteKnownDateSource
+  startDate: string
+  endDate: string
+  recurringYearly: boolean
+  countryCode?: string
+  createdAt: number
+  updatedAt: number
+}
+
 export interface LiteLibraryRecord {
   id: string
   name: string
@@ -99,6 +116,7 @@ export interface LiteLibraryRecord {
   locatedCount?: number
   accessMode: LiteLibraryAccessMode
   rootHandle?: FileSystemDirectoryHandle
+  knownDates?: LiteKnownDateRecord[]
 }
 
 export interface LitePersonRecord {
@@ -136,6 +154,9 @@ export interface LiteEventRecord {
   latitude?: number
   longitude?: number
   evidence: string[]
+  significance?: LiteEventSignificance
+  knownDateId?: string
+  knownDateTitle?: string
 }
 
 export interface LiteEventOverride {

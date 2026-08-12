@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { buildEvents } from './events'
-import type { LiteMediaRecord, LiteSimilarityGroup } from './types'
+import { buildEvents, isMeaningfulEvent } from './events'
+import type { LiteKnownDateRecord, LiteMediaRecord, LiteSimilarityGroup } from './types'
 
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
@@ -16,6 +16,22 @@ function photo(id: string, hour: number, overrides: Partial<LiteMediaRecord> = {
     lastModified: hour * HOUR,
     effectiveCaptureTime: hour * HOUR,
     mimeType: 'image/jpeg',
+    ...overrides
+  }
+}
+
+function knownDate(overrides: Partial<LiteKnownDateRecord> = {}): LiteKnownDateRecord {
+  return {
+    id: 'known-vacation',
+    libraryId: 'library',
+    title: 'Summer vacation',
+    kind: 'vacation',
+    source: 'manual',
+    startDate: '1970-01-01',
+    endDate: '1970-01-08',
+    recurringYearly: false,
+    createdAt: 1,
+    updatedAt: 1,
     ...overrides
   }
 }
@@ -46,6 +62,7 @@ describe('event grouping', () => {
     expect(events).toHaveLength(1)
     expect(events[0].itemIds).toHaveLength(3)
     expect(events[0].evidence).toContain('same away location across days')
+    expect(events[0].significance).toBe('away')
   })
 
   it('bridges several quiet holiday days when location and source folder agree', () => {
@@ -57,6 +74,21 @@ describe('event grouping', () => {
     expect(events).toHaveLength(1)
     expect(events[0].itemIds).toHaveLength(3)
     expect(events[0].evidence).toEqual(expect.arrayContaining(['same away location across days', 'same source folder']))
+  })
+
+  it('uses a known vacation range as an explicit multi-day event boundary even without GPS', () => {
+    const events = buildEvents([
+      photo('vacation-start', 10),
+      photo('vacation-middle', 4 * 24 + 10),
+      photo('vacation-end', 7 * 24 + 10),
+      photo('after-vacation', 8 * 24 + 10)
+    ], [], [knownDate()])
+    expect(events).toHaveLength(2)
+    expect(events[0].itemIds).toHaveLength(3)
+    expect(events[0].title).toBe('Summer vacation')
+    expect(events[0].significance).toBe('known-date')
+    expect(events[0].knownDateTitle).toBe('Summer vacation')
+    expect(events[0].evidence).toContain('known date: Summer vacation')
   })
 
   it('does not merge separate visits to the same away location years apart', () => {
@@ -81,6 +113,28 @@ describe('event grouping', () => {
     }
     const events = buildEvents(homeItems)
     expect(events).toHaveLength(homeItems.length)
+    expect(events.every((event) => event.significance === 'everyday')).toBe(true)
+    expect(events.every((event) => !isMeaningfulEvent(event))).toBe(true)
+  })
+
+  it('keeps concentrated high-volume photo sessions in the meaningful event view', () => {
+    const items = Array.from({ length: 20 }, (_, index) => photo(`session-${index}`, 1 + index * 0.05))
+    const event = buildEvents(items)[0]
+    expect(event.significance).toBe('moment')
+    expect(isMeaningfulEvent(event)).toBe(true)
+  })
+
+  it('does not promote a high-volume day spread across many hours by count alone', () => {
+    const items = Array.from({ length: 20 }, (_, index) => photo(`spread-${index}`, index * 0.6))
+    const event = buildEvents(items)[0]
+    expect(event.significance).toBe('everyday')
+    expect(isMeaningfulEvent(event)).toBe(false)
+  })
+
+  it('treats a user-named everyday event as meaningful', () => {
+    const event = { ...buildEvents([photo('single', 1)])[0], customTitle: 'First day at school' }
+    expect(event.significance).toBe('everyday')
+    expect(isMeaningfulEvent(event)).toBe(true)
   })
 
   it('uses similarity groups to support a same-day continuation', () => {

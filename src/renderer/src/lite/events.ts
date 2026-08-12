@@ -1,5 +1,6 @@
+import { matchingKnownDate, type LiteKnownDateOccurrence } from './knownDates'
 import { sourceFolderName, sourceFolderOf } from './sourcePaths'
-import type { LiteEventRecord, LiteMediaRecord, LiteSimilarityGroup } from './types'
+import type { LiteEventRecord, LiteEventSignificance, LiteKnownDateRecord, LiteMediaRecord, LiteSimilarityGroup } from './types'
 
 const QUICK_GAP_MS = 90 * 60 * 1000
 const SUPPORTED_GAP_MS = 8 * 60 * 60 * 1000
@@ -7,6 +8,8 @@ const HARD_GAP_MS = 18 * 60 * 60 * 1000
 const LOCATION_ONLY_MULTIDAY_GAP_MS = 48 * 60 * 60 * 1000
 const SUPPORTED_MULTIDAY_GAP_MS = 7 * 24 * 60 * 60 * 1000
 const MAX_MULTIDAY_EVENT_SPAN_MS = 21 * 24 * 60 * 60 * 1000
+const CONCENTRATED_SESSION_MIN_PHOTOS = 20
+const CONCENTRATED_SESSION_MAX_SPAN_MS = 6 * 60 * 60 * 1000
 const NEARBY_KM = 25
 const MULTIDAY_NEARBY_KM = 35
 const ROUTINE_CELL_DEGREES = 0.08
@@ -23,7 +26,11 @@ interface RoutineLocationStats {
   maximumTime: number
 }
 
-export function buildEvents(items: LiteMediaRecord[], similarityGroups: LiteSimilarityGroup[] = []): LiteEventRecord[] {
+export function buildEvents(
+  items: LiteMediaRecord[],
+  similarityGroups: LiteSimilarityGroup[] = [],
+  knownDates: LiteKnownDateRecord[] = []
+): LiteEventRecord[] {
   const photos = items
     .filter((item) => item.kind === 'image')
     .sort((a, b) => captureTimeOf(a) - captureTimeOf(b) || a.relativePath.localeCompare(b.relativePath))
@@ -31,13 +38,22 @@ export function buildEvents(items: LiteMediaRecord[], similarityGroups: LiteSimi
 
   const similarityByItem = similarityMembership(similarityGroups)
   const routineLocations = findRoutineLocationCells(photos)
+  const knownDateByItem = new Map(photos.map((photo) => [photo.id, matchingKnownDate(knownDates, captureTimeOf(photo))]))
   const accumulators: EventAccumulator[] = [{ items: [photos[0]], evidence: new Set(['event start']) }]
 
   for (let index = 1; index < photos.length; index += 1) {
     const next = photos[index]
     const current = accumulators.at(-1)!
     const previous = current.items.at(-1)!
-    const decision = shouldContinueEvent(current.items, previous, next, similarityByItem, routineLocations)
+    const decision = shouldContinueEvent(
+      current.items,
+      previous,
+      next,
+      similarityByItem,
+      routineLocations,
+      knownDateByItem.get(previous.id) ?? null,
+      knownDateByItem.get(next.id) ?? null
+    )
     if (decision.continueEvent) {
       current.items.push(next)
       for (const evidence of decision.evidence) current.evidence.add(evidence)
@@ -46,7 +62,7 @@ export function buildEvents(items: LiteMediaRecord[], similarityGroups: LiteSimi
     }
   }
 
-  return accumulators.map((accumulator) => finalizeEvent(accumulator.items, accumulator.evidence))
+  return accumulators.map((accumulator) => finalizeEvent(accumulator.items, accumulator.evidence, routineLocations, knownDateByItem))
 }
 
 function shouldContinueEvent(
@@ -54,8 +70,17 @@ function shouldContinueEvent(
   previous: LiteMediaRecord,
   next: LiteMediaRecord,
   similarityByItem: Map<string, Set<string>>,
-  routineLocations: Set<string>
+  routineLocations: Set<string>,
+  previousKnownDate: LiteKnownDateOccurrence | null,
+  nextKnownDate: LiteKnownDateOccurrence | null
 ): { continueEvent: boolean; evidence: string[] } {
+  if (previousKnownDate || nextKnownDate) {
+    if (previousKnownDate?.key === nextKnownDate?.key && previousKnownDate) {
+      return { continueEvent: true, evidence: [`known date: ${previousKnownDate.record.title}`] }
+    }
+    return { continueEvent: false, evidence: [] }
+  }
+
   const gap = Math.max(0, captureTimeOf(next) - captureTimeOf(previous))
   const eventSpan = Math.max(0, captureTimeOf(next) - captureTimeOf(currentItems[0]))
   const sameFolder = sourceFolderOf(previous.relativePath) === sourceFolderOf(next.relativePath)
@@ -94,24 +119,58 @@ function shouldContinueEvent(
   return { continueEvent: false, evidence: [] }
 }
 
-function finalizeEvent(items: LiteMediaRecord[], evidence: Set<string>): LiteEventRecord {
+function finalizeEvent(
+  items: LiteMediaRecord[],
+  evidence: Set<string>,
+  routineLocations: Set<string>,
+  knownDateByItem: Map<string, LiteKnownDateOccurrence | null>
+): LiteEventRecord {
   const startTime = captureTimeOf(items[0])
   const endTime = captureTimeOf(items.at(-1)!)
   const personIds = [...new Set(items.flatMap((item) => (item.faces ?? []).map((face) => face.personId).filter(isString)))].sort()
   const folderPaths = [...new Set(items.map((item) => sourceFolderOf(item.relativePath)))].sort()
   const location = averageLocation(items)
+  const knownDate = knownDateByItem.get(items[0].id) ?? null
+  const significance = classifySignificance(items, evidence, routineLocations, knownDate)
   return {
     id: `event-${stableHash(items.map((item) => item.id).join('|'))}`,
     libraryId: items[0].libraryId,
-    title: generatedEventTitle(startTime, endTime, folderPaths, items),
+    title: knownDate?.record.title ?? generatedEventTitle(startTime, endTime, folderPaths, items),
     startTime,
     endTime,
     itemIds: items.map((item) => item.id),
     personIds,
     folderPaths,
     ...(location ? location : {}),
-    evidence: [...evidence].filter((value) => value !== 'event start').sort()
+    evidence: [...evidence].filter((value) => value !== 'event start').sort(),
+    significance,
+    ...(knownDate ? { knownDateId: knownDate.record.id, knownDateTitle: knownDate.record.title } : {})
   }
+}
+
+function classifySignificance(
+  items: LiteMediaRecord[],
+  evidence: Set<string>,
+  routineLocations: Set<string>,
+  knownDate: LiteKnownDateOccurrence | null
+): LiteEventSignificance {
+  if (knownDate) return 'known-date'
+  if (evidence.has('same away location across days')) return 'away'
+  const nonRoutineLocated = items.some((item) => hasCoordinates(item) && !isRoutineLocation(item, routineLocations))
+  if (nonRoutineLocated && items.length >= 3) return 'moment'
+  if ((evidence.has('shared people') || evidence.has('related visual group')) && items.length >= 4) return 'moment'
+  if (isConcentratedPhotoSession(items)) return 'moment'
+  return 'everyday'
+}
+
+function isConcentratedPhotoSession(items: LiteMediaRecord[]): boolean {
+  if (items.length < CONCENTRATED_SESSION_MIN_PHOTOS) return false
+  const span = Math.max(0, captureTimeOf(items.at(-1)!) - captureTimeOf(items[0]))
+  return span <= CONCENTRATED_SESSION_MAX_SPAN_MS
+}
+
+export function isMeaningfulEvent(event: LiteEventRecord): boolean {
+  return Boolean(event.customTitle) || (event.significance ?? 'moment') !== 'everyday'
 }
 
 export function generatedEventTitle(startTime: number, endTime: number, folders: string[], items: LiteMediaRecord[]): string {

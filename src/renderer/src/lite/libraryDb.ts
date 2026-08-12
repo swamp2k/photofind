@@ -1,4 +1,4 @@
-import type { LiteEventOverride, LiteLibraryRecord, LiteMediaRecord, LitePersonRecord } from './types'
+import type { LiteEventOverride, LiteKnownDateRecord, LiteLibraryRecord, LiteMediaRecord, LitePersonRecord } from './types'
 
 const DB_NAME = 'photofind-lite'
 const DB_VERSION = 3
@@ -97,6 +97,38 @@ export async function deleteEventOverride(id: string): Promise<void> {
   const db = await openDb()
   try {
     await requestResult(db.transaction(EVENT_OVERRIDES_STORE, 'readwrite').objectStore(EVENT_OVERRIDES_STORE).delete(id))
+  } finally {
+    db.close()
+  }
+}
+
+export async function saveLibraryKnownDates(libraryId: string, knownDates: LiteKnownDateRecord[]): Promise<LiteLibraryRecord> {
+  const db = await openDb()
+  try {
+    return await new Promise<LiteLibraryRecord>((resolve, reject) => {
+      const transaction = db.transaction(LIBRARIES_STORE, 'readwrite')
+      const store = transaction.objectStore(LIBRARIES_STORE)
+      let next: LiteLibraryRecord | null = null
+
+      transaction.oncomplete = () => {
+        if (next) resolve(next)
+        else reject(new Error('The local PhotoFind library no longer exists.'))
+      }
+      transaction.onerror = () => reject(transaction.error ?? new Error('Known dates could not be saved.'))
+      transaction.onabort = () => reject(transaction.error ?? new Error('Known-date update was aborted.'))
+
+      const request = store.get(libraryId)
+      request.onerror = () => transaction.abort()
+      request.onsuccess = () => {
+        const current = request.result as LiteLibraryRecord | undefined
+        if (!current) {
+          transaction.abort()
+          return
+        }
+        next = { ...current, knownDates }
+        store.put(next)
+      }
+    })
   } finally {
     db.close()
   }
