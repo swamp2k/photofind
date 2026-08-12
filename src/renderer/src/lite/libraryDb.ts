@@ -105,12 +105,30 @@ export async function deleteEventOverride(id: string): Promise<void> {
 export async function saveLibraryKnownDates(libraryId: string, knownDates: LiteKnownDateRecord[]): Promise<LiteLibraryRecord> {
   const db = await openDb()
   try {
-    const store = db.transaction(LIBRARIES_STORE, 'readwrite').objectStore(LIBRARIES_STORE)
-    const current = await requestResult(store.get(libraryId)) as LiteLibraryRecord | undefined
-    if (!current) throw new Error('The local PhotoFind library no longer exists.')
-    const next: LiteLibraryRecord = { ...current, knownDates }
-    await requestResult(store.put(next))
-    return next
+    return await new Promise<LiteLibraryRecord>((resolve, reject) => {
+      const transaction = db.transaction(LIBRARIES_STORE, 'readwrite')
+      const store = transaction.objectStore(LIBRARIES_STORE)
+      let next: LiteLibraryRecord | null = null
+
+      transaction.oncomplete = () => {
+        if (next) resolve(next)
+        else reject(new Error('The local PhotoFind library no longer exists.'))
+      }
+      transaction.onerror = () => reject(transaction.error ?? new Error('Known dates could not be saved.'))
+      transaction.onabort = () => reject(transaction.error ?? new Error('Known-date update was aborted.'))
+
+      const request = store.get(libraryId)
+      request.onerror = () => transaction.abort()
+      request.onsuccess = () => {
+        const current = request.result as LiteLibraryRecord | undefined
+        if (!current) {
+          transaction.abort()
+          return
+        }
+        next = { ...current, knownDates }
+        store.put(next)
+      }
+    })
   } finally {
     db.close()
   }
