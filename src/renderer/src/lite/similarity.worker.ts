@@ -15,6 +15,7 @@ interface AnalyzeResponse {
 }
 
 const worker = self as unknown as DedicatedWorkerGlobalScope
+const HEIC_TIMEOUT_MS = 30_000
 
 worker.onmessage = (event: MessageEvent<AnalyzeRequest>) => {
   void analyze(event.data).then((response) => worker.postMessage(response))
@@ -76,9 +77,9 @@ async function decodeBitmap(file: File): Promise<ImageBitmap> {
     return await createImageBitmap(file)
   } catch (nativeError) {
     if (!looksLikeHeic(file)) throw nativeError
-    const decoded = await heicTo({ blob: file, type: 'bitmap' })
-    if (!(decoded instanceof ImageBitmap)) throw new Error('HEIC decoder did not return an image bitmap.')
-    return decoded
+    const decoded = await withTimeout(heicTo({ blob: file, type: 'image/jpeg', quality: 0.82 }), HEIC_TIMEOUT_MS)
+    if (!(decoded instanceof Blob) || decoded.size === 0) throw new Error('HEIC decoder did not return a usable JPEG image.')
+    return createImageBitmap(decoded)
   }
 }
 
@@ -100,6 +101,16 @@ function bitsToHex(bits: number[]): string {
     output += nibble.toString(16)
   }
   return output
+}
+
+function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error(`HEIC decoding timed out after ${milliseconds / 1000} seconds.`)), milliseconds)
+    promise.then(
+      (value) => { clearTimeout(timeout); resolve(value) },
+      (error) => { clearTimeout(timeout); reject(error) }
+    )
+  })
 }
 
 function messageOf(error: unknown): string {
