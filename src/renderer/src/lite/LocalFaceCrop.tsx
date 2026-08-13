@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import { decodeBitmapForAnalysis } from './imageDecode'
 import type { LiteFaceObservation, LiteMediaRecord } from './types'
+
+const FACE_PREVIEW_MAX_DIMENSION = 2048
 
 export function LocalFaceCrop({ item, face, sessionFile, size = 160 }: { item: LiteMediaRecord; face: LiteFaceObservation; sessionFile?: File; size?: number }): JSX.Element {
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -11,7 +14,7 @@ export function LocalFaceCrop({ item, face, sessionFile, size = 160 }: { item: L
     void (async () => {
       const file = sessionFile ?? (item.fileHandle ? await item.fileHandle.getFile() : null)
       if (!file) throw new Error('Reconnect folder to preview face')
-      const bitmap = await createImageBitmap(file)
+      const bitmap = await decodeBitmapForAnalysis(file, item, FACE_PREVIEW_MAX_DIMENSION)
       try {
         if (disposed || !canvas.current) return
         const context = canvas.current.getContext('2d')
