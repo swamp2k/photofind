@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react'
+import { displayBlobForPhoto } from './imageDecode'
 import type { LiteMediaRecord } from './types'
 
 interface LocalPhotoImageProps {
@@ -10,6 +11,8 @@ interface LocalPhotoImageProps {
   draggable?: boolean
   onLoad?(): void
 }
+
+const VIEWER_MAX_DIMENSION = 4096
 
 export function LocalPhotoImage({ item, sessionFile, className, style, eager = false, draggable = false, onLoad }: LocalPhotoImageProps): JSX.Element {
   const [url, setUrl] = useState<string | null>(null)
@@ -24,8 +27,9 @@ export function LocalPhotoImage({ item, sessionFile, className, style, eager = f
     void (async () => {
       const file = sessionFile ?? (item.fileHandle ? await item.fileHandle.getFile() : null)
       if (!file) throw new Error('Reconnect the source folder to view this photo.')
+      const displayBlob = await displayBlobForPhoto(file, item, VIEWER_MAX_DIMENSION)
       if (disposed) return
-      objectUrl = URL.createObjectURL(file)
+      objectUrl = URL.createObjectURL(displayBlob)
       setUrl(objectUrl)
     })().catch((cause) => {
       if (!disposed) setError(cause instanceof Error ? cause.message : 'Unable to open local photo.')
@@ -39,5 +43,5 @@ export function LocalPhotoImage({ item, sessionFile, className, style, eager = f
 
   if (error) return <div className="local-photo-error">{error}</div>
   if (!url) return <div className="local-photo-loading">Loading local photo…</div>
-  return <img data-photofind-photo-id={item.id} className={className} style={style} src={url} alt={item.name} loading={eager ? 'eager' : 'lazy'} draggable={draggable} onLoad={onLoad} onError={() => setError('This browser cannot decode the selected photo.')} />
+  return <img data-photofind-photo-id={item.id} className={className} style={style} src={url} alt={item.name} loading={eager ? 'eager' : 'lazy'} draggable={draggable} onLoad={onLoad} onError={() => setError('This photo could not be decoded locally.')} />
 }
