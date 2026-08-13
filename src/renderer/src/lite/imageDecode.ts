@@ -2,6 +2,7 @@ import { heicTo } from 'heic-to/csp'
 import type { LiteMediaRecord } from './types'
 
 const HEIC_EXTENSIONS = new Set(['heic', 'heif'])
+const HEIC_DECODE_TIMEOUT_MS = 30_000
 
 export function isHeicMedia(file: Blob, item?: Pick<LiteMediaRecord, 'name' | 'mimeType'>): boolean {
   const mime = (file.type || item?.mimeType || '').toLowerCase()
@@ -17,7 +18,10 @@ export async function displayBlobForPhoto(
   maxDimension?: number
 ): Promise<Blob> {
   if (!isHeicMedia(file, item)) return file
-  const bitmap = await decodeHeicBitmap(file)
+  const jpeg = await decodeHeicJpeg(file)
+  if (!maxDimension || maxDimension <= 0) return jpeg
+
+  const bitmap = await createImageBitmap(jpeg)
   try {
     return await bitmapToJpeg(bitmap, maxDimension)
   } finally {
@@ -30,18 +34,19 @@ export async function decodeBitmapForAnalysis(
   item: Pick<LiteMediaRecord, 'name' | 'mimeType' | 'width' | 'height'>,
   maxDimension: number
 ): Promise<ImageBitmap> {
-  let bitmap: ImageBitmap
-  if (isHeicMedia(file, item)) {
-    bitmap = await decodeHeicBitmap(file)
-  } else {
-    bitmap = await createImageBitmap(file)
-  }
+  const source = isHeicMedia(file, item) ? await decodeHeicJpeg(file, 0.88) : file
+  const bitmap = await createImageBitmap(source)
   return resizeBitmap(bitmap, maxDimension)
 }
 
-async function decodeHeicBitmap(file: File): Promise<ImageBitmap> {
-  const decoded = await heicTo({ blob: file, type: 'bitmap' })
-  if (!(decoded instanceof ImageBitmap)) throw new Error('HEIC decoder did not return an image bitmap.')
+async function decodeHeicJpeg(file: File, quality = 0.92): Promise<Blob> {
+  const decoded = await withTimeout(
+    heicTo({ blob: file, type: 'image/jpeg', quality }),
+    HEIC_DECODE_TIMEOUT_MS,
+    `HEIC decoding timed out after ${HEIC_DECODE_TIMEOUT_MS / 1000} seconds.`
+  )
+  if (!(decoded instanceof Blob)) throw new Error('HEIC decoder did not return a JPEG image.')
+  if (decoded.size === 0) throw new Error('HEIC decoder returned an empty JPEG image.')
   return decoded
 }
 
@@ -85,5 +90,15 @@ async function bitmapToJpeg(bitmap: ImageBitmap, maxDimension?: number): Promise
   context.drawImage(bitmap, 0, 0, width, height)
   return await new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('HEIC preview conversion failed.')), 'image/jpeg', 0.92)
+  })
+}
+
+function withTimeout<T>(promise: Promise<T>, milliseconds: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = window.setTimeout(() => reject(new Error(message)), milliseconds)
+    promise.then(
+      (value) => { window.clearTimeout(timeout); resolve(value) },
+      (error) => { window.clearTimeout(timeout); reject(error) }
+    )
   })
 }
