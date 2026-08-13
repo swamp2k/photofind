@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { classifyLikelyNonPhoto } from './contentClassification'
 import { LocalThumbnail } from './LocalThumbnail'
 import { PhotoLightbox } from './PhotoLightbox'
 import { PhotoSelectionBar, useExplorerPhotoSelection } from './PhotoSelection'
@@ -23,6 +24,7 @@ const PAGE_SIZE = 240
 export function QualityPanel({ items, sessionFiles, progress, busy, reconnectRequired, onAnalyze, onAbort, onReview }: QualityPanelProps): JSX.Element {
   const [qualityFilter, setQualityFilter] = useState<LiteQualityFilter>('all')
   const [sort, setSort] = useState<LiteQualitySort>('overall')
+  const [showNonPhotos, setShowNonPhotos] = useState(false)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [openIndex, setOpenIndex] = useState<number | null>(null)
   const photos = items.filter((item) => item.kind === 'image')
@@ -33,8 +35,21 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
   const okay = analyzed.filter((item) => item.qualityTier === 'okay').length
   const weak = analyzed.filter((item) => item.qualityTier === 'weak').length
   const average = analyzed.length > 0 ? Math.round(analyzed.reduce((sum, item) => sum + (item.qualityScore ?? 0), 0) / analyzed.length) : null
+  const contentById = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof classifyLikelyNonPhoto>>()
+    for (const item of analyzed) {
+      const classification = classifyLikelyNonPhoto(item)
+      if (classification) map.set(item.id, classification)
+    }
+    return map
+  }, [items])
+  const nonPhotoCount = contentById.size
 
-  const ranked = useMemo(() => sortByTechnicalQuality(filterQuality(items, qualityFilter), sort), [items, qualityFilter, sort])
+  const ranked = useMemo(() => {
+    const filtered = filterQuality(items, qualityFilter)
+    const contentFiltered = showNonPhotos ? filtered.filter((item) => contentById.has(item.id)) : filtered
+    return sortByTechnicalQuality(contentFiltered, sort)
+  }, [contentById, items, qualityFilter, showNonPhotos, sort])
   const visible = ranked.slice(0, visibleCount)
   const selection = useExplorerPhotoSelection(ranked)
 
@@ -42,7 +57,7 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
     setVisibleCount(PAGE_SIZE)
     setOpenIndex(null)
     selection.clear()
-  }, [qualityFilter, sort])
+  }, [qualityFilter, showNonPhotos, sort])
 
   return (
     <section className="quality-section">
@@ -103,40 +118,53 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
                 <option value="resolution">Resolution</option>
               </select>
             </label>
+            <button
+              type="button"
+              className={showNonPhotos ? 'quality-content-toggle active' : 'quality-content-toggle'}
+              aria-pressed={showNonPhotos}
+              title="Likely screenshots, receipts and document-like images. This is a conservative local heuristic, not an automatic reject decision."
+              onClick={() => setShowNonPhotos((value) => !value)}
+            >
+              <span aria-hidden="true">{showNonPhotos ? '☑' : '☐'}</span> Screenshots / docs <b>{nonPhotoCount.toLocaleString()}</b>
+            </button>
             <span className="muted">{ranked.length.toLocaleString()} matching analyzed photos</span>
           </div>
 
           <PhotoSelectionBar items={selection.selectedItems} onReview={(targets, state) => targets.forEach((item) => onReview(item, state))} onClear={selection.clear} />
 
-          {ranked.length === 0 ? <p className="muted">No analyzed photos match that quality tier.</p> : (
+          {ranked.length === 0 ? <p className="muted">{showNonPhotos ? 'No likely screenshots or documents match the current quality tier.' : 'No analyzed photos match that quality tier.'}</p> : (
             <div className="quality-grid">
-              {visible.map((item, index) => (
-                <article className={selection.isSelected(item.id) ? 'quality-card explorer-selected' : 'quality-card'} key={item.id}>
-                  <button
-                    className="quality-open-button"
-                    type="button"
-                    aria-pressed={selection.isSelected(item.id)}
-                    onClick={(event) => selection.handlePhotoClick(event, item.id, () => setOpenIndex(index))}
-                  >
-                    <div className="quality-image">
-                      <LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} />
-                      {selection.isSelected(item.id) && <span className="selection-check">✓</span>}
-                    </div>
-                    <div className="quality-card-head">
-                      <span className={`quality-badge ${item.qualityTier ?? 'okay'}`}>{item.qualityScore ?? '–'}</span>
-                      <div><strong>{qualityTierLabel(item.qualityTier ?? 'okay')}</strong><span title={item.relativePath}>{item.name}</span></div>
-                    </div>
-                    <div className="quality-metrics">
-                      <Metric label="Sharp" value={item.sharpnessScore} />
-                      <Metric label="Exposure" value={item.exposureScore} />
-                      <Metric label="Resolution" value={item.resolutionScore} />
-                      <Metric label="Blur risk" value={item.motionBlurRisk} invert />
-                    </div>
-                    <div className="quality-reasons">{(item.qualityReasons ?? []).slice(0, 3).map((reason) => <span key={reason}>{reason}</span>)}</div>
-                  </button>
-                  <ReviewControls item={item} compact onReview={onReview} />
-                </article>
-              ))}
+              {visible.map((item, index) => {
+                const content = contentById.get(item.id)
+                return (
+                  <article className={selection.isSelected(item.id) ? 'quality-card explorer-selected' : 'quality-card'} key={item.id}>
+                    <button
+                      className="quality-open-button"
+                      type="button"
+                      aria-pressed={selection.isSelected(item.id)}
+                      onClick={(event) => selection.handlePhotoClick(event, item.id, () => setOpenIndex(index))}
+                    >
+                      <div className="quality-image">
+                        <LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} />
+                        {selection.isSelected(item.id) && <span className="selection-check">✓</span>}
+                        {content && <span className={`quality-content-badge ${content.kind}`} title={content.reasons.join(' · ')}>{content.kind === 'screenshot' ? 'Screenshot' : 'Document'}</span>}
+                      </div>
+                      <div className="quality-card-head">
+                        <span className={`quality-badge ${item.qualityTier ?? 'okay'}`}>{item.qualityScore ?? '–'}</span>
+                        <div><strong>{qualityTierLabel(item.qualityTier ?? 'okay')}</strong><span title={item.relativePath}>{item.name}</span></div>
+                      </div>
+                      <div className="quality-metrics">
+                        <Metric label="Sharp" value={item.sharpnessScore} />
+                        <Metric label="Exposure" value={item.exposureScore} />
+                        <Metric label="Resolution" value={item.resolutionScore} />
+                        <Metric label="Blur risk" value={item.motionBlurRisk} invert />
+                      </div>
+                      <div className="quality-reasons">{(item.qualityReasons ?? []).slice(0, 3).map((reason) => <span key={reason}>{reason}</span>)}</div>
+                    </button>
+                    <ReviewControls item={item} compact onReview={onReview} />
+                  </article>
+                )
+              })}
             </div>
           )}
 
