@@ -19,9 +19,9 @@ interface EventsPanelProps {
   onRename(event: LiteEventRecord, title: string): void
 }
 
-type EventSort = 'name' | 'captured' | 'modified'
+type EventSort = 'name' | 'captured' | 'modified' | 'count'
 type SortDirection = 'asc' | 'desc'
-type EventScope = 'meaningful' | 'all'
+type EventScope = 'meaningful' | 'known' | 'all'
 
 export function EventsPanel({ items, events, people, sessionFiles, onReview, onRename }: EventsPanelProps): JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -36,8 +36,9 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
   const byId = useMemo(() => new Map(items.map((item) => [item.id, item])), [items])
   const peopleById = useMemo(() => new Map(people.map((person) => [person.id, person])), [people])
   const meaningfulCount = useMemo(() => events.filter(isMeaningfulEvent).length, [events])
+  const knownCount = useMemo(() => events.filter(isKnownDateEvent).length, [events])
   const visibleEvents = useMemo(() => {
-    let filtered = scope === 'meaningful' ? events.filter(isMeaningfulEvent) : events
+    let filtered = scope === 'meaningful' ? events.filter(isMeaningfulEvent) : scope === 'known' ? events.filter(isKnownDateEvent) : events
     if (personFilter) filtered = filtered.filter((event) => event.personIds.includes(personFilter))
     return [...filtered].sort((left, right) => compareEvents(left, right, byId, sortBy, sortDirection))
   }, [byId, events, personFilter, scope, sortBy, sortDirection])
@@ -95,14 +96,14 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
   return (
     <section className="events-section compact-mode-section">
       <div className="compact-view-toolbar event-toolbar-controls">
-        <label className="event-person-filter"><span>Show</span><select value={scope} onChange={(event) => { setScope(event.target.value as EventScope); setSelectedId(null) }}><option value="meaningful">Meaningful events ({meaningfulCount.toLocaleString()})</option><option value="all">All moments ({events.length.toLocaleString()})</option></select></label>
+        <label className="event-person-filter"><span>Show</span><select value={scope} onChange={(event) => { setScope(event.target.value as EventScope); setSelectedId(null) }}><option value="meaningful">Meaningful events ({meaningfulCount.toLocaleString()})</option><option value="known">Known dates & holidays ({knownCount.toLocaleString()})</option><option value="all">All moments ({events.length.toLocaleString()})</option></select></label>
         <label className="event-person-filter"><span>Person</span><select value={personFilter} onChange={(event) => setPersonFilter(event.target.value)}><option value="">All people</option>{namedPeople.map((person) => <option value={person.id} key={person.id}>{person.name}</option>)}</select></label>
-        <label className="event-person-filter"><span>Sort</span><select value={sortBy} onChange={(event) => setSortBy(event.target.value as EventSort)}><option value="name">Name</option><option value="captured">Date (EXIF / captured)</option><option value="modified">Date (modified)</option></select></label>
+        <label className="event-person-filter"><span>Sort by</span><select value={sortBy} onChange={(event) => setSortBy(event.target.value as EventSort)}><option value="captured">Date taken (EXIF / Takeout)</option><option value="modified">Date modified</option><option value="name">Event name</option><option value="count">Photo count</option></select></label>
         <button type="button" className="quiet-button event-sort-direction" onClick={() => setSortDirection((value) => value === 'asc' ? 'desc' : 'asc')} title="Reverse event sort">{sortDirection === 'asc' ? '↑ Ascending' : '↓ Descending'}</button>
-        <span className="compact-toolbar-note">Everyday day-buckets are hidden by default; named events, known dates, trips and stronger photo sessions stay visible.</span>
+        <span className="compact-toolbar-note">Everyday day-buckets are hidden by default. Switch to Known dates & holidays to see only dates you defined or imported.</span>
       </div>
 
-      {events.length === 0 ? <div className="compact-empty-state"><strong>No events to show.</strong><span>Index photos with usable timestamps. Known dates, GPS, People and similarity analysis can all strengthen grouping.</span></div> : visibleEvents.length === 0 ? <div className="compact-empty-state"><strong>No events match these filters.</strong><span>Choose All moments or clear the person filter.</span></div> : (
+      {events.length === 0 ? <div className="compact-empty-state"><strong>No events to show.</strong><span>Index photos with usable timestamps. Known dates, GPS, People and similarity analysis can all strengthen grouping.</span></div> : visibleEvents.length === 0 ? <div className="compact-empty-state"><strong>No events match these filters.</strong><span>Choose another event scope or clear the person filter.</span></div> : (
         <div className="events-workspace">
           <div className="event-list">
             {visibleEvents.slice(0, 500).map((event) => {
@@ -167,6 +168,7 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
 function compareEvents(left: LiteEventRecord, right: LiteEventRecord, byId: Map<string, LiteMediaRecord>, sortBy: EventSort, direction: SortDirection): number {
   const multiplier = direction === 'asc' ? 1 : -1
   if (sortBy === 'name') return multiplier * left.title.localeCompare(right.title, undefined, { numeric: true, sensitivity: 'base' })
+  if (sortBy === 'count') return multiplier * (left.itemIds.length - right.itemIds.length || left.startTime - right.startTime)
   const leftTime = sortTime(left, byId, sortBy)
   const rightTime = sortTime(right, byId, sortBy)
   if (leftTime === undefined && rightTime === undefined) return left.title.localeCompare(right.title)
@@ -175,7 +177,7 @@ function compareEvents(left: LiteEventRecord, right: LiteEventRecord, byId: Map<
   return multiplier * (leftTime - rightTime || left.title.localeCompare(right.title))
 }
 
-function sortTime(event: LiteEventRecord, byId: Map<string, LiteMediaRecord>, sortBy: Exclude<EventSort, 'name'>): number | undefined {
+function sortTime(event: LiteEventRecord, byId: Map<string, LiteMediaRecord>, sortBy: Exclude<EventSort, 'name' | 'count'>): number | undefined {
   const eventItems = event.itemIds.map((id) => byId.get(id)).filter(isMediaRecord)
   if (sortBy === 'modified') {
     const values = eventItems.map((item) => item.lastModified).filter((value) => Number.isFinite(value) && value > 0)
@@ -186,6 +188,10 @@ function sortTime(event: LiteEventRecord, byId: Map<string, LiteMediaRecord>, so
     .map((item) => item.effectiveCaptureTime)
     .filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
   return values.length > 0 ? Math.min(...values) : undefined
+}
+
+function isKnownDateEvent(event: LiteEventRecord): boolean {
+  return Boolean(event.knownDateId || event.knownDateTitle || event.significance === 'known-date')
 }
 
 function formatEventRange(event: LiteEventRecord): string {

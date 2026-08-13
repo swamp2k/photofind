@@ -1,8 +1,10 @@
+import { decodeBitmapForAnalysis } from './imageDecode'
 import { clusterPeople, type LitePeopleStateResult } from './people'
 import type { LiteFaceObservation, LiteMediaRecord, LitePeopleProgress, LitePersonRecord } from './types'
 
 export const PEOPLE_ANALYSIS_VERSION = 1
 const PERSIST_BATCH_SIZE = 4
+const MAX_FACE_ANALYSIS_DIMENSION = 1600
 
 type HumanModule = typeof import('@vladmandic/human')
 type HumanInstance = InstanceType<HumanModule['default']>
@@ -20,7 +22,7 @@ interface PeopleAnalysisOptions {
 export async function analyzePeople(items: LiteMediaRecord[], options: PeopleAnalysisOptions): Promise<LitePeopleStateResult> {
   const photos = items.filter((item) => item.kind === 'image')
   options.signal?.throwIfAborted()
-  options.onProgress?.({ phase: 'models', complete: 0, total: photos.length, reused: 0, facesFound: 0, currentPath: 'Loading local face models…' })
+  options.onProgress?.({ phase: 'models', complete: 0, total: photos.length, reused: 0, facesFound: 0, currentPath: 'Loading local face models · GPU/WebGL…' })
   const human = await loadHuman()
   options.signal?.throwIfAborted()
 
@@ -76,7 +78,7 @@ async function analyzeOne(
     const file = await resolveFile(item)
     signal?.throwIfAborted()
     if (!file) throw new Error('Local file access is unavailable. Reconnect the source folder and retry.')
-    const bitmap = await createImageBitmap(file)
+    const bitmap = await decodeBitmapForAnalysis(file, item, MAX_FACE_ANALYSIS_DIMENSION)
     try {
       signal?.throwIfAborted()
       const previousById = new Map((item.faces ?? []).map((face) => [face.id, face]))

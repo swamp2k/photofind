@@ -1,5 +1,7 @@
 /// <reference lib="webworker" />
 
+import { heicTo } from 'heic-to/next'
+
 interface AnalyzeRequest {
   id: string
   file: File
@@ -47,7 +49,7 @@ async function sha256(file: File): Promise<string> {
 }
 
 async function differenceHash(file: File): Promise<string> {
-  const bitmap = await createImageBitmap(file)
+  const bitmap = await decodeBitmap(file)
   try {
     const canvas = new OffscreenCanvas(9, 8)
     const context = canvas.getContext('2d', { willReadFrequently: true })
@@ -67,6 +69,23 @@ async function differenceHash(file: File): Promise<string> {
   } finally {
     bitmap.close()
   }
+}
+
+async function decodeBitmap(file: File): Promise<ImageBitmap> {
+  try {
+    return await createImageBitmap(file)
+  } catch (nativeError) {
+    if (!looksLikeHeic(file)) throw nativeError
+    const decoded = await heicTo({ blob: file, type: 'bitmap' })
+    if (!(decoded instanceof ImageBitmap)) throw new Error('HEIC decoder did not return an image bitmap.')
+    return decoded
+  }
+}
+
+function looksLikeHeic(file: File): boolean {
+  const mime = file.type.toLowerCase()
+  const extension = file.name.split('.').at(-1)?.toLowerCase()
+  return mime.includes('heic') || mime.includes('heif') || extension === 'heic' || extension === 'heif'
 }
 
 function grayAt(data: Uint8ClampedArray, pixelIndex: number): number {

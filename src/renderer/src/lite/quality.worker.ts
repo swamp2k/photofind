@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 
+import { heicTo } from 'heic-to/next'
 import type { LiteQualityMeasurements } from './types'
 
 interface AnalyzeRequest {
@@ -22,7 +23,7 @@ worker.onmessage = (event: MessageEvent<AnalyzeRequest>) => {
 
 async function analyze(request: AnalyzeRequest): Promise<AnalyzeResponse> {
   try {
-    const bitmap = await createImageBitmap(request.file)
+    const bitmap = await decodeBitmap(request.file)
     try {
       const measurements = measureBitmap(bitmap)
       return { id: request.id, measurements }
@@ -32,6 +33,23 @@ async function analyze(request: AnalyzeRequest): Promise<AnalyzeResponse> {
   } catch (error) {
     return { id: request.id, error: messageOf(error) }
   }
+}
+
+async function decodeBitmap(file: File): Promise<ImageBitmap> {
+  try {
+    return await createImageBitmap(file)
+  } catch (nativeError) {
+    if (!looksLikeHeic(file)) throw nativeError
+    const decoded = await heicTo({ blob: file, type: 'bitmap' })
+    if (!(decoded instanceof ImageBitmap)) throw new Error('HEIC decoder did not return an image bitmap.')
+    return decoded
+  }
+}
+
+function looksLikeHeic(file: File): boolean {
+  const mime = file.type.toLowerCase()
+  const extension = file.name.split('.').at(-1)?.toLowerCase()
+  return mime.includes('heic') || mime.includes('heif') || extension === 'heic' || extension === 'heif'
 }
 
 function measureBitmap(bitmap: ImageBitmap): LiteQualityMeasurements {

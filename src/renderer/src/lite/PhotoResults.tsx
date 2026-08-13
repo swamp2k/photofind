@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { formatCapture, formatLocation } from './formatters'
 import { hasLocation } from './filters'
 import { LocalThumbnail } from './LocalThumbnail'
 import { PhotoLightbox } from './PhotoLightbox'
 import { PhotoSelectionBar, useExplorerPhotoSelection } from './PhotoSelection'
+import { sortLibraryPhotos, type LitePhotoSort, type LitePhotoSortDirection } from './photoSort'
 import { ReviewControls } from './ReviewControls'
 import type { LiteMediaRecord, LiteReviewState } from './types'
 
@@ -18,16 +19,29 @@ interface PhotoResultsProps {
 
 export function PhotoResults({ items, visibleCount, selectedId, sessionFiles, onShowMore, onReview }: PhotoResultsProps): JSX.Element {
   const [openIndex, setOpenIndex] = useState<number | null>(null)
-  const visible = items.slice(0, visibleCount)
-  const selection = useExplorerPhotoSelection(items)
+  const [sortBy, setSortBy] = useState<LitePhotoSort>('exif')
+  const [sortDirection, setSortDirection] = useState<LitePhotoSortDirection>('desc')
+  const sortedItems = useMemo(() => sortLibraryPhotos(items, sortBy, sortDirection), [items, sortBy, sortDirection])
+  const visible = sortedItems.slice(0, visibleCount)
+  const selection = useExplorerPhotoSelection(sortedItems)
+
+  useEffect(() => {
+    setOpenIndex(null)
+    selection.clear()
+  }, [sortBy, sortDirection])
+
   return (
     <section className="viewer-section">
-      <div className="section-heading">
+      <div className="section-heading library-section-heading">
         <div>
           <div className="eyebrow">Viewer</div>
           <h2>{items.length.toLocaleString()} matching photos</h2>
         </div>
-        <span className="muted">Showing {Math.min(visibleCount, items.length).toLocaleString()} · click to preview · Ctrl-click to select · Shift-click for a range</span>
+        <div className="library-sort-toolbar">
+          <label><span>Sort by</span><select value={sortBy} onChange={(event) => setSortBy(event.target.value as LitePhotoSort)}><option value="exif">Date taken (EXIF)</option><option value="filename">Filename</option><option value="folder">Folder name</option></select></label>
+          <button type="button" className="quiet-button" onClick={() => setSortDirection((value) => value === 'asc' ? 'desc' : 'asc')} title="Reverse photo sort">{sortDirection === 'asc' ? '↑ Ascending' : '↓ Descending'}</button>
+        </div>
+        <span className="muted library-view-hint">Showing {Math.min(visibleCount, items.length).toLocaleString()} · click to preview · Ctrl-click to select · Shift-click for a range</span>
       </div>
 
       <PhotoSelectionBar items={selection.selectedItems} onReview={(targets, state) => targets.forEach((item) => onReview(item, state))} onClear={selection.clear} />
@@ -65,14 +79,14 @@ export function PhotoResults({ items, visibleCount, selectedId, sessionFiles, on
           })}
         </div>
       )}
-      {visibleCount < items.length && (
+      {visibleCount < sortedItems.length && (
         <button className="load-more" onClick={onShowMore}>
-          Show {Math.min(120, items.length - visibleCount)} more
+          Show {Math.min(120, sortedItems.length - visibleCount)} more
         </button>
       )}
       {openIndex !== null && (
         <PhotoLightbox
-          items={items}
+          items={sortedItems}
           index={openIndex}
           sessionFiles={sessionFiles}
           onIndex={setOpenIndex}
