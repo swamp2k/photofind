@@ -19,11 +19,13 @@ export interface PhotoContextDescriptor {
   id: string
   name: string
   starred: boolean
+  screenshot: boolean
 }
 
 export interface PhotoContextActions {
   resolvePhoto(id: string): PhotoContextDescriptor | null
   setStarred(id: string, starred: boolean): void | Promise<void>
+  setScreenshot(id: string, screenshot: boolean): void | Promise<void>
 }
 
 interface OpenMenuState extends PhotoFindContextMenuSpec {
@@ -74,12 +76,27 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
         claimed.current = true
         setMenu(positionMenu(event.clientX, event.clientY, {
           title: photo.name,
-          actions: [{
-            id: 'toggle-starred',
-            label: photo.starred ? 'Remove star' : 'Star photo',
-            hint: '★',
-            onSelect: () => photoActions.setStarred(photo.id, !photo.starred)
-          }]
+          actions: [
+            {
+              id: 'toggle-starred',
+              label: photo.starred ? 'Remove star' : 'Star photo',
+              hint: '★',
+              onSelect: () => photoActions.setStarred(photo.id, !photo.starred)
+            },
+            {
+              id: 'mark-screenshot',
+              label: 'Mark screenshot',
+              disabled: photo.screenshot,
+              separatorBefore: true,
+              onSelect: () => photoActions.setScreenshot(photo.id, true)
+            },
+            {
+              id: 'remove-screenshot',
+              label: 'Remove screenshot',
+              disabled: !photo.screenshot,
+              onSelect: () => photoActions.setScreenshot(photo.id, false)
+            }
+          ]
         }))
         return
       }

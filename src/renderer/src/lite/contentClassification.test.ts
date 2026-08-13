@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyLikelyNonPhoto } from './contentClassification'
+import { classifyLikelyNonPhoto, setScreenshotOverride } from './contentClassification'
 import type { LiteMediaRecord } from './types'
 
 function photo(overrides: Partial<LiteMediaRecord> = {}): LiteMediaRecord {
@@ -83,5 +83,28 @@ describe('likely non-photo classification', () => {
       horizontalGradient: 8,
       verticalGradient: 8
     }))).toBeNull()
+  })
+
+  it('lets a manual mark force an ordinary photo into the screenshot bucket', () => {
+    const result = classifyLikelyNonPhoto(photo({ screenshotOverride: true }))
+    expect(result).toEqual({ kind: 'screenshot', confidence: 1, reasons: ['Manually marked as screenshot'] })
+  })
+
+  it('lets Remove screenshot suppress automatic screenshot detection', () => {
+    expect(classifyLikelyNonPhoto(photo({
+      name: 'Screenshot_20260813-120000.png',
+      mimeType: 'image/png',
+      cameraMake: undefined,
+      cameraModel: undefined,
+      screenshotOverride: false
+    }))).toBeNull()
+  })
+
+  it('persists the manual screenshot decision only on the selected image', () => {
+    const items = [photo({ id: 'a' }), photo({ id: 'b' })]
+    const result = setScreenshotOverride(items, 'b', true, 1234)
+    expect(result.items[0].screenshotOverride).toBeUndefined()
+    expect(result.items[1].screenshotOverride).toBe(true)
+    expect(result.changed?.screenshotOverrideUpdatedAt).toBe(1234)
   })
 })

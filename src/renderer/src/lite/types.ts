@@ -86,6 +86,8 @@ export interface LiteMediaRecord {
   facesAnalyzedAt?: number
   reviewState?: LiteReviewState
   reviewUpdatedAt?: number
+  screenshotOverride?: boolean
+  screenshotOverrideUpdatedAt?: number
 }
 
 export interface LiteKnownDateRecord {

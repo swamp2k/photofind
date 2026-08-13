@@ -166,7 +166,9 @@ function copyPersistentAndDerivedState(fresh: LiteMediaRecord, previous: LiteMed
   const reviewed = copyStarredState({
     ...fresh,
     reviewState: previous.reviewState,
-    reviewUpdatedAt: previous.reviewUpdatedAt
+    reviewUpdatedAt: previous.reviewUpdatedAt,
+    screenshotOverride: previous.screenshotOverride,
+    screenshotOverrideUpdatedAt: previous.screenshotOverrideUpdatedAt
   }, previous)
   if (previous.sizeBytes !== fresh.sizeBytes || previous.lastModified !== fresh.lastModified) return reviewed
   return {

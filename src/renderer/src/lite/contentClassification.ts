@@ -17,6 +17,11 @@ const COMMON_SCREEN_SIDES = [
 ]
 
 export function classifyLikelyNonPhoto(item: LiteMediaRecord): LiteNonPhotoClassification | null {
+  if (item.screenshotOverride === true) {
+    return { kind: 'screenshot', confidence: 1, reasons: ['Manually marked as screenshot'] }
+  }
+  if (item.screenshotOverride === false) return null
+
   const name = item.name || item.relativePath
   if (SCREENSHOT_NAME.test(name)) {
     return { kind: 'screenshot', confidence: 0.99, reasons: ['Filename identifies a screenshot'] }
@@ -68,6 +73,26 @@ export function classifyLikelyNonPhoto(item: LiteMediaRecord): LiteNonPhotoClass
 
 export function isLikelyNonPhoto(item: LiteMediaRecord): boolean {
   return classifyLikelyNonPhoto(item) !== null
+}
+
+export function setScreenshotOverride(
+  items: LiteMediaRecord[],
+  itemId: string,
+  screenshot: boolean,
+  updatedAt = Date.now()
+): { items: LiteMediaRecord[]; changed: LiteMediaRecord | null } {
+  let changed: LiteMediaRecord | null = null
+  const next = items.map((item) => {
+    if (item.id !== itemId || item.kind !== 'image') return item
+    if (item.screenshotOverride === screenshot) return item
+    changed = {
+      ...item,
+      screenshotOverride: screenshot,
+      screenshotOverrideUpdatedAt: updatedAt
+    }
+    return changed
+  })
+  return { items: next, changed }
 }
 
 function isScreenLikeSize(width?: number, height?: number): boolean {

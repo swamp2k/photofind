@@ -4,6 +4,10 @@ export function reviewStateOf(item: LiteMediaRecord): LiteReviewState {
   return item.reviewState ?? 'unreviewed'
 }
 
+export function isRejected(item: LiteMediaRecord): boolean {
+  return item.kind === 'image' && reviewStateOf(item) === 'reject'
+}
+
 export function countReviewStates(items: LiteMediaRecord[]): LiteReviewCounts {
   const counts: LiteReviewCounts = { unreviewed: 0, keep: 0, maybe: 0, reject: 0 }
   for (const item of items) {
@@ -14,7 +18,7 @@ export function countReviewStates(items: LiteMediaRecord[]): LiteReviewCounts {
 }
 
 export function filterByReview(items: LiteMediaRecord[], filter: LiteReviewFilter): LiteMediaRecord[] {
-  if (filter === 'all') return items
+  if (filter === 'all') return items.filter((item) => !isRejected(item))
   return items.filter((item) => reviewStateOf(item) === filter)
 }
 

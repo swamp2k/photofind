@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { countReviewStates, filterByReview, reviewStateOf, setReviewAssignments, setReviewState } from './review'
+import { countReviewStates, filterByReview, isRejected, reviewStateOf, setReviewAssignments, setReviewState } from './review'
 import type { LiteMediaRecord } from './types'
 
 function photo(id: string, reviewState?: LiteMediaRecord['reviewState']): LiteMediaRecord {
@@ -21,10 +21,14 @@ describe('review helpers', () => {
     expect(reviewStateOf(photo('a'))).toBe('unreviewed')
   })
 
-  it('counts and filters canonical states', () => {
+  it('counts canonical states while All hides rejects and Reject can recover them', () => {
     const items = [photo('a'), photo('b', 'keep'), photo('c', 'maybe'), photo('d', 'reject')]
     expect(countReviewStates(items)).toEqual({ unreviewed: 1, keep: 1, maybe: 1, reject: 1 })
+    expect(filterByReview(items, 'all').map((item) => item.id)).toEqual(['a', 'b', 'c'])
     expect(filterByReview(items, 'keep').map((item) => item.id)).toEqual(['b'])
+    expect(filterByReview(items, 'reject').map((item) => item.id)).toEqual(['d'])
+    expect(isRejected(items[3])).toBe(true)
+    expect(isRejected(items[0])).toBe(false)
   })
 
   it('updates only selected images and returns persistence rows', () => {

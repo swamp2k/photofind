@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BrowseFilters } from './BrowseFilters'
 import { ComparePanel } from './ComparePanel'
+import { classifyLikelyNonPhoto, setScreenshotOverride } from './contentClassification'
 import { usePhotoFindContextMenu } from './ContextMenu'
 import { CurationPanel } from './CurationPanel'
 import { applyEventOverrides, createEventOverride, matchingEventOverride } from './eventOverrides'
@@ -18,7 +19,7 @@ import { PeoplePanel } from './PeoplePanel'
 import { PhotoResults } from './PhotoResults'
 import { analyzeQuality } from './qualityAnalysis'
 import { QualityPanel } from './QualityPanel'
-import { countReviewStates, filterByReview, setReviewAssignments } from './review'
+import { countReviewStates, filterByReview, isRejected, setReviewAssignments } from './review'
 import { ReviewSession } from './ReviewSession'
 import { ReviewToolbar } from './ReviewToolbar'
 import { scanDirectory, scanFileSelection } from './scanner'
@@ -84,17 +85,21 @@ export function LiteApp(): JSX.Element {
     registerPhotoActions({
       resolvePhoto(id) {
         const item = mediaRef.current.find((candidate) => candidate.id === id && candidate.kind === 'image')
-        return item ? { id: item.id, name: item.name, starred: isStarred(item) } : null
+        return item ? { id: item.id, name: item.name, starred: isStarred(item), screenshot: classifyLikelyNonPhoto(item) !== null } : null
       },
       setStarred(id, starred) {
         setStarredState(id, starred)
+      },
+      setScreenshot(id, screenshot) {
+        setScreenshotState(id, screenshot)
       }
     })
     return () => registerPhotoActions(null)
   }, [registerPhotoActions])
 
   const images = useMemo(() => media.filter((item) => item.kind === 'image'), [media])
-  const starredImages = useMemo(() => images.filter(isStarred), [images])
+  const activeImages = useMemo(() => images.filter((item) => !isRejected(item)), [images])
+  const starredImages = useMemo(() => activeImages.filter(isStarred), [activeImages])
   const personNamesById = useMemo(() => new Map(people.map((person) => [person.id, person.name?.trim() ?? ''])), [people])
   const folderScopedImages = useMemo(() => sourceFolderFilter === null ? images : images.filter((item) => isInExactSourceFolder(item, sourceFolderFilter)), [images, sourceFolderFilter])
   const searchedImages = useMemo(() => {
@@ -108,9 +113,10 @@ export function LiteApp(): JSX.Element {
     })
   }, [folderScopedImages, personNamesById, searchQuery])
   const reviewCounts = useMemo(() => countReviewStates(images), [images])
-  const similarityGroups = useMemo(() => buildSimilarityGroups(images), [images])
+  const allSimilarityGroups = useMemo(() => buildSimilarityGroups(images), [images])
+  const similarityGroups = useMemo(() => buildSimilarityGroups(activeImages), [activeImages])
   const knownDates = activeLibrary?.knownDates
-  const baseEvents = useMemo(() => buildEvents(images, similarityGroups, knownDates ?? []), [images, similarityGroups, knownDates])
+  const baseEvents = useMemo(() => buildEvents(activeImages, similarityGroups, knownDates ?? []), [activeImages, similarityGroups, knownDates])
   const events = useMemo(() => applyEventOverrides(baseEvents, eventOverrides), [baseEvents, eventOverrides])
   const meaningfulEvents = useMemo(() => events.filter(isMeaningfulEvent), [events])
   const namedEventByItemId = useMemo(() => {
@@ -121,10 +127,15 @@ export function LiteApp(): JSX.Element {
     }
     return map
   }, [events])
-  const qualityReadyCount = useMemo(() => images.filter((item) => item.qualityStatus === 'ready').length, [images])
-  const greatQualityCount = useMemo(() => images.filter((item) => item.qualityTier === 'great').length, [images])
-  const peopleAnalyzedCount = useMemo(() => images.filter((item) => item.faceAnalysisStatus === 'ready').length, [images])
-  const visiblePeopleCount = useMemo(() => people.filter((person) => !person.ignored).length, [people])
+  const qualityReadyCount = useMemo(() => activeImages.filter((item) => item.qualityStatus === 'ready').length, [activeImages])
+  const greatQualityCount = useMemo(() => activeImages.filter((item) => item.qualityTier === 'great').length, [activeImages])
+  const peopleAnalyzedCount = useMemo(() => activeImages.filter((item) => item.faceAnalysisStatus === 'ready').length, [activeImages])
+  const activePersonIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const item of activeImages) for (const face of item.faces ?? []) if (face.personId) ids.add(face.personId)
+    return ids
+  }, [activeImages])
+  const visiblePeopleCount = useMemo(() => people.filter((person) => !person.ignored && activePersonIds.has(person.id)).length, [activePersonIds, people])
   const years = useMemo(() => availableYears(images), [images])
   const baseFilters = useMemo<LitePhotoFilters>(() => ({
     year,
@@ -140,14 +151,15 @@ export function LiteApp(): JSX.Element {
   const filteredImages = useMemo(() => filterByReview(contextFilteredImages, reviewFilter), [contextFilteredImages, reviewFilter])
   const starredFilteredImages = useMemo(() => filteredImages.filter(isStarred), [filteredImages])
   const currentBrowseImages = view === 'starred' ? starredFilteredImages : filteredImages
-  const currentBrowseTotal = view === 'starred' ? starredImages.length : images.length
+  const currentBrowseTotal = view === 'starred' ? starredImages.length : reviewFilter === 'reject' ? reviewCounts.reject : activeImages.length
   const filteredIds = useMemo(() => new Set(filteredImages.map((item) => item.id)), [filteredImages])
-  const contextualGroups = useMemo(() => similarityGroups.filter((group) => group.itemIds.some((id) => filteredIds.has(id))), [filteredIds, similarityGroups])
+  const contextualGroupSource = reviewFilter === 'reject' ? allSimilarityGroups : similarityGroups
+  const contextualGroups = useMemo(() => contextualGroupSource.filter((group) => group.itemIds.some((id) => filteredIds.has(id))), [contextualGroupSource, filteredIds])
   const unknown = useMemo(() => media.filter((item) => item.kind === 'unknown'), [media])
-  const locatedCount = useMemo(() => images.filter(hasLocation).length, [images])
+  const locatedCount = useMemo(() => activeImages.filter(hasLocation).length, [activeImages])
   const diagnostics = useMemo(() => collectDiagnostics(media), [media])
   const reconnectRequired = activeLibrary !== null && libraryMode(activeLibrary) === 'selection' && sessionFiles.size === 0
-  const selectedMapItem = selectedMapId ? images.find((item) => item.id === selectedMapId) ?? null : null
+  const selectedMapItem = selectedMapId ? mapItems.find((item) => item.id === selectedMapId) ?? null : null
   const handleMapBounds = useCallback((bounds: LiteGeoBounds | null) => { setMapBounds(bounds); setVisibleCount(PAGE_SIZE) }, [])
 
   function setMediaState(next: LiteMediaRecord[]): void {
@@ -164,6 +176,18 @@ export function LiteApp(): JSX.Element {
     reviewQueue.current = reviewQueue.current
       .then(() => putMediaRecords([changed]))
       .catch((cause) => { setError(`Starred status could not be persisted: ${messageOf(cause)}`) })
+      .finally(() => setReviewWrites((value) => Math.max(0, value - 1)))
+  }
+
+  function setScreenshotState(itemId: string, screenshot: boolean): void {
+    const result = setScreenshotOverride(mediaRef.current, itemId, screenshot)
+    if (!result.changed) return
+    setMediaState(result.items)
+    setReviewWrites((value) => value + 1)
+    const changed = result.changed
+    reviewQueue.current = reviewQueue.current
+      .then(() => putMediaRecords([changed]))
+      .catch((cause) => { setError(`Screenshot status could not be persisted: ${messageOf(cause)}`) })
       .finally(() => setReviewWrites((value) => Math.max(0, value - 1)))
   }
 
@@ -518,6 +542,7 @@ export function LiteApp(): JSX.Element {
   const focusedMode = view === 'review' || view === 'compare'
   const browseControls = view === 'photos' || view === 'starred' || view === 'map' || view === 'groups' || view === 'quality'
   const globalSearchDisabled = !activeLibrary || focusedMode || view === 'people' || view === 'events'
+  const contextualItems = reviewFilter === 'reject' ? images : activeImages
 
   return (
     <SourceNavigationProvider showFolder={showSourceFolder}>
@@ -565,7 +590,7 @@ export function LiteApp(): JSX.Element {
             {!activeLibrary ? <EmptyState onChoose={() => void addFolder()} disabled={!supported || working} /> : focusedMode ? (
               view === 'review'
                 ? <ReviewSession title={activeLibrary.name} items={filteredImages} sessionFiles={sessionFiles} onReview={updateReview} onExit={() => setView('photos')} />
-                : <ComparePanel items={images} groups={contextualGroups} sessionFiles={sessionFiles} onReview={(item, state) => updateReview([item], state)} onPickBest={pickBest} />
+                : <ComparePanel items={contextualItems} groups={contextualGroups} sessionFiles={sessionFiles} onReview={(item, state) => updateReview([item], state)} onPickBest={pickBest} />
             ) : <>
               <section className="collection-header compact-collection-header">
                 <div><span className="mode-kicker">{viewTitle(view)}</span><h1>{activeLibrary.name}</h1><p>{viewDescription(view)} · indexed {new Date(activeLibrary.updatedAt).toLocaleString()}</p></div>
@@ -576,7 +601,7 @@ export function LiteApp(): JSX.Element {
                     {view === 'people' && <button
                       type="button"
                       className={peopleBusy ? 'danger-outline' : 'primary'}
-                      disabled={!peopleBusy && (working || reconnectRequired || images.length === 0)}
+                      disabled={!peopleBusy && (working || reconnectRequired || activeImages.length === 0)}
                       title={peopleBusy ? 'Stops after the current local face operation completes.' : undefined}
                       onClick={peopleBusy ? stopPeopleAnalysis : () => void runPeopleAnalysis()}
                     >{peopleBusy ? 'Stop people analysis' : peopleAnalyzedCount > 0 ? 'Refresh people analysis' : 'Analyze people'}</button>}
@@ -595,14 +620,14 @@ export function LiteApp(): JSX.Element {
                 <ReviewToolbar counts={reviewCounts} filter={reviewFilter} matchingCount={currentBrowseImages.length} onFilter={(value) => { setReviewFilter(value); setVisibleCount(PAGE_SIZE) }} onBulk={bulkReview} />
               </details>}
 
-              {view === 'events' && <EventsPanel items={images} events={events} people={people} sessionFiles={sessionFiles} onReview={(item, state) => updateReview([item], state)} onRename={(event, title) => void renameEvent(event, title)} />}
+              {view === 'events' && <EventsPanel items={activeImages} events={events} people={people} sessionFiles={sessionFiles} onReview={(item, state) => updateReview([item], state)} onRename={(event, title) => void renameEvent(event, title)} />}
               {view === 'map' && <MapResults items={mapItems} filterToViewport={filterToViewport} selected={selectedMapItem} sessionFiles={sessionFiles} onFilterToViewport={setFilterToViewport} onBoundsChange={handleMapBounds} onSelect={setSelectedMapId} onShowSelected={() => { setView('photos'); setVisibleCount(PAGE_SIZE) }} onReview={(item, state) => updateReview([item], state)} />}
-              {view === 'people' && <PeoplePanel items={images} people={people} sessionFiles={sessionFiles} progress={peopleProgress} busy={peopleBusy} reconnectRequired={reconnectRequired} onRename={(personId, name) => void renamePerson(personId, name)} onIgnore={(personId, ignored) => void ignorePerson(personId, ignored)} onMerge={(sourceId, targetId) => void mergePerson(sourceId, targetId)} onSplit={(faceRef) => void splitPersonFace(faceRef)} onExclude={(faceRef, personId) => void excludePersonFace(faceRef, personId)} onReview={(item, state) => updateReview([item], state)} />}
+              {view === 'people' && <PeoplePanel items={activeImages} people={people} sessionFiles={sessionFiles} progress={peopleProgress} busy={peopleBusy} reconnectRequired={reconnectRequired} onRename={(personId, name) => void renamePerson(personId, name)} onIgnore={(personId, ignored) => void ignorePerson(personId, ignored)} onMerge={(sourceId, targetId) => void mergePerson(sourceId, targetId)} onSplit={(faceRef) => void splitPersonFace(faceRef)} onExclude={(faceRef, personId) => void excludePersonFace(faceRef, personId)} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'photos' && <PhotoResults items={filteredImages} visibleCount={visibleCount} selectedId={selectedMapId} sessionFiles={sessionFiles} onShowMore={() => setVisibleCount((count) => count + PAGE_SIZE)} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'starred' && <PhotoResults items={starredFilteredImages} visibleCount={visibleCount} selectedId={null} sessionFiles={sessionFiles} onShowMore={() => setVisibleCount((count) => count + PAGE_SIZE)} onReview={(item, state) => updateReview([item], state)} />}
-              {view === 'groups' && <SimilarityGroups items={images} groups={contextualGroups} reviewFilter={reviewFilter} sessionFiles={sessionFiles} progress={similarityProgress} busy={similarityBusy} reconnectRequired={reconnectRequired} onAnalyze={() => void runSimilarityAnalysis()} onAbort={stopSimilarityAnalysis} onReview={(item, state) => updateReview([item], state)} />}
+              {view === 'groups' && <SimilarityGroups items={contextualItems} groups={contextualGroups} reviewFilter={reviewFilter} sessionFiles={sessionFiles} progress={similarityProgress} busy={similarityBusy} reconnectRequired={reconnectRequired} onAnalyze={() => void runSimilarityAnalysis()} onAbort={stopSimilarityAnalysis} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'quality' && <QualityPanel items={filteredImages} sessionFiles={sessionFiles} progress={qualityProgress} busy={qualityBusy} reconnectRequired={reconnectRequired} onAnalyze={() => void runQualityAnalysis()} onAbort={stopQualityAnalysis} onReview={(item, state) => updateReview([item], state)} />}
-              {view === 'selection' && <CurationPanel items={images} events={meaningfulEvents} sessionFiles={sessionFiles} exportSupported={exportSupported} reconnectRequired={reconnectRequired} busy={exportBusy} progress={exportProgress} result={exportResult} onReview={(item, state) => updateReview([item], state)} onExport={(items, layout, reports, metadata, eventNames, modifiedDates) => void runExport(items, layout, reports, metadata, eventNames, modifiedDates)} />}
+              {view === 'selection' && <CurationPanel items={activeImages} events={meaningfulEvents} sessionFiles={sessionFiles} exportSupported={exportSupported} reconnectRequired={reconnectRequired} busy={exportBusy} progress={exportProgress} result={exportResult} onReview={(item, state) => updateReview([item], state)} onExport={(items, layout, reports, metadata, eventNames, modifiedDates) => void runExport(items, layout, reports, metadata, eventNames, modifiedDates)} />}
 
               <Diagnostics unknown={unknown} diagnostics={diagnostics} />
             </>}

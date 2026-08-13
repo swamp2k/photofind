@@ -37,8 +37,11 @@ export function PeoplePanel(props: PeoplePanelProps): JSX.Element {
   const faceEntries = useMemo(() => collectFaceEntries(props.items), [props.items])
   const photoCounts = useMemo(() => peoplePhotoCounts(props.items), [props.items])
   const analyzedPhotos = props.items.filter((item) => item.kind === 'image' && item.faceAnalysisStatus === 'ready').length
-  const visiblePeople = useMemo(() => props.people.filter((person) => (showIgnored || !person.ignored) && (showSingletons || person.faceRefs.length > 1)), [props.people, showIgnored, showSingletons])
-  const selected = props.people.find((person) => person.id === selectedId) ?? visiblePeople[0] ?? null
+  const visiblePeople = useMemo(() => props.people.filter((person) => {
+    const visiblePhotos = photoCounts.get(person.id) ?? 0
+    return visiblePhotos > 0 && (showIgnored || !person.ignored) && (showSingletons || visiblePhotos > 1)
+  }), [photoCounts, props.people, showIgnored, showSingletons])
+  const selected = visiblePeople.find((person) => person.id === selectedId) ?? visiblePeople[0] ?? null
   const selectedFaces = selected ? selected.faceRefs.map((ref) => faceEntries.get(ref)).filter(isFaceEntry) : []
   const selectedPhotoItems = useMemo(() => uniquePhotos(selectedFaces), [selectedFaces])
   const selection = useExplorerPhotoSelection(selectedPhotoItems)
@@ -67,7 +70,7 @@ export function PeoplePanel(props: PeoplePanelProps): JSX.Element {
             <div className="people-browser-toolbar"><strong>{visiblePeople.length.toLocaleString()} visible people</strong><span className="muted">{analyzedPhotos.toLocaleString()} photos analyzed</span><label><input type="checkbox" checked={showSingletons} onChange={(event) => setShowSingletons(event.target.checked)} /> Show one-off faces</label><label><input type="checkbox" checked={showIgnored} onChange={(event) => setShowIgnored(event.target.checked)} /> Show ignored</label></div>
             <div className="people-grid">
               {visiblePeople.map((person) => {
-                const first = faceEntries.get(person.faceRefs[0])
+                const first = person.faceRefs.map((ref) => faceEntries.get(ref)).find(isFaceEntry)
                 return <button type="button" className={selected?.id === person.id ? 'person-card selected' : person.ignored ? 'person-card ignored' : 'person-card'} key={person.id} onClick={() => setSelectedId(person.id)}>
                   <div className="person-cover">{first ? <LocalFaceCrop item={first.item} face={first.face} sessionFile={props.sessionFiles.get(first.item.id)} /> : <span>No preview</span>}</div>
                   <strong>{personLabel(person)}</strong><span>{(photoCounts.get(person.id) ?? 0).toLocaleString()} photos · {person.faceRefs.length.toLocaleString()} faces</span>{person.ignored && <small>Ignored</small>}
