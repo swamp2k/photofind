@@ -42,7 +42,9 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
     if (personFilter) filtered = filtered.filter((event) => event.personIds.includes(personFilter))
     return [...filtered].sort((left, right) => compareEvents(left, right, byId, sortBy, sortDirection))
   }, [byId, events, personFilter, scope, sortBy, sortDirection])
-  const selected = visibleEvents.find((event) => event.id === selectedId) ?? visibleEvents[0] ?? null
+  const importedHolidayEvents = useMemo(() => visibleEvents.filter(isImportedHolidayEvent), [visibleEvents])
+  const primaryEvents = useMemo(() => visibleEvents.filter((event) => !isImportedHolidayEvent(event)), [visibleEvents])
+  const selected = visibleEvents.find((event) => event.id === selectedId) ?? primaryEvents[0] ?? importedHolidayEvents[0] ?? null
   const selectedItems = selected ? selected.itemIds.map((id) => byId.get(id)).filter(isMediaRecord) : []
   const selection = useExplorerPhotoSelection(selectedItems)
   const namedPeople = people.filter((person) => !person.ignored && person.name)
@@ -93,6 +95,21 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
     setRenameTarget(null)
   }
 
+  function renderEventCard(event: LiteEventRecord): JSX.Element {
+    const eventItems = event.itemIds.map((id) => byId.get(id)).filter(isMediaRecord)
+    return <button
+      type="button"
+      className={selected?.id === event.id ? 'event-card selected' : 'event-card'}
+      key={event.id}
+      onClick={() => { setSelectedId(event.id); setOpenIndex(null) }}
+      onContextMenu={(mouseEvent) => showEventContextMenu(mouseEvent, event)}
+      title="Right-click for event actions"
+    >
+      <div className="event-mosaic">{eventItems.slice(0, 4).map((item) => <div key={item.id}><LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} /></div>)}</div>
+      <div className="event-card-body"><strong>{event.title}</strong><span>{formatEventRange(event)} · {event.itemIds.length.toLocaleString()} photos</span><small>{event.personIds.map((id) => peopleById.get(id)?.name).filter(Boolean).slice(0, 3).join(', ') || event.folderPaths.slice(0, 2).map(sourceFolderLabel).join(', ')}</small>{event.customTitle ? <em>Named event</em> : event.knownDateTitle ? <em>Known date</em> : null}</div>
+    </button>
+  }
+
   return (
     <section className="events-section compact-mode-section">
       <div className="compact-view-toolbar event-toolbar-controls">
@@ -100,26 +117,19 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
         <label className="event-person-filter"><span>Person</span><select value={personFilter} onChange={(event) => setPersonFilter(event.target.value)}><option value="">All people</option>{namedPeople.map((person) => <option value={person.id} key={person.id}>{person.name}</option>)}</select></label>
         <label className="event-person-filter"><span>Sort by</span><select value={sortBy} onChange={(event) => setSortBy(event.target.value as EventSort)}><option value="captured">Date taken (EXIF / Takeout)</option><option value="modified">Date modified</option><option value="name">Event name</option><option value="count">Photo count</option></select></label>
         <button type="button" className="quiet-button event-sort-direction" onClick={() => setSortDirection((value) => value === 'asc' ? 'desc' : 'asc')} title="Reverse event sort">{sortDirection === 'asc' ? '↑ Ascending' : '↓ Descending'}</button>
-        <span className="compact-toolbar-note">Everyday day-buckets are hidden by default. Switch to Known dates & holidays to see only dates you defined or imported.</span>
+        <span className="compact-toolbar-note">Everyday day-buckets are hidden by default. Imported public holidays stay available below, collapsed into one group.</span>
       </div>
 
       {events.length === 0 ? <div className="compact-empty-state"><strong>No events to show.</strong><span>Index photos with usable timestamps. Known dates, GPS, People and similarity analysis can all strengthen grouping.</span></div> : visibleEvents.length === 0 ? <div className="compact-empty-state"><strong>No events match these filters.</strong><span>Choose another event scope or clear the person filter.</span></div> : (
         <div className="events-workspace">
           <div className="event-list">
-            {visibleEvents.slice(0, 500).map((event) => {
-              const eventItems = event.itemIds.map((id) => byId.get(id)).filter(isMediaRecord)
-              return <button
-                type="button"
-                className={selected?.id === event.id ? 'event-card selected' : 'event-card'}
-                key={event.id}
-                onClick={() => { setSelectedId(event.id); setOpenIndex(null) }}
-                onContextMenu={(mouseEvent) => showEventContextMenu(mouseEvent, event)}
-                title="Right-click for event actions"
-              >
-                <div className="event-mosaic">{eventItems.slice(0, 4).map((item) => <div key={item.id}><LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} /></div>)}</div>
-                <div className="event-card-body"><strong>{event.title}</strong><span>{formatEventRange(event)} · {event.itemIds.length.toLocaleString()} photos</span><small>{event.personIds.map((id) => peopleById.get(id)?.name).filter(Boolean).slice(0, 3).join(', ') || event.folderPaths.slice(0, 2).map(sourceFolderLabel).join(', ')}</small>{event.customTitle ? <em>Named event</em> : event.knownDateTitle ? <em>Known date</em> : null}</div>
-              </button>
-            })}
+            {primaryEvents.slice(0, 500).map(renderEventCard)}
+            {importedHolidayEvents.length > 0 && (
+              <details className="event-holiday-group">
+                <summary><strong>Imported public holidays</strong><span>{importedHolidayEvents.length.toLocaleString()} event{importedHolidayEvents.length === 1 ? '' : 's'} · click to expand</span></summary>
+                <div className="event-holiday-list">{importedHolidayEvents.slice(0, 500).map(renderEventCard)}</div>
+              </details>
+            )}
           </div>
 
           <article className="event-detail">
@@ -192,6 +202,10 @@ function sortTime(event: LiteEventRecord, byId: Map<string, LiteMediaRecord>, so
 
 function isKnownDateEvent(event: LiteEventRecord): boolean {
   return Boolean(event.knownDateId || event.knownDateTitle || event.significance === 'known-date')
+}
+
+function isImportedHolidayEvent(event: LiteEventRecord): boolean {
+  return Boolean(event.knownDateId?.startsWith('holiday:'))
 }
 
 function formatEventRange(event: LiteEventRecord): string {

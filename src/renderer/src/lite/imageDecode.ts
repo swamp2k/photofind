@@ -3,6 +3,7 @@ import type { LiteMediaRecord } from './types'
 
 const HEIC_EXTENSIONS = new Set(['heic', 'heif'])
 const HEIC_DECODE_TIMEOUT_MS = 30_000
+const HEIC_NATIVE_DECODE_TIMEOUT_MS = 8_000
 
 export function isHeicMedia(file: Blob, item?: Pick<LiteMediaRecord, 'name' | 'mimeType'>): boolean {
   const mime = (file.type || item?.mimeType || '').toLowerCase()
@@ -18,14 +19,26 @@ export async function displayBlobForPhoto(
   maxDimension?: number
 ): Promise<Blob> {
   if (!isHeicMedia(file, item)) return file
-  const jpeg = await decodeHeicJpeg(file)
-  if (!maxDimension || maxDimension <= 0) return jpeg
 
-  const bitmap = await createImageBitmap(jpeg)
+  let nativeError: unknown
   try {
-    return await bitmapToJpeg(bitmap, maxDimension)
-  } finally {
-    bitmap.close()
+    return await browserDecodeHeicJpeg(file, maxDimension)
+  } catch (cause) {
+    nativeError = cause
+  }
+
+  try {
+    const jpeg = await decodeHeicJpeg(file)
+    if (!maxDimension || maxDimension <= 0) return jpeg
+
+    const bitmap = await createImageBitmap(jpeg)
+    try {
+      return await bitmapToJpeg(bitmap, maxDimension)
+    } finally {
+      bitmap.close()
+    }
+  } catch (fallbackError) {
+    throw new Error(`Unable to open this HEIC locally. Browser decode failed: ${messageOf(nativeError)} Fallback decoder failed: ${messageOf(fallbackError)}`)
   }
 }
 
@@ -34,9 +47,55 @@ export async function decodeBitmapForAnalysis(
   item: Pick<LiteMediaRecord, 'name' | 'mimeType' | 'width' | 'height'>,
   maxDimension: number
 ): Promise<ImageBitmap> {
-  const source = isHeicMedia(file, item) ? await decodeHeicJpeg(file, 0.88) : file
-  const bitmap = await createImageBitmap(source)
+  if (isHeicMedia(file, item)) {
+    const source = await displayBlobForPhoto(file, item, maxDimension)
+    return createImageBitmap(source)
+  }
+  const bitmap = await createImageBitmap(file)
   return resizeBitmap(bitmap, maxDimension)
+}
+
+async function browserDecodeHeicJpeg(file: File, maxDimension?: number): Promise<Blob> {
+  const sourceUrl = URL.createObjectURL(file)
+  try {
+    const image = await withTimeout(
+      loadImage(sourceUrl),
+      HEIC_NATIVE_DECODE_TIMEOUT_MS,
+      `Browser HEIC decoding timed out after ${HEIC_NATIVE_DECODE_TIMEOUT_MS / 1000} seconds.`
+    )
+    return imageToJpeg(image, maxDimension)
+  } finally {
+    URL.revokeObjectURL(sourceUrl)
+  }
+}
+
+function loadImage(sourceUrl: string): Promise<HTMLImageElement> {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image()
+    image.decoding = 'async'
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('The browser could not decode the original HEIC image.'))
+    image.src = sourceUrl
+  })
+}
+
+async function imageToJpeg(image: HTMLImageElement, maxDimension?: number): Promise<Blob> {
+  const naturalWidth = image.naturalWidth || image.width
+  const naturalHeight = image.naturalHeight || image.height
+  if (naturalWidth <= 0 || naturalHeight <= 0) throw new Error('Browser HEIC decoding returned invalid image dimensions.')
+  const largest = Math.max(naturalWidth, naturalHeight)
+  const scale = maxDimension && maxDimension > 0 && largest > maxDimension ? maxDimension / largest : 1
+  const width = Math.max(1, Math.round(naturalWidth * scale))
+  const height = Math.max(1, Math.round(naturalHeight * scale))
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('Canvas is unavailable for HEIC preview conversion.')
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = 'high'
+  context.drawImage(image, 0, 0, width, height)
+  return canvasToJpeg(canvas)
 }
 
 async function decodeHeicJpeg(file: File, quality = 0.92): Promise<Blob> {
@@ -88,7 +147,11 @@ async function bitmapToJpeg(bitmap: ImageBitmap, maxDimension?: number): Promise
   context.imageSmoothingEnabled = true
   context.imageSmoothingQuality = 'high'
   context.drawImage(bitmap, 0, 0, width, height)
-  return await new Promise<Blob>((resolve, reject) => {
+  return canvasToJpeg(canvas)
+}
+
+function canvasToJpeg(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('HEIC preview conversion failed.')), 'image/jpeg', 0.92)
   })
 }
@@ -101,4 +164,10 @@ function withTimeout<T>(promise: Promise<T>, milliseconds: number, message: stri
       (error) => { window.clearTimeout(timeout); reject(error) }
     )
   })
+}
+
+function messageOf(cause: unknown): string {
+  if (cause instanceof Error) return cause.message
+  if (typeof cause === 'string' && cause.trim()) return cause
+  return 'unknown error.'
 }

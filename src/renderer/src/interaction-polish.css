@@ -1,12 +1,3 @@
-.mode-nav > .mode-button:nth-of-type(5) > strong {
-  font-size: 0;
-}
-
-.mode-nav > .mode-button:nth-of-type(5) > strong::after {
-  content: 'Duplicates';
-  font-size: 12px;
-}
-
 .quality-stats {
   grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
 }
