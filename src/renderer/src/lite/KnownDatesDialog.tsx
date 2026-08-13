@@ -2,7 +2,9 @@ import { useMemo, useState } from 'react'
 import { compareKnownDates, createKnownDate, holidayKnownDate, knownDateKindLabel, mergeKnownDates } from './knownDates'
 import type { LiteKnownDateKind, LiteKnownDateRecord } from './types'
 
-const HOLIDAY_API_BASE = 'https://date.nager.at/api/v4/Holidays'
+const HOLIDAY_API_V4 = 'https://date.nager.at/api/v4/Holidays'
+const HOLIDAY_API_V3 = 'https://date.nager.at/api/v3/PublicHolidays'
+const HOLIDAY_CONCURRENCY = 4
 
 interface KnownDatesDialogProps {
   libraryId: string
@@ -15,9 +17,12 @@ interface KnownDatesDialogProps {
 interface HolidayResponse {
   date?: string
   name?: string
+  localName?: string
   countryCode?: string
   nationalHoliday?: boolean
+  global?: boolean
   holidayTypes?: string[]
+  types?: string[]
 }
 
 export function KnownDatesDialog({ libraryId, records, years, onReplace, onClose }: KnownDatesDialogProps): JSX.Element {
@@ -72,22 +77,47 @@ export function KnownDatesDialog({ libraryId, records, years, onReplace, onClose
     setStatus(null)
     try {
       const incoming: LiteKnownDateRecord[] = []
-      for (let index = 0; index < importYears.length; index += 1) {
-        const year = importYears[index]
-        setStatus(`Importing public holidays ${index + 1} / ${importYears.length} · ${year}`)
-        const response = await fetch(`${HOLIDAY_API_BASE}/${encodeURIComponent(country)}/${year}`)
-        if (!response.ok) throw new Error(`Holiday service returned ${response.status} for ${country} ${year}.`)
-        const rows = await response.json() as HolidayResponse[]
-        for (const row of rows) {
-          if (!row.date || !row.name) continue
-          const publicHoliday = row.nationalHoliday !== false && (!row.holidayTypes || row.holidayTypes.includes('Public'))
-          if (!publicHoliday) continue
-          incoming.push(holidayKnownDate({ libraryId, countryCode: country, date: row.date, title: row.name }))
+      const failedYears: Array<{ year: number; message: string }> = []
+      let completed = 0
+
+      for (let start = 0; start < importYears.length; start += HOLIDAY_CONCURRENCY) {
+        const chunk = importYears.slice(start, start + HOLIDAY_CONCURRENCY)
+        const results = await Promise.all(chunk.map(async (year) => {
+          try {
+            return { year, rows: await fetchHolidayYear(country, year) }
+          } catch (cause) {
+            return { year, rows: null, error: messageOf(cause) }
+          }
+        }))
+
+        for (const result of results) {
+          completed += 1
+          if (!result.rows) {
+            failedYears.push({ year: result.year, message: result.error ?? 'Unknown request failure.' })
+          } else {
+            for (const row of result.rows) {
+              if (!row.date || !(row.localName || row.name)) continue
+              if (!isNationalPublicHoliday(row)) continue
+              incoming.push(holidayKnownDate({
+                libraryId,
+                countryCode: country,
+                date: row.date,
+                title: row.localName || row.name || row.date
+              }))
+            }
+          }
+          setStatus(`Importing public holidays ${completed} / ${importYears.length} · ${result.year}`)
         }
+      }
+
+      if (incoming.length === 0 && failedYears.length > 0) {
+        throw new Error(`No holiday years could be imported. ${formatFailures(failedYears)}`)
       }
       const next = mergeKnownDates(records, incoming)
       await onReplace(next)
-      setStatus(`Imported ${incoming.length.toLocaleString()} public-holiday dates for ${country}. Existing imports were updated, not duplicated.`)
+      setStatus(failedYears.length === 0
+        ? `Imported ${incoming.length.toLocaleString()} public-holiday dates for ${country}. Existing imports were updated, not duplicated.`
+        : `Imported ${incoming.length.toLocaleString()} public-holiday dates for ${country}. ${failedYears.length} year${failedYears.length === 1 ? '' : 's'} failed: ${failedYears.map((entry) => entry.year).join(', ')}.`)
     } catch (cause) {
       setStatus(`Holiday import failed: ${messageOf(cause)}`)
     } finally {
@@ -140,6 +170,39 @@ export function KnownDatesDialog({ libraryId, records, years, onReplace, onClose
       </section>
     </div>
   )
+}
+
+async function fetchHolidayYear(country: string, year: number): Promise<HolidayResponse[]> {
+  const endpoints = [
+    `${HOLIDAY_API_V4}/${encodeURIComponent(country)}/${year}`,
+    `${HOLIDAY_API_V3}/${year}/${encodeURIComponent(country)}`
+  ]
+  const failures: string[] = []
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, { mode: 'cors', cache: 'force-cache' })
+      if (!response.ok) {
+        failures.push(`HTTP ${response.status}`)
+        continue
+      }
+      const rows = await response.json()
+      if (!Array.isArray(rows)) throw new Error('Holiday service returned an unexpected response.')
+      return rows as HolidayResponse[]
+    } catch (cause) {
+      failures.push(messageOf(cause))
+    }
+  }
+  throw new Error(`${country} ${year}: ${failures.join(' / ')}`)
+}
+
+function isNationalPublicHoliday(row: HolidayResponse): boolean {
+  const national = row.nationalHoliday ?? row.global ?? true
+  const types = row.holidayTypes ?? row.types
+  return national !== false && (!types || types.includes('Public'))
+}
+
+function formatFailures(entries: Array<{ year: number; message: string }>): string {
+  return entries.slice(0, 3).map((entry) => `${entry.year}: ${entry.message}`).join('; ')
 }
 
 function formatDateRange(record: LiteKnownDateRecord): string {
