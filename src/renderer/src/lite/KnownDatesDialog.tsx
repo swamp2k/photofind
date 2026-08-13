@@ -2,8 +2,6 @@ import { useMemo, useState } from 'react'
 import { compareKnownDates, createKnownDate, holidayKnownDate, knownDateKindLabel, mergeKnownDates } from './knownDates'
 import type { LiteKnownDateKind, LiteKnownDateRecord } from './types'
 
-const HOLIDAY_API_V4 = 'https://date.nager.at/api/v4/Holidays'
-const HOLIDAY_API_V3 = 'https://date.nager.at/api/v3/PublicHolidays'
 const HOLIDAY_CONCURRENCY = 4
 
 interface KnownDatesDialogProps {
@@ -173,26 +171,15 @@ export function KnownDatesDialog({ libraryId, records, years, onReplace, onClose
 }
 
 async function fetchHolidayYear(country: string, year: number): Promise<HolidayResponse[]> {
-  const endpoints = [
-    `${HOLIDAY_API_V4}/${encodeURIComponent(country)}/${year}`,
-    `${HOLIDAY_API_V3}/${year}/${encodeURIComponent(country)}`
-  ]
-  const failures: string[] = []
-  for (const endpoint of endpoints) {
-    try {
-      const response = await fetch(endpoint, { mode: 'cors', cache: 'force-cache' })
-      if (!response.ok) {
-        failures.push(`HTTP ${response.status}`)
-        continue
-      }
-      const rows = await response.json()
-      if (!Array.isArray(rows)) throw new Error('Holiday service returned an unexpected response.')
-      return rows as HolidayResponse[]
-    } catch (cause) {
-      failures.push(messageOf(cause))
-    }
+  const endpoint = `/api/holidays?country=${encodeURIComponent(country)}&year=${year}`
+  const response = await fetch(endpoint, { cache: 'force-cache' })
+  if (!response.ok) {
+    const details = await response.json().catch(() => null) as { error?: string } | null
+    throw new Error(details?.error || `Holiday proxy returned HTTP ${response.status}.`)
   }
-  throw new Error(`${country} ${year}: ${failures.join(' / ')}`)
+  const rows = await response.json()
+  if (!Array.isArray(rows)) throw new Error('Holiday proxy returned an unexpected response.')
+  return rows as HolidayResponse[]
 }
 
 function isNationalPublicHoliday(row: HolidayResponse): boolean {
