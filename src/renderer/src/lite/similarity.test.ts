@@ -55,6 +55,17 @@ describe('buildSimilarityGroups', () => {
     expect(burst?.timeSpanMs).toBe(1800)
   })
 
+  it('uses the wider burst threshold without adding those pairs to ordinary near-match search', () => {
+    const base = 1_700_000_000_000
+    expect(hammingDistanceHex('0000000000000000', 'ffff300000000000')).toBe(18)
+    const items = [
+      photo('burst-a', { perceptualHash: '0000000000000000', effectiveCaptureTime: base, captureTimeSource: 'exif' }),
+      photo('burst-b', { perceptualHash: 'ffff300000000000', effectiveCaptureTime: base + 1000, captureTimeSource: 'exif' })
+    ]
+    const burst = buildSimilarityGroups(items).find((group) => group.kind === 'burst')
+    expect(burst?.itemIds).toEqual(['burst-a', 'burst-b'])
+  })
+
   it('groups close perceptual hashes without trusting file timestamps as bursts', () => {
     const items = [
       photo('one', { perceptualHash: '1111111111111111', effectiveCaptureTime: 1000, captureTimeSource: 'file' }),
@@ -71,5 +82,21 @@ describe('buildSimilarityGroups', () => {
       photo('two', { perceptualHash: 'ffffffffffffffff' })
     ]
     expect(buildSimilarityGroups(items)).toHaveLength(0)
+  })
+
+  it('reuses grouping for review-only changes and projects an active subset', () => {
+    const items = [
+      photo('cache-a', { perceptualHash: '2222222222222222' }),
+      photo('cache-b', { perceptualHash: '2222222222222223' })
+    ]
+    const first = buildSimilarityGroups(items)
+    expect(first).toHaveLength(1)
+
+    const reviewed = items.map((item) => item.id === 'cache-b' ? { ...item, reviewState: 'reject' as const } : item)
+    const second = buildSimilarityGroups(reviewed)
+    expect(second).toBe(first)
+
+    const active = reviewed.filter((item) => item.reviewState !== 'reject')
+    expect(buildSimilarityGroups(active)).toHaveLength(0)
   })
 })

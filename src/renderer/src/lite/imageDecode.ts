@@ -4,6 +4,7 @@ import type { LiteMediaRecord } from './types'
 const HEIC_EXTENSIONS = new Set(['heic', 'heif'])
 const HEIC_DECODE_TIMEOUT_MS = 30_000
 const HEIC_NATIVE_DECODE_TIMEOUT_MS = 8_000
+const THUMBNAIL_RESIZE_CEILING = 1024
 
 export function isHeicMedia(file: Blob, item?: Pick<LiteMediaRecord, 'name' | 'mimeType'>): boolean {
   const mime = (file.type || item?.mimeType || '').toLowerCase()
@@ -15,10 +16,13 @@ export function isHeicMedia(file: Blob, item?: Pick<LiteMediaRecord, 'name' | 'm
 
 export async function displayBlobForPhoto(
   file: File,
-  item: Pick<LiteMediaRecord, 'name' | 'mimeType'>,
+  item: Pick<LiteMediaRecord, 'name' | 'mimeType' | 'width' | 'height'>,
   maxDimension?: number
 ): Promise<Blob> {
-  if (!isHeicMedia(file, item)) return file
+  if (!isHeicMedia(file, item)) {
+    if (!maxDimension || maxDimension <= 0 || maxDimension > THUMBNAIL_RESIZE_CEILING) return file
+    return browserResizePreview(file, item, maxDimension)
+  }
 
   let nativeError: unknown
   try {
@@ -53,6 +57,39 @@ export async function decodeBitmapForAnalysis(
   }
   const bitmap = await createImageBitmap(file)
   return resizeBitmap(bitmap, maxDimension)
+}
+
+async function browserResizePreview(
+  file: File,
+  item: Pick<LiteMediaRecord, 'width' | 'height'>,
+  maxDimension: number
+): Promise<Blob> {
+  const knownWidth = item.width
+  const knownHeight = item.height
+  const knownLargest = knownWidth && knownHeight ? Math.max(knownWidth, knownHeight) : 0
+  if (knownLargest > 0 && knownLargest <= maxDimension) return file
+
+  const sourceNeedsResize = knownLargest > maxDimension
+  let bitmap: ImageBitmap
+  if (sourceNeedsResize && knownWidth && knownHeight) {
+    const scale = maxDimension / knownLargest
+    const width = Math.max(1, Math.round(knownWidth * scale))
+    const height = Math.max(1, Math.round(knownHeight * scale))
+    try {
+      bitmap = await createImageBitmap(file, { resizeWidth: width, resizeHeight: height, resizeQuality: 'high' })
+    } catch {
+      bitmap = await createImageBitmap(file)
+    }
+  } else {
+    bitmap = await createImageBitmap(file)
+  }
+
+  try {
+    if (!sourceNeedsResize && Math.max(bitmap.width, bitmap.height) <= maxDimension) return file
+    return await bitmapToWebp(bitmap, maxDimension)
+  } finally {
+    bitmap.close()
+  }
 }
 
 async function browserDecodeHeicJpeg(file: File, maxDimension?: number): Promise<Blob> {
@@ -95,7 +132,7 @@ async function imageToJpeg(image: HTMLImageElement, maxDimension?: number): Prom
   context.imageSmoothingEnabled = true
   context.imageSmoothingQuality = 'high'
   context.drawImage(image, 0, 0, width, height)
-  return canvasToJpeg(canvas)
+  return canvasToBlob(canvas, 'image/jpeg', 0.92)
 }
 
 async function decodeHeicJpeg(file: File, quality = 0.92): Promise<Blob> {
@@ -135,6 +172,14 @@ async function resizeBitmap(bitmap: ImageBitmap, maxDimension: number): Promise<
 }
 
 async function bitmapToJpeg(bitmap: ImageBitmap, maxDimension?: number): Promise<Blob> {
+  return bitmapToBlob(bitmap, maxDimension, 'image/jpeg', 0.92)
+}
+
+async function bitmapToWebp(bitmap: ImageBitmap, maxDimension?: number): Promise<Blob> {
+  return bitmapToBlob(bitmap, maxDimension, 'image/webp', 0.86)
+}
+
+async function bitmapToBlob(bitmap: ImageBitmap, maxDimension: number | undefined, type: string, quality: number): Promise<Blob> {
   const largest = Math.max(bitmap.width, bitmap.height)
   const scale = maxDimension && maxDimension > 0 && largest > maxDimension ? maxDimension / largest : 1
   const width = Math.max(1, Math.round(bitmap.width * scale))
@@ -143,16 +188,16 @@ async function bitmapToJpeg(bitmap: ImageBitmap, maxDimension?: number): Promise
   canvas.width = width
   canvas.height = height
   const context = canvas.getContext('2d')
-  if (!context) throw new Error('Canvas is unavailable for HEIC preview conversion.')
+  if (!context) throw new Error('Canvas is unavailable for local preview conversion.')
   context.imageSmoothingEnabled = true
   context.imageSmoothingQuality = 'high'
   context.drawImage(bitmap, 0, 0, width, height)
-  return canvasToJpeg(canvas)
+  return canvasToBlob(canvas, type, quality)
 }
 
-function canvasToJpeg(canvas: HTMLCanvasElement): Promise<Blob> {
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob> {
   return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('HEIC preview conversion failed.')), 'image/jpeg', 0.92)
+    canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('Local preview conversion failed.')), type, quality)
   })
 }
 

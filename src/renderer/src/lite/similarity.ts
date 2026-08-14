@@ -3,6 +3,16 @@ import type { LiteMediaRecord, LiteSimilarityGroup } from './types'
 const NEAR_DISTANCE = 8
 const BURST_DISTANCE = 18
 const BURST_WINDOW_MS = 12_000
+const LARGE_CLUSTER_EXACT_DISTANCE_LIMIT = 160
+const LARGE_CLUSTER_ANCHORS = 20
+
+interface SimilarityCache {
+  items: LiteMediaRecord[]
+  byId: Map<string, LiteMediaRecord>
+  groups: LiteSimilarityGroup[]
+}
+
+let similarityCache: SimilarityCache | null = null
 
 export function hammingDistanceHex(left: string, right: string): number {
   if (left.length !== right.length || !/^[0-9a-f]+$/i.test(left) || !/^[0-9a-f]+$/i.test(right)) return Number.POSITIVE_INFINITY
@@ -16,8 +26,80 @@ export function hammingDistanceHex(left: string, right: string): number {
 
 export function buildSimilarityGroups(items: LiteMediaRecord[]): LiteSimilarityGroup[] {
   const images = items.filter((item) => item.kind === 'image' && item.similarityStatus === 'ready')
-  const exact = exactGroups(images)
-  const visual = visualGroups(uniqueContentRepresentatives(images))
+  const cached = cachedGroups(images)
+  if (cached) return cached
+
+  const groups = buildSimilarityGroupsCore(images)
+  similarityCache = {
+    items: images,
+    byId: new Map(images.map((item) => [item.id, item])),
+    groups
+  }
+  return groups
+}
+
+function cachedGroups(images: LiteMediaRecord[]): LiteSimilarityGroup[] | null {
+  const cache = similarityCache
+  if (!cache || images.length > cache.items.length) return null
+
+  if (images.length === cache.items.length) {
+    for (const item of images) {
+      const previous = cache.byId.get(item.id)
+      if (!previous || !sameSimilarityInput(previous, item)) return null
+    }
+    for (const item of images) if (cache.byId.get(item.id) !== item) cache.byId.set(item.id, item)
+    cache.items = images
+    return cache.groups
+  }
+
+  // A filtered active-image list follows the all-image call in LiteApp. Require
+  // object identity here so unrelated callers cannot accidentally reuse a
+  // cached superset that merely happens to contain the same ids.
+  for (const item of images) if (cache.byId.get(item.id) !== item) return null
+  return projectCachedGroups(cache.groups, images)
+}
+
+function sameSimilarityInput(left: LiteMediaRecord, right: LiteMediaRecord): boolean {
+  return left.id === right.id
+    && left.kind === right.kind
+    && left.similarityStatus === right.similarityStatus
+    && left.contentHash === right.contentHash
+    && left.perceptualHash === right.perceptualHash
+    && left.captureTimeSource === right.captureTimeSource
+    && left.effectiveCaptureTime === right.effectiveCaptureTime
+}
+
+function projectCachedGroups(groups: LiteSimilarityGroup[], images: LiteMediaRecord[]): LiteSimilarityGroup[] {
+  const byId = new Map(images.map((item) => [item.id, item]))
+  const projected: LiteSimilarityGroup[] = []
+
+  for (const group of groups) {
+    const visibleIds = group.itemIds.filter((id) => byId.has(id))
+    if (visibleIds.length < 2) continue
+    if (visibleIds.length === group.itemIds.length) {
+      projected.push(group)
+      continue
+    }
+
+    if (group.kind === 'exact') {
+      projected.push({
+        ...group,
+        itemIds: visibleIds,
+        reason: `Exact duplicate — ${visibleIds.length} files have identical SHA-256 content.`
+      })
+      continue
+    }
+
+    const visibleItems = visibleIds.map((id) => byId.get(id)).filter(isMediaRecord)
+    projected.push(...buildSimilarityGroupsCore(visibleItems).filter((candidate) => candidate.kind !== 'exact'))
+  }
+
+  return projected.sort((a, b) => groupSortKey(a) - groupSortKey(b))
+}
+
+function buildSimilarityGroupsCore(items: LiteMediaRecord[]): LiteSimilarityGroup[] {
+  const exact = exactGroups(items)
+  const visual = visualGroups(uniqueContentRepresentatives(items))
   return [...exact, ...visual].sort((a, b) => groupSortKey(a) - groupSortKey(b))
 }
 
@@ -60,44 +142,32 @@ function visualGroups(items: LiteMediaRecord[]): LiteSimilarityGroup[] {
   if (items.length < 2) return []
   const indexById = new Map(items.map((item, index) => [item.id, index]))
   const union = new UnionFind(items.length)
-  const candidatePairs = new Set<string>()
-  const buckets = new Map<string, string[]>()
+  const tree = new HammingBkTree()
 
-  // A 64-bit dHash is stored as 16 hex nibbles. If two hashes differ by at
-  // most eight bits, at least one nibble must remain identical, so nibble
-  // buckets avoid an all-pairs scan without dropping ordinary near matches.
   for (const item of items) {
     const hash = item.perceptualHash!
-    for (let nibble = 0; nibble < hash.length; nibble += 1) {
-      const bucketKey = `${nibble}:${hash[nibble]}`
-      const previous = buckets.get(bucketKey) ?? []
-      for (const previousId of previous) candidatePairs.add(pairKey(previousId, item.id))
-      previous.push(item.id)
-      buckets.set(bucketKey, previous)
+    for (const previousId of tree.search(hash, NEAR_DISTANCE)) {
+      const leftIndex = indexById.get(previousId)
+      const rightIndex = indexById.get(item.id)
+      if (leftIndex !== undefined && rightIndex !== undefined) union.join(leftIndex, rightIndex)
     }
+    tree.add(hash, item.id)
   }
 
   const reliableByTime = items
     .filter((item) => item.captureTimeSource !== 'file' && typeof item.effectiveCaptureTime === 'number')
     .sort((a, b) => a.effectiveCaptureTime! - b.effectiveCaptureTime!)
-  for (let left = 0; left < reliableByTime.length; left += 1) {
-    for (let right = left + 1; right < reliableByTime.length; right += 1) {
-      const delta = reliableByTime[right].effectiveCaptureTime! - reliableByTime[left].effectiveCaptureTime!
-      if (delta > BURST_WINDOW_MS) break
-      candidatePairs.add(pairKey(reliableByTime[left].id, reliableByTime[right].id))
+  let windowStart = 0
+  for (let right = 0; right < reliableByTime.length; right += 1) {
+    const rightItem = reliableByTime[right]
+    while (windowStart < right && rightItem.effectiveCaptureTime! - reliableByTime[windowStart].effectiveCaptureTime! > BURST_WINDOW_MS) windowStart += 1
+    for (let left = windowStart; left < right; left += 1) {
+      const leftItem = reliableByTime[left]
+      if (hammingDistanceHex(leftItem.perceptualHash!, rightItem.perceptualHash!) > BURST_DISTANCE) continue
+      const leftIndex = indexById.get(leftItem.id)
+      const rightIndex = indexById.get(rightItem.id)
+      if (leftIndex !== undefined && rightIndex !== undefined) union.join(leftIndex, rightIndex)
     }
-  }
-
-  for (const encoded of candidatePairs) {
-    const [leftId, rightId] = encoded.split('\u0000')
-    const leftIndex = indexById.get(leftId)
-    const rightIndex = indexById.get(rightId)
-    if (leftIndex === undefined || rightIndex === undefined) continue
-    const left = items[leftIndex]
-    const right = items[rightIndex]
-    const distance = hammingDistanceHex(left.perceptualHash!, right.perceptualHash!)
-    const reliableBurst = isReliableBurstPair(left, right)
-    if (distance <= NEAR_DISTANCE || (reliableBurst && distance <= BURST_DISTANCE)) union.join(leftIndex, rightIndex)
   }
 
   const clusters = new Map<number, LiteMediaRecord[]>()
@@ -131,13 +201,25 @@ function visualGroups(items: LiteMediaRecord[]): LiteSimilarityGroup[] {
   return groups
 }
 
-function isReliableBurstPair(left: LiteMediaRecord, right: LiteMediaRecord): boolean {
-  if (left.captureTimeSource === 'file' || right.captureTimeSource === 'file') return false
-  if (typeof left.effectiveCaptureTime !== 'number' || typeof right.effectiveCaptureTime !== 'number') return false
-  return Math.abs(left.effectiveCaptureTime - right.effectiveCaptureTime) <= BURST_WINDOW_MS
+function maximumDistance(items: LiteMediaRecord[]): number {
+  if (items.length <= LARGE_CLUSTER_EXACT_DISTANCE_LIMIT) return exactMaximumDistance(items)
+
+  let maximum = 0
+  const anchors = new Set<number>([0, items.length - 1])
+  for (let index = 0; index < LARGE_CLUSTER_ANCHORS; index += 1) {
+    anchors.add(Math.floor((index * (items.length - 1)) / Math.max(1, LARGE_CLUSTER_ANCHORS - 1)))
+  }
+  for (const anchorIndex of anchors) {
+    const anchor = items[anchorIndex]
+    for (const item of items) {
+      const distance = hammingDistanceHex(anchor.perceptualHash!, item.perceptualHash!)
+      if (Number.isFinite(distance)) maximum = Math.max(maximum, distance)
+    }
+  }
+  return maximum
 }
 
-function maximumDistance(items: LiteMediaRecord[]): number {
+function exactMaximumDistance(items: LiteMediaRecord[]): number {
   let maximum = 0
   for (let left = 0; left < items.length; left += 1) {
     for (let right = left + 1; right < items.length; right += 1) {
@@ -150,10 +232,6 @@ function maximumDistance(items: LiteMediaRecord[]): number {
 
 function sortedIds(items: LiteMediaRecord[]): string[] {
   return items.map((item) => item.id).sort()
-}
-
-function pairKey(left: string, right: string): string {
-  return left < right ? `${left}\u0000${right}` : `${right}\u0000${left}`
 }
 
 function shortStableId(value: string): string {
@@ -174,6 +252,62 @@ function groupSortKey(group: LiteSimilarityGroup): number {
 function formatSpan(milliseconds: number): string {
   if (milliseconds < 1000) return `${milliseconds} ms`
   return `${(milliseconds / 1000).toFixed(milliseconds < 10_000 ? 1 : 0)} s`
+}
+
+function isMediaRecord(item: LiteMediaRecord | undefined): item is LiteMediaRecord {
+  return Boolean(item)
+}
+
+interface BkNode {
+  hash: string
+  ids: string[]
+  children: Map<number, BkNode>
+}
+
+class HammingBkTree {
+  private root: BkNode | null = null
+
+  add(hash: string, id: string): void {
+    if (!this.root) {
+      this.root = { hash, ids: [id], children: new Map() }
+      return
+    }
+
+    let node = this.root
+    while (true) {
+      const distance = hammingDistanceHex(hash, node.hash)
+      if (!Number.isFinite(distance)) return
+      if (distance === 0) {
+        node.ids.push(id)
+        return
+      }
+      const child = node.children.get(distance)
+      if (child) {
+        node = child
+        continue
+      }
+      node.children.set(distance, { hash, ids: [id], children: new Map() })
+      return
+    }
+  }
+
+  search(hash: string, maximumDistance: number): string[] {
+    if (!this.root) return []
+    const matches: string[] = []
+    const stack: BkNode[] = [this.root]
+    while (stack.length > 0) {
+      const node = stack.pop()!
+      const distance = hammingDistanceHex(hash, node.hash)
+      if (!Number.isFinite(distance)) continue
+      if (distance <= maximumDistance) matches.push(...node.ids)
+      const minimumChildDistance = Math.max(0, distance - maximumDistance)
+      const maximumChildDistance = distance + maximumDistance
+      for (const [edgeDistance, child] of node.children) {
+        if (edgeDistance >= minimumChildDistance && edgeDistance <= maximumChildDistance) stack.push(child)
+      }
+    }
+    return matches
+  }
 }
 
 class UnionFind {

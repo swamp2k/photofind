@@ -12,6 +12,7 @@ import './interaction-polish.css'
 import './review-settings.css'
 import './event-export-polish.css'
 import './large-library-polish.css'
+import './performance.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

@@ -133,7 +133,8 @@ describe('event grouping', () => {
 
   it('treats a user-named everyday event as meaningful', () => {
     const event = { ...buildEvents([photo('single', 1)])[0], customTitle: 'First day at school' }
-    expect(event.significance).toBe('everyday')
+    expect(event.significance).toBe('everyday'
+    )
     expect(isMeaningfulEvent(event)).toBe(true)
   })
 
@@ -150,5 +151,16 @@ describe('event grouping', () => {
     expect(first.id).toBe(second.id)
     expect(first.folderPaths).toEqual(['Holiday'])
     expect(first.title).toContain('Holiday')
+  })
+
+  it('projects a rejected-photo subset without rebuilding event identity', () => {
+    const items = [photo('cache-event-a', 1), photo('cache-event-b', 2)]
+    const base = buildEvents(items)
+    expect(base).toHaveLength(1)
+    const visible = [items[0]]
+    const projected = buildEvents(visible)
+    expect(projected).toHaveLength(1)
+    expect(projected[0].id).toBe(base[0].id)
+    expect(projected[0].itemIds).toEqual([items[0].id])
   })
 })

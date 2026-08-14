@@ -19,6 +19,7 @@ interface ReviewSessionProps {
 export function ReviewSession({ title, items, sessionFiles, onReview, onExit }: ReviewSessionProps): JSX.Element {
   const { settings, bindings } = useReviewSettings()
   const [sessionItems, setSessionItems] = useState<LiteMediaRecord[]>(() => items)
+  const itemById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items])
   const firstUnreviewed = Math.max(0, sessionItems.findIndex((item) => reviewStateOf(item) === 'unreviewed'))
   const [index, setIndex] = useState(firstUnreviewed)
   const item = sessionItems[Math.min(index, Math.max(0, sessionItems.length - 1))]
@@ -26,8 +27,17 @@ export function ReviewSession({ title, items, sessionFiles, onReview, onExit }: 
   const progress = sessionItems.length > 0 ? ((index + 1) / sessionItems.length) * 100 : 0
 
   useEffect(() => {
-    setSessionItems((current) => current.map((candidate) => items.find((updated) => updated.id === candidate.id) ?? candidate))
-  }, [items])
+    setSessionItems((current) => {
+      let changed = false
+      const next = current.map((candidate) => {
+        const updated = itemById.get(candidate.id)
+        if (!updated || updated === candidate) return candidate
+        changed = true
+        return updated
+      })
+      return changed ? next : current
+    })
+  }, [itemById])
 
   useEffect(() => {
     if (index >= sessionItems.length && sessionItems.length > 0) setIndex(sessionItems.length - 1)
@@ -51,7 +61,15 @@ export function ReviewSession({ title, items, sessionFiles, onReview, onExit }: 
 
   function decide(state: LiteReviewState, advance = settings.autoAdvance): void {
     if (!item) return
-    setSessionItems((current) => current.map((candidate) => candidate.id === item.id ? { ...candidate, reviewState: state, reviewUpdatedAt: Date.now() } : candidate))
+    const updated = { ...item, reviewState: state, reviewUpdatedAt: Date.now() }
+    setSessionItems((current) => {
+      if (current[index]?.id === item.id) {
+        const next = current.slice()
+        next[index] = updated
+        return next
+      }
+      return current.map((candidate) => candidate.id === item.id ? updated : candidate)
+    })
     onReview([item], state)
     if (advance && index < sessionItems.length - 1) setIndex(index + 1)
   }

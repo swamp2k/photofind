@@ -12,7 +12,7 @@ export function ReviewToolbar({ counts, filter, matchingCount, onFilter, onBulk 
   return (
     <section className="review-toolbar">
       <div className="review-filter-tabs" aria-label="Review filter">
-        <ReviewFilterButton label="All" value="all" count={sumCounts(counts)} current={filter} onFilter={onFilter} />
+        <ReviewFilterButton label="All" value="all" count={counts.unreviewed + counts.keep + counts.maybe} current={filter} onFilter={onFilter} />
         <ReviewFilterButton label="Unreviewed" value="unreviewed" count={counts.unreviewed} current={filter} onFilter={onFilter} />
         <ReviewFilterButton label="Keep" value="keep" count={counts.keep} current={filter} onFilter={onFilter} />
         <ReviewFilterButton label="Maybe" value="maybe" count={counts.maybe} current={filter} onFilter={onFilter} />
@@ -33,8 +33,4 @@ export function ReviewToolbar({ counts, filter, matchingCount, onFilter, onBulk 
 
 function ReviewFilterButton({ label, value, count, current, onFilter }: { label: string; value: LiteReviewFilter; count: number; current: LiteReviewFilter; onFilter(filter: LiteReviewFilter): void }): JSX.Element {
   return <button type="button" className={`${value}${current === value ? ' active' : ''}`} onClick={() => onFilter(value)}>{label} <span>{count.toLocaleString()}</span></button>
-}
-
-function sumCounts(counts: LiteReviewCounts): number {
-  return counts.unreviewed + counts.keep + counts.maybe + counts.reject
 }

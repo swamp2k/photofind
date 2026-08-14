@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { displayBlobForPhoto } from './imageDecode'
+import { thumbnailBlobForPhoto } from './thumbnailCache'
 import type { LiteMediaRecord } from './types'
 
-const THUMBNAIL_MAX_DIMENSION = 720
+const THUMBNAIL_MAX_DIMENSION = 640
 
 export function LocalThumbnail({ item, sessionFile }: { item: LiteMediaRecord; sessionFile?: File }): JSX.Element {
   const [url, setUrl] = useState<string | null>(null)
@@ -20,7 +20,7 @@ export function LocalThumbnail({ item, sessionFile }: { item: LiteMediaRecord; s
         if (!disposed) setFailed(true)
         return
       }
-      const displayBlob = await displayBlobForPhoto(file, item, THUMBNAIL_MAX_DIMENSION)
+      const displayBlob = await thumbnailBlobForPhoto(file, item, THUMBNAIL_MAX_DIMENSION)
       if (disposed) return
       objectUrl = URL.createObjectURL(displayBlob)
       setUrl(objectUrl)
@@ -39,5 +39,5 @@ export function LocalThumbnail({ item, sessionFile }: { item: LiteMediaRecord; s
   if (failed) return <div className="thumb-fallback">Preview unavailable</div>
   if (!url) return <div className="thumb-loading">Loading…</div>
 
-  return <img data-photofind-photo-id={item.id} src={url} alt={item.name} loading="lazy" onError={() => setFailed(true)} />
+  return <img data-photofind-photo-id={item.id} src={url} alt={item.name} loading="lazy" decoding="async" onError={() => setFailed(true)} />
 }

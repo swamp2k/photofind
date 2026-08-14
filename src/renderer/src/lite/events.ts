@@ -17,6 +17,8 @@ const ROUTINE_CELL_DEGREES = 0.08
 interface EventAccumulator {
   items: LiteMediaRecord[]
   evidence: Set<string>
+  personIds: Set<string>
+  similarityGroupIds: Set<string>
 }
 
 interface RoutineLocationStats {
@@ -26,27 +28,152 @@ interface RoutineLocationStats {
   maximumTime: number
 }
 
+interface EventCache {
+  items: LiteMediaRecord[]
+  byId: Map<string, LiteMediaRecord>
+  groupsKey: string
+  knownDatesKey: string
+  events: LiteEventRecord[]
+}
+
+let eventCache: EventCache | null = null
+
 export function buildEvents(
   items: LiteMediaRecord[],
   similarityGroups: LiteSimilarityGroup[] = [],
   knownDates: LiteKnownDateRecord[] = []
 ): LiteEventRecord[] {
-  const photos = items
-    .filter((item) => item.kind === 'image')
-    .sort((a, b) => captureTimeOf(a) - captureTimeOf(b) || a.relativePath.localeCompare(b.relativePath))
+  const photos = items.filter((item) => item.kind === 'image')
+  if (photos.length === 0) return []
+
+  const knownDatesKey = fingerprintKnownDates(knownDates)
+  const cache = eventCache
+  if (cache && cache.knownDatesKey === knownDatesKey) {
+    if (photos.length === cache.items.length && sameEventDataset(photos, cache)) {
+      const groupsKey = fingerprintSimilarityGroups(similarityGroups)
+      if (groupsKey === cache.groupsKey) {
+        refreshCacheReferences(cache, photos)
+        return cache.events
+      }
+    } else if (photos.length < cache.items.length && isIdentitySubset(photos, cache)) {
+      return projectCachedEvents(cache.events, photos)
+    }
+  }
+
+  const events = buildEventsCore(photos, similarityGroups, knownDates)
+  eventCache = {
+    items: photos,
+    byId: new Map(photos.map((item) => [item.id, item])),
+    groupsKey: fingerprintSimilarityGroups(similarityGroups),
+    knownDatesKey,
+    events
+  }
+  return events
+}
+
+function sameEventDataset(items: LiteMediaRecord[], cache: EventCache): boolean {
+  for (const item of items) {
+    const previous = cache.byId.get(item.id)
+    if (!previous || !sameEventInput(previous, item)) return false
+  }
+  return true
+}
+
+function isIdentitySubset(items: LiteMediaRecord[], cache: EventCache): boolean {
+  for (const item of items) if (cache.byId.get(item.id) !== item) return false
+  return true
+}
+
+function refreshCacheReferences(cache: EventCache, items: LiteMediaRecord[]): void {
+  for (const item of items) if (cache.byId.get(item.id) !== item) cache.byId.set(item.id, item)
+  cache.items = items
+}
+
+function sameEventInput(left: LiteMediaRecord, right: LiteMediaRecord): boolean {
+  return left.id === right.id
+    && left.kind === right.kind
+    && left.relativePath === right.relativePath
+    && left.effectiveCaptureTime === right.effectiveCaptureTime
+    && left.lastModified === right.lastModified
+    && left.captureTimeSource === right.captureTimeSource
+    && left.latitude === right.latitude
+    && left.longitude === right.longitude
+    && left.similarityStatus === right.similarityStatus
+    && left.contentHash === right.contentHash
+    && left.perceptualHash === right.perceptualHash
+    && samePersonAssignments(left.faces, right.faces)
+}
+
+function samePersonAssignments(left: LiteMediaRecord['faces'], right: LiteMediaRecord['faces']): boolean {
+  if (left === right) return true
+  if ((left?.length ?? 0) !== (right?.length ?? 0)) return false
+  for (let index = 0; index < (left?.length ?? 0); index += 1) {
+    if (left?.[index]?.personId !== right?.[index]?.personId) return false
+  }
+  return true
+}
+
+function projectCachedEvents(events: LiteEventRecord[], items: LiteMediaRecord[]): LiteEventRecord[] {
+  const byId = new Map(items.map((item) => [item.id, item]))
+  const projected: LiteEventRecord[] = []
+  for (const event of events) {
+    const members = event.itemIds.map((id) => byId.get(id)).filter(isMediaRecord)
+    if (members.length === 0) continue
+    if (members.length === event.itemIds.length) {
+      projected.push(event)
+      continue
+    }
+
+    const startTime = Math.min(...members.map(captureTimeOf))
+    const endTime = Math.max(...members.map(captureTimeOf))
+    const personIds = [...new Set(members.flatMap((item) => (item.faces ?? []).map((face) => face.personId).filter(isString)))].sort()
+    const folderPaths = [...new Set(members.map((item) => sourceFolderOf(item.relativePath)))].sort()
+    const location = averageLocation(members)
+    const { latitude: _latitude, longitude: _longitude, ...base } = event
+    projected.push({
+      ...base,
+      startTime,
+      endTime,
+      itemIds: members.map((item) => item.id),
+      personIds,
+      folderPaths,
+      ...(location ?? {})
+    })
+  }
+  return projected
+}
+
+function buildEventsCore(
+  items: LiteMediaRecord[],
+  similarityGroups: LiteSimilarityGroup[],
+  knownDates: LiteKnownDateRecord[]
+): LiteEventRecord[] {
+  const photos = [...items].sort((a, b) => captureTimeOf(a) - captureTimeOf(b) || a.relativePath.localeCompare(b.relativePath))
   if (photos.length === 0) return []
 
   const similarityByItem = similarityMembership(similarityGroups)
   const routineLocations = findRoutineLocationCells(photos)
-  const knownDateByItem = new Map(photos.map((photo) => [photo.id, matchingKnownDate(knownDates, captureTimeOf(photo))]))
-  const accumulators: EventAccumulator[] = [{ items: [photos[0]], evidence: new Set(['event start']) }]
+  const knownDateByDay = new Map<string, LiteKnownDateOccurrence | null>()
+  const knownDateByItem = new Map<string, LiteKnownDateOccurrence | null>()
+  for (const photo of photos) {
+    const time = captureTimeOf(photo)
+    const key = localDayKey(time)
+    let occurrence = knownDateByDay.get(key)
+    if (occurrence === undefined && !knownDateByDay.has(key)) {
+      occurrence = matchingKnownDate(knownDates, time)
+      knownDateByDay.set(key, occurrence)
+    }
+    knownDateByItem.set(photo.id, occurrence ?? null)
+  }
+
+  const accumulators: EventAccumulator[] = [createAccumulator(photos[0], similarityByItem)]
 
   for (let index = 1; index < photos.length; index += 1) {
     const next = photos[index]
     const current = accumulators.at(-1)!
     const previous = current.items.at(-1)!
     const decision = shouldContinueEvent(
-      current.items,
+      current,
       previous,
       next,
       similarityByItem,
@@ -55,18 +182,33 @@ export function buildEvents(
       knownDateByItem.get(next.id) ?? null
     )
     if (decision.continueEvent) {
-      current.items.push(next)
+      appendAccumulator(current, next, similarityByItem)
       for (const evidence of decision.evidence) current.evidence.add(evidence)
     } else {
-      accumulators.push({ items: [next], evidence: new Set(['time gap']) })
+      accumulators.push(createAccumulator(next, similarityByItem, 'time gap'))
     }
   }
 
   return accumulators.map((accumulator) => finalizeEvent(accumulator.items, accumulator.evidence, routineLocations, knownDateByItem))
 }
 
+function createAccumulator(item: LiteMediaRecord, membership: Map<string, Set<string>>, evidence = 'event start'): EventAccumulator {
+  return {
+    items: [item],
+    evidence: new Set([evidence]),
+    personIds: personIdsOf(item),
+    similarityGroupIds: new Set(membership.get(item.id) ?? [])
+  }
+}
+
+function appendAccumulator(accumulator: EventAccumulator, item: LiteMediaRecord, membership: Map<string, Set<string>>): void {
+  accumulator.items.push(item)
+  for (const personId of personIdsOf(item)) accumulator.personIds.add(personId)
+  for (const groupId of membership.get(item.id) ?? []) accumulator.similarityGroupIds.add(groupId)
+}
+
 function shouldContinueEvent(
-  currentItems: LiteMediaRecord[],
+  current: EventAccumulator,
   previous: LiteMediaRecord,
   next: LiteMediaRecord,
   similarityByItem: Map<string, Set<string>>,
@@ -82,10 +224,10 @@ function shouldContinueEvent(
   }
 
   const gap = Math.max(0, captureTimeOf(next) - captureTimeOf(previous))
-  const eventSpan = Math.max(0, captureTimeOf(next) - captureTimeOf(currentItems[0]))
+  const eventSpan = Math.max(0, captureTimeOf(next) - captureTimeOf(current.items[0]))
   const sameFolder = sourceFolderOf(previous.relativePath) === sourceFolderOf(next.relativePath)
-  const sharedPeople = sharesKnownPerson(currentItems, next)
-  const sharedVisualGroup = sharesSimilarityGroup(currentItems, next, similarityByItem)
+  const sharedPeople = sharesKnownPerson(current.personIds, next)
+  const sharedVisualGroup = sharesSimilarityGroup(current.similarityGroupIds, next, similarityByItem)
   const supportedLongGap = gap <= LOCATION_ONLY_MULTIDAY_GAP_MS || sameFolder || sharedPeople || sharedVisualGroup
 
   if (
@@ -93,7 +235,7 @@ function shouldContinueEvent(
     && gap <= SUPPORTED_MULTIDAY_GAP_MS
     && eventSpan <= MAX_MULTIDAY_EVENT_SPAN_MS
     && supportedLongGap
-    && isNearEventLocation(currentItems, next, MULTIDAY_NEARBY_KM)
+    && isNearEventLocation(current.items, next, MULTIDAY_NEARBY_KM)
     && !isRoutineLocation(next, routineLocations)
   ) {
     const evidence = ['same away location across days']
@@ -108,7 +250,7 @@ function shouldContinueEvent(
   const evidence: string[] = []
   if (gap <= QUICK_GAP_MS) evidence.push('close in time')
   if (sameFolder) evidence.push('same source folder')
-  if (hasNearbyLocation(currentItems, next)) evidence.push('nearby GPS')
+  if (hasNearbyLocation(current.items, next)) evidence.push('nearby GPS')
   if (sharedPeople) evidence.push('shared people')
   if (sharedVisualGroup) evidence.push('related visual group')
 
@@ -214,19 +356,21 @@ function isNearEventLocation(currentItems: LiteMediaRecord[], next: LiteMediaRec
   return haversineKm(latitude, longitude, next.latitude, next.longitude) <= maximumKm
 }
 
-function sharesKnownPerson(currentItems: LiteMediaRecord[], next: LiteMediaRecord): boolean {
-  const nextPeople = new Set((next.faces ?? []).map((face) => face.personId).filter(isString))
-  if (nextPeople.size === 0) return false
-  return currentItems.some((item) => (item.faces ?? []).some((face) => face.personId && nextPeople.has(face.personId)))
+function personIdsOf(item: LiteMediaRecord): Set<string> {
+  return new Set((item.faces ?? []).map((face) => face.personId).filter(isString))
 }
 
-function sharesSimilarityGroup(currentItems: LiteMediaRecord[], next: LiteMediaRecord, membership: Map<string, Set<string>>): boolean {
+function sharesKnownPerson(currentPersonIds: Set<string>, next: LiteMediaRecord): boolean {
+  if (currentPersonIds.size === 0) return false
+  return (next.faces ?? []).some((face) => Boolean(face.personId && currentPersonIds.has(face.personId)))
+}
+
+function sharesSimilarityGroup(currentGroupIds: Set<string>, next: LiteMediaRecord, membership: Map<string, Set<string>>): boolean {
+  if (currentGroupIds.size === 0) return false
   const nextGroups = membership.get(next.id)
   if (!nextGroups?.size) return false
-  return currentItems.some((item) => {
-    const groups = membership.get(item.id)
-    return groups ? [...groups].some((groupId) => nextGroups.has(groupId)) : false
-  })
+  for (const groupId of nextGroups) if (currentGroupIds.has(groupId)) return true
+  return false
 }
 
 function similarityMembership(groups: LiteSimilarityGroup[]): Map<string, Set<string>> {
@@ -295,6 +439,19 @@ function haversineKm(latitudeA: number, longitudeA: number, latitudeB: number, l
   return radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
 }
 
+function fingerprintKnownDates(records: LiteKnownDateRecord[]): string {
+  return records.map((record) => `${record.id}:${record.title}:${record.kind}:${record.source}:${record.updatedAt}:${record.startDate}:${record.endDate}:${record.recurringYearly ? 1 : 0}`).join('|')
+}
+
+function fingerprintSimilarityGroups(groups: LiteSimilarityGroup[]): string {
+  return groups.map((group) => `${group.id}:${group.itemIds.join(',')}`).join('|')
+}
+
+function localDayKey(time: number): string {
+  const date = new Date(time)
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+}
+
 function stableHash(value: string): string {
   let hash = 2166136261
   for (let index = 0; index < value.length; index += 1) {
@@ -306,4 +463,8 @@ function stableHash(value: string): string {
 
 function isString(value: string | undefined): value is string {
   return typeof value === 'string' && value.length > 0
+}
+
+function isMediaRecord(value: LiteMediaRecord | undefined): value is LiteMediaRecord {
+  return Boolean(value)
 }
