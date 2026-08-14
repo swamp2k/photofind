@@ -5,11 +5,21 @@ const BURST_DISTANCE = 18
 const BURST_WINDOW_MS = 12_000
 const LARGE_CLUSTER_EXACT_DISTANCE_LIMIT = 160
 const LARGE_CLUSTER_ANCHORS = 20
+// Pigeonhole index for a 64-bit hash at radius 8: if <=8 bits differ,
+// at least one of these nine disjoint blocks must be identical.
+const NEAR_PARTITION_WIDTHS = [8, 7, 7, 7, 7, 7, 7, 7, 7] as const
 
 interface SimilarityCache {
   items: LiteMediaRecord[]
   byId: Map<string, LiteMediaRecord>
   groups: LiteSimilarityGroup[]
+}
+
+interface IndexedHash {
+  itemIndex: number
+  high: number
+  low: number
+  blocks: number[]
 }
 
 let similarityCache: SimilarityCache | null = null
@@ -142,16 +152,30 @@ function visualGroups(items: LiteMediaRecord[]): LiteSimilarityGroup[] {
   if (items.length < 2) return []
   const indexById = new Map(items.map((item, index) => [item.id, index]))
   const union = new UnionFind(items.length)
-  const tree = new HammingBkTree()
+  const indexedHashes = items.map((item, itemIndex) => indexHash(item.perceptualHash!, itemIndex))
+  const bitsByItemIndex = new Map(indexedHashes.filter(isIndexedHash).map((entry) => [entry.itemIndex, entry]))
+  const buckets = NEAR_PARTITION_WIDTHS.map(() => new Map<number, number[]>())
 
-  for (const item of items) {
-    const hash = item.perceptualHash!
-    for (const previousId of tree.search(hash, NEAR_DISTANCE)) {
-      const leftIndex = indexById.get(previousId)
-      const rightIndex = indexById.get(item.id)
-      if (leftIndex !== undefined && rightIndex !== undefined) union.join(leftIndex, rightIndex)
+  for (const entry of indexedHashes) {
+    if (!entry) continue
+    const candidates = new Set<number>()
+    for (let partition = 0; partition < entry.blocks.length; partition += 1) {
+      const previous = buckets[partition].get(entry.blocks[partition])
+      if (previous) for (const itemIndex of previous) candidates.add(itemIndex)
     }
-    tree.add(hash, item.id)
+
+    for (const candidateIndex of candidates) {
+      const candidate = bitsByItemIndex.get(candidateIndex)
+      if (!candidate || hammingDistanceBits(entry, candidate) > NEAR_DISTANCE) continue
+      union.join(candidateIndex, entry.itemIndex)
+    }
+
+    for (let partition = 0; partition < entry.blocks.length; partition += 1) {
+      const value = entry.blocks[partition]
+      const bucket = buckets[partition].get(value) ?? []
+      bucket.push(entry.itemIndex)
+      buckets[partition].set(value, bucket)
+    }
   }
 
   const reliableByTime = items
@@ -199,6 +223,35 @@ function visualGroups(items: LiteMediaRecord[]): LiteSimilarityGroup[] {
     })
   }
   return groups
+}
+
+function indexHash(hash: string, itemIndex: number): IndexedHash | null {
+  if (hash.length !== 16 || !/^[0-9a-f]{16}$/i.test(hash)) return null
+  const value = BigInt(`0x${hash}`)
+  const blocks: number[] = []
+  let remainingBits = 64
+  for (const width of NEAR_PARTITION_WIDTHS) {
+    remainingBits -= width
+    const mask = (1n << BigInt(width)) - 1n
+    blocks.push(Number((value >> BigInt(remainingBits)) & mask))
+  }
+  return {
+    itemIndex,
+    high: Number.parseInt(hash.slice(0, 8), 16) >>> 0,
+    low: Number.parseInt(hash.slice(8), 16) >>> 0,
+    blocks
+  }
+}
+
+function hammingDistanceBits(left: IndexedHash, right: IndexedHash): number {
+  return popcount32(left.high ^ right.high) + popcount32(left.low ^ right.low)
+}
+
+function popcount32(value: number): number {
+  let bits = value >>> 0
+  bits -= (bits >>> 1) & 0x55555555
+  bits = (bits & 0x33333333) + ((bits >>> 2) & 0x33333333)
+  return ((((bits + (bits >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24)
 }
 
 function maximumDistance(items: LiteMediaRecord[]): number {
@@ -258,56 +311,8 @@ function isMediaRecord(item: LiteMediaRecord | undefined): item is LiteMediaReco
   return Boolean(item)
 }
 
-interface BkNode {
-  hash: string
-  ids: string[]
-  children: Map<number, BkNode>
-}
-
-class HammingBkTree {
-  private root: BkNode | null = null
-
-  add(hash: string, id: string): void {
-    if (!this.root) {
-      this.root = { hash, ids: [id], children: new Map() }
-      return
-    }
-
-    let node = this.root
-    while (true) {
-      const distance = hammingDistanceHex(hash, node.hash)
-      if (!Number.isFinite(distance)) return
-      if (distance === 0) {
-        node.ids.push(id)
-        return
-      }
-      const child = node.children.get(distance)
-      if (child) {
-        node = child
-        continue
-      }
-      node.children.set(distance, { hash, ids: [id], children: new Map() })
-      return
-    }
-  }
-
-  search(hash: string, maximumDistance: number): string[] {
-    if (!this.root) return []
-    const matches: string[] = []
-    const stack: BkNode[] = [this.root]
-    while (stack.length > 0) {
-      const node = stack.pop()!
-      const distance = hammingDistanceHex(hash, node.hash)
-      if (!Number.isFinite(distance)) continue
-      if (distance <= maximumDistance) matches.push(...node.ids)
-      const minimumChildDistance = Math.max(0, distance - maximumDistance)
-      const maximumChildDistance = distance + maximumDistance
-      for (const [edgeDistance, child] of node.children) {
-        if (edgeDistance >= minimumChildDistance && edgeDistance <= maximumChildDistance) stack.push(child)
-      }
-    }
-    return matches
-  }
+function isIndexedHash(value: IndexedHash | null): value is IndexedHash {
+  return value !== null
 }
 
 class UnionFind {
