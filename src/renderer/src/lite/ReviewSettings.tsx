@@ -7,7 +7,7 @@ export type PhotoBatchSize = 250 | 500 | 1000 | 2000
 export interface ReviewSettingsState {
   autoAdvance: boolean
   keymap: ReviewKeymapPreset
-  photoBatchSize: PhotoBatchSize
+  photoBatchSize: number
   flowLoading: boolean
 }
 
