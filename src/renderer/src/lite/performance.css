@@ -1,0 +1,15 @@
+.photo-card,
+.quality-card,
+.similarity-group,
+.keeper-card,
+.event-card,
+.person-card,
+.person-face-entry {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 280px;
+}
+
+/* Rendering thousands of cards at once defeats the progressive loading model. */
+.quality-section .progressive-results-actions .quiet-button {
+  display: none;
+}
