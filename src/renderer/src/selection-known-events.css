@@ -1,0 +1,87 @@
+.export-scope-control {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.export-scope-menu {
+  position: relative;
+  color: var(--text);
+}
+
+.export-scope-menu > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  cursor: pointer;
+  list-style: none;
+}
+
+.export-scope-menu > summary::-webkit-details-marker { display: none; }
+.export-scope-menu > summary::after { content: '▾'; color: var(--muted); }
+.export-scope-menu[open] > summary::after { content: '▴'; }
+.export-scope-menu > summary strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.export-scope-menu > summary small {
+  margin-left: auto;
+  white-space: nowrap;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.export-scope-options {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  display: grid;
+  gap: 3px;
+  min-width: 280px;
+  padding: 7px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 10px;
+  background: #15191f;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .42);
+}
+
+.export-scope-options label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 9px;
+  padding: 8px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.export-scope-options label:hover { background: rgba(127, 119, 232, .12); }
+.export-scope-options input { margin-top: 3px; accent-color: var(--accent-strong); }
+.export-scope-options label > span { display: grid; gap: 2px; }
+.export-scope-options strong { color: var(--text); font-size: 12px; }
+.export-scope-options small { color: var(--muted); font-size: 10px; }
+
+.curation-counts {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 700px) {
+  .export-scope-options {
+    position: static;
+    min-width: 0;
+    margin-top: 6px;
+    box-shadow: none;
+  }
+}

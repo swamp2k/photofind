@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyEventOverrides, createEventOverride, createEventPhotoRemovalOverride, createEventRemovalOverride, matchingEventOverride } from './eventOverrides'
+import { applyEventOverrides, applyKnownDateOverrides, createEventKnownDateOverride, createEventOverride, createEventPhotoRemovalOverride, createEventRemovalOverride, isKnownDateEvent, isKnownDateOverride, matchingEventOverride } from './eventOverrides'
 import type { LiteEventRecord } from './types'
 
 function event(id: string, itemIds: string[], title = 'Generated event'): LiteEventRecord {
@@ -71,5 +71,35 @@ describe('event overrides', () => {
     const override = createEventPhotoRemovalOverride(original, ['1'], undefined, 10)
     expect(override.hidden).toBe(true)
     expect(applyEventOverrides([original], [override])).toEqual([])
+  })
+
+  it('promotes a detected event into the known-date category', () => {
+    const original = event('event-a', ['1', '2'])
+    const override = createEventKnownDateOverride(original, undefined, 10)
+    const applied = applyEventOverrides([original], [override])[0]
+    expect(isKnownDateOverride(override)).toBe(true)
+    expect(isKnownDateEvent(applied)).toBe(true)
+    expect(applied.itemIds).toEqual(['1', '2'])
+  })
+
+  it('preserves known-date promotion through rename and membership edits', () => {
+    const original = event('event-a', ['1', '2', '3'])
+    const promoted = createEventKnownDateOverride(original, undefined, 10)
+    const applied = applyEventOverrides([original], [promoted])[0]
+    const renamed = createEventOverride(applied, 'Family day', 20, promoted)!
+    const trimmed = createEventPhotoRemovalOverride(applyEventOverrides([original], [renamed])[0], ['2'], renamed, 30)
+    const final = applyEventOverrides([original], [trimmed])[0]
+    expect(isKnownDateOverride(renamed)).toBe(true)
+    expect(isKnownDateOverride(trimmed)).toBe(true)
+    expect(isKnownDateEvent(final)).toBe(true)
+    expect(final.itemIds).toEqual(['1', '3'])
+  })
+
+  it('can project only known-date classification onto already-derived events', () => {
+    const original = event('event-a', ['1', '2'])
+    const override = createEventKnownDateOverride(original, undefined, 10)
+    const applied = applyKnownDateOverrides([original], [override])[0]
+    expect(applied.title).toBe('Generated event')
+    expect(isKnownDateEvent(applied)).toBe(true)
   })
 })

@@ -1,12 +1,15 @@
 import type { LiteEventOverride, LiteEventRecord, LiteMediaRecord } from './types'
 
+type KnownEventOverride = LiteEventOverride & { knownDate?: boolean }
+type KnownEventRecord = LiteEventRecord & { promotedToKnown?: boolean }
+
 export function eventOverrideId(libraryId: string, eventId: string): string {
   return `${libraryId}::${eventId}`
 }
 
 export function createEventOverride(event: LiteEventRecord, title: string, now = Date.now(), prior?: LiteEventOverride): LiteEventOverride | null {
   const normalized = title.trim()
-  const structuralOverride = Boolean(prior?.hidden || prior?.includedItemIds !== undefined)
+  const structuralOverride = Boolean(prior?.hidden || prior?.includedItemIds !== undefined || knownDateOf(prior) || promotedToKnown(event))
   if (!normalized && !structuralOverride) return null
   return {
     id: eventOverrideId(event.libraryId, event.id),
@@ -16,8 +19,9 @@ export function createEventOverride(event: LiteEventRecord, title: string, now =
     itemIds: [...(prior?.itemIds ?? event.itemIds)],
     ...(prior?.hidden ? { hidden: true } : {}),
     ...(prior?.includedItemIds !== undefined ? { includedItemIds: [...prior.includedItemIds] } : {}),
+    ...(knownDateOf(prior) || promotedToKnown(event) ? { knownDate: true } : {}),
     updatedAt: now
-  }
+  } as KnownEventOverride
 }
 
 export function createEventRemovalOverride(event: LiteEventRecord, prior?: LiteEventOverride, now = Date.now()): LiteEventOverride {
@@ -29,8 +33,9 @@ export function createEventRemovalOverride(event: LiteEventRecord, prior?: LiteE
     itemIds: [...(prior?.itemIds ?? event.itemIds)],
     hidden: true,
     ...(prior?.includedItemIds !== undefined ? { includedItemIds: [...prior.includedItemIds] } : {}),
+    ...(knownDateOf(prior) || promotedToKnown(event) ? { knownDate: true } : {}),
     updatedAt: now
-  }
+  } as KnownEventOverride
 }
 
 export function createEventPhotoRemovalOverride(event: LiteEventRecord, removedItemIds: string[], prior?: LiteEventOverride, now = Date.now()): LiteEventOverride {
@@ -45,8 +50,23 @@ export function createEventPhotoRemovalOverride(event: LiteEventRecord, removedI
     itemIds: [...(prior?.itemIds ?? event.itemIds)],
     ...(remaining.length === 0 ? { hidden: true } : {}),
     includedItemIds: remaining,
+    ...(knownDateOf(prior) || promotedToKnown(event) ? { knownDate: true } : {}),
     updatedAt: now
-  }
+  } as KnownEventOverride
+}
+
+export function createEventKnownDateOverride(event: LiteEventRecord, prior?: LiteEventOverride, now = Date.now()): LiteEventOverride {
+  return {
+    id: eventOverrideId(event.libraryId, event.id),
+    eventId: event.id,
+    libraryId: event.libraryId,
+    title: prior?.title ?? event.customTitle ?? '',
+    itemIds: [...(prior?.itemIds ?? event.itemIds)],
+    ...(prior?.hidden ? { hidden: true } : {}),
+    ...(prior?.includedItemIds !== undefined ? { includedItemIds: [...prior.includedItemIds] } : {}),
+    knownDate: true,
+    updatedAt: now
+  } as KnownEventOverride
 }
 
 export function matchingEventOverride(event: LiteEventRecord, overrides: LiteEventOverride[]): LiteEventOverride | undefined {
@@ -54,6 +74,21 @@ export function matchingEventOverride(event: LiteEventRecord, overrides: LiteEve
     .filter((override) => override.libraryId === event.libraryId)
     .sort((a, b) => b.updatedAt - a.updatedAt)
   return candidates.find((override) => override.eventId === event.id) ?? bestOverlap(event, candidates)
+}
+
+export function isKnownDateOverride(override: LiteEventOverride): boolean {
+  return knownDateOf(override)
+}
+
+export function isKnownDateEvent(event: LiteEventRecord): boolean {
+  return Boolean(promotedToKnown(event) || event.knownDateId || event.knownDateTitle || event.significance === 'known-date')
+}
+
+export function applyKnownDateOverrides(events: LiteEventRecord[], overrides: LiteEventOverride[]): LiteEventRecord[] {
+  if (overrides.length === 0) return events
+  const knownOverrides = overrides.filter(isKnownDateOverride)
+  if (knownOverrides.length === 0) return events
+  return events.map((event) => matchingEventOverride(event, knownOverrides) ? markKnown(event) : event)
 }
 
 export function applyEventOverrides(events: LiteEventRecord[], overrides: LiteEventOverride[], items: LiteMediaRecord[] = []): LiteEventRecord[] {
@@ -79,10 +114,24 @@ export function applyEventOverrides(events: LiteEventRecord[], overrides: LiteEv
     if (!projected) continue
 
     const title = matched.title.trim()
-    output.push(title ? { ...projected, title, customTitle: title } : projected)
+    let applied: LiteEventRecord = title ? { ...projected, title, customTitle: title } : projected
+    if (knownDateOf(matched) || promotedToKnown(event)) applied = markKnown(applied)
+    output.push(applied)
   }
 
   return output
+}
+
+function markKnown(event: LiteEventRecord): LiteEventRecord {
+  return { ...event, promotedToKnown: true } as KnownEventRecord
+}
+
+function promotedToKnown(event: LiteEventRecord): boolean {
+  return Boolean((event as KnownEventRecord).promotedToKnown)
+}
+
+function knownDateOf(override: LiteEventOverride | undefined): boolean {
+  return Boolean((override as KnownEventOverride | undefined)?.knownDate)
 }
 
 function projectEventMembership(event: LiteEventRecord, includedItemIds: string[], itemById: Map<string, LiteMediaRecord>): LiteEventRecord | null {

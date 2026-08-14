@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { buildExportSelection, splitEventsForExportFilter, type ExportSelectionScope } from './curationSelection'
+import { applyKnownDateOverrides, isKnownDateOverride } from './eventOverrides'
 import {
   DEFAULT_EXPORT_FOLDER_TEMPLATE,
   EXPORT_FOLDER_TEMPLATE_PRESETS,
@@ -6,12 +8,13 @@ import {
   previewExportFolderTemplate,
   validateExportFolderTemplate
 } from './exportPathTemplate'
+import { loadEventOverrides } from './libraryDb'
 import { LocalThumbnail } from './LocalThumbnail'
 import { PhotoLightbox } from './PhotoLightbox'
 import { PhotoSelectionBar, useExplorerPhotoSelection } from './PhotoSelection'
 import { ReviewControls } from './ReviewControls'
 import { reviewStateOf } from './review'
-import type { LiteEventRecord, LiteExportLayout, LiteExportProgress, LiteExportResult, LiteMediaRecord, LiteReviewState } from './types'
+import type { LiteEventOverride, LiteEventRecord, LiteExportLayout, LiteExportProgress, LiteExportResult, LiteMediaRecord, LiteReviewState } from './types'
 
 interface CurationPanelProps {
   items: LiteMediaRecord[]
@@ -28,10 +31,14 @@ interface CurationPanelProps {
   onExport(items: LiteMediaRecord[], layout: LiteExportLayout, includeReports: boolean, embedMetadata: boolean, includeEventName: boolean, preserveModifiedDates: boolean): void
 }
 
-type ExportScope = 'keep' | 'keep-maybe'
+const SCOPE_LABELS: Record<ExportSelectionScope, string> = {
+  keep: 'Keep',
+  maybe: 'Maybe',
+  known: 'Known dates & holidays'
+}
 
 export function CurationPanel(props: CurationPanelProps): JSX.Element {
-  const [scope, setScope] = useState<ExportScope>('keep')
+  const [scopes, setScopes] = useState<Set<ExportSelectionScope>>(() => new Set(['keep']))
   const [eventFilter, setEventFilter] = useState('')
   const [folderTemplate, setFolderTemplate] = useState(DEFAULT_EXPORT_FOLDER_TEMPLATE)
   const [includeReports, setIncludeReports] = useState(true)
@@ -39,30 +46,57 @@ export function CurationPanel(props: CurationPanelProps): JSX.Element {
   const [preserveModifiedDates, setPreserveModifiedDates] = useState(true)
   const [openIndex, setOpenIndex] = useState<number | null>(null)
   const [visibleCount, setVisibleCount] = useState(props.batchSize)
+  const [knownOverrides, setKnownOverrides] = useState<LiteEventOverride[]>([])
+  const [knownOverrideError, setKnownOverrideError] = useState<string | null>(null)
   const templateInputRef = useRef<HTMLInputElement | null>(null)
   const flowSentinelRef = useRef<HTMLDivElement | null>(null)
+  const libraryId = props.events[0]?.libraryId ?? props.items[0]?.libraryId ?? null
+  const effectiveEvents = useMemo(() => applyKnownDateOverrides(props.events, knownOverrides), [knownOverrides, props.events])
+  const eventGroups = useMemo(() => splitEventsForExportFilter(effectiveEvents), [effectiveEvents])
+  const selectedEvent = useMemo(() => effectiveEvents.find((event) => event.id === eventFilter) ?? null, [effectiveEvents, eventFilter])
   const keep = useMemo(() => props.items.filter((item) => item.kind === 'image' && reviewStateOf(item) === 'keep'), [props.items])
   const maybe = useMemo(() => props.items.filter((item) => item.kind === 'image' && reviewStateOf(item) === 'maybe'), [props.items])
+  const knownPhotos = useMemo(() => buildExportSelection(props.items, new Set<ExportSelectionScope>(['known']), eventGroups.known), [eventGroups.known, props.items])
+  const filteredKeep = useMemo(() => buildExportSelection(props.items, new Set<ExportSelectionScope>(['keep']), eventGroups.known, selectedEvent), [eventGroups.known, props.items, selectedEvent])
+  const filteredMaybe = useMemo(() => buildExportSelection(props.items, new Set<ExportSelectionScope>(['maybe']), eventGroups.known, selectedEvent), [eventGroups.known, props.items, selectedEvent])
+  const filteredKnown = useMemo(() => buildExportSelection(props.items, new Set<ExportSelectionScope>(['known']), eventGroups.known, selectedEvent), [eventGroups.known, props.items, selectedEvent])
+  const selected = useMemo(() => buildExportSelection(props.items, scopes, eventGroups.known, selectedEvent), [eventGroups.known, props.items, scopes, selectedEvent])
+  const selection = useExplorerPhotoSelection(selected)
   const eventByItemId = useMemo(() => {
     const map = new Map<string, LiteEventRecord>()
-    for (const event of props.events) for (const id of event.itemIds) map.set(id, event)
+    for (const event of effectiveEvents) for (const id of event.itemIds) map.set(id, event)
     return map
-  }, [props.events])
-  const filteredKeep = useMemo(() => keep.filter((item) => !eventFilter || eventByItemId.get(item.id)?.id === eventFilter), [keep, eventFilter, eventByItemId])
-  const filteredMaybe = useMemo(() => maybe.filter((item) => !eventFilter || eventByItemId.get(item.id)?.id === eventFilter), [maybe, eventFilter, eventByItemId])
-  const selected = scope === 'keep' ? filteredKeep : [...filteredKeep, ...filteredMaybe]
-  const selection = useExplorerPhotoSelection(filteredKeep)
-  const sortedEvents = useMemo(() => [...props.events].sort((a, b) => a.startTime - b.startTime || a.title.localeCompare(b.title)), [props.events])
+  }, [effectiveEvents])
   const templateError = validateExportFolderTemplate(folderTemplate)
-  const previewItem = selected[0] ?? filteredKeep[0] ?? keep[0]
+  const previewItem = selected[0] ?? keep[0] ?? knownPhotos[0]
   const previewEventName = previewItem ? eventByItemId.get(previewItem.id)?.customTitle : undefined
   const templatePreview = previewExportFolderTemplate(previewItem, folderTemplate, previewEventName)
   const automaticFlow = props.flowLoading && typeof IntersectionObserver !== 'undefined'
-  const hasMore = visibleCount < filteredKeep.length
+  const hasMore = visibleCount < selected.length
+  const scopeKey = [...scopes].sort().join(',')
+  const scopeSummary = [...scopes].map((scope) => SCOPE_LABELS[scope]).join(' + ') || 'Nothing selected'
+
+  useEffect(() => {
+    let disposed = false
+    setKnownOverrideError(null)
+    if (!libraryId) {
+      setKnownOverrides([])
+      return () => { disposed = true }
+    }
+    void loadEventOverrides(libraryId)
+      .then((overrides) => {
+        if (!disposed) setKnownOverrides(overrides.filter(isKnownDateOverride))
+      })
+      .catch((cause) => {
+        if (!disposed) setKnownOverrideError(`Known-event classifications could not be loaded: ${messageOf(cause)}`)
+      })
+    return () => { disposed = true }
+  }, [libraryId])
 
   useEffect(() => {
     setVisibleCount(props.batchSize)
-  }, [eventFilter, props.batchSize])
+    setOpenIndex(null)
+  }, [eventFilter, props.batchSize, scopeKey])
 
   useEffect(() => {
     if (!automaticFlow || !hasMore) return
@@ -70,12 +104,21 @@ export function CurationPanel(props: CurationPanelProps): JSX.Element {
     if (!target) return
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) {
-        setVisibleCount((count) => Math.min(filteredKeep.length, count + props.batchSize))
+        setVisibleCount((count) => Math.min(selected.length, count + props.batchSize))
       }
     }, { rootMargin: '600px 0px' })
     observer.observe(target)
     return () => observer.disconnect()
-  }, [automaticFlow, filteredKeep.length, hasMore, props.batchSize, visibleCount])
+  }, [automaticFlow, hasMore, props.batchSize, selected.length, visibleCount])
+
+  function toggleScope(scope: ExportSelectionScope): void {
+    setScopes((current) => {
+      const next = new Set(current)
+      if (next.has(scope)) next.delete(scope)
+      else next.add(scope)
+      return next
+    })
+  }
 
   function insertToken(token: string): void {
     const input = templateInputRef.current
@@ -105,25 +148,33 @@ export function CurationPanel(props: CurationPanelProps): JSX.Element {
       <div className="curation-hero">
         <div>
           <span className="mode-kicker">Finished selection</span>
-          <h2>Keeper tray</h2>
-          <p>Review the exact photos leaving PhotoFind. Click to preview; Ctrl-click or Shift-click to select photos for bulk actions.</p>
+          <h2>Export tray</h2>
+          <p>Review the exact photos leaving PhotoFind. Combine Keep, Maybe and explicitly saved known events, then optionally narrow the result to one event.</p>
         </div>
-        <div className="curation-counts"><strong>{keep.length.toLocaleString()}</strong><span>Keep</span><strong>{maybe.length.toLocaleString()}</strong><span>Maybe</span></div>
+        <div className="curation-counts"><strong>{keep.length.toLocaleString()}</strong><span>Keep</span><strong>{maybe.length.toLocaleString()}</strong><span>Maybe</span><strong>{knownPhotos.length.toLocaleString()}</strong><span>Known event photos</span></div>
       </div>
 
       <div className="export-card">
         <div className="export-card-heading"><div><h3>Export local copies</h3><p>Build the folder structure from placeholders. Anything outside a placeholder is literal custom text.</p></div><span className="local-only-pill">Local write</span></div>
         <div className="export-controls">
-          <label>Selection
-            <select value={scope} onChange={(event) => setScope(event.target.value as ExportScope)}>
-              <option value="keep">Keep only ({filteredKeep.length.toLocaleString()})</option>
-              <option value="keep-maybe">Keep + Maybe ({(filteredKeep.length + filteredMaybe.length).toLocaleString()})</option>
-            </select>
-          </label>
+          <div className="export-scope-control">
+            <span>Selection</span>
+            <details className="export-scope-menu">
+              <summary><strong>{scopeSummary}</strong><small>{selected.length.toLocaleString()} photos</small></summary>
+              <div className="export-scope-options">
+                <label><input type="checkbox" checked={scopes.has('keep')} onChange={() => toggleScope('keep')} /><span><strong>Keep</strong><small>{filteredKeep.length.toLocaleString()} photos</small></span></label>
+                <label><input type="checkbox" checked={scopes.has('maybe')} onChange={() => toggleScope('maybe')} /><span><strong>Maybe</strong><small>{filteredMaybe.length.toLocaleString()} photos</small></span></label>
+                <label><input type="checkbox" checked={scopes.has('known')} onChange={() => toggleScope('known')} /><span><strong>Known dates & holidays</strong><small>{filteredKnown.length.toLocaleString()} photos in {eventGroups.known.length.toLocaleString()} events</small></span></label>
+              </div>
+            </details>
+          </div>
+
           <label>Event filter
-            <select value={eventFilter} onChange={(event) => { setEventFilter(event.target.value); setOpenIndex(null); selection.clear() }}>
+            <select value={eventFilter} onChange={(event) => { setEventFilter(event.target.value); selection.clear() }}>
               <option value="">All events</option>
-              {sortedEvents.map((event) => <option value={event.id} key={event.id}>{event.title} · {event.itemIds.length} photos</option>)}
+              {eventGroups.known.map((event) => <option value={event.id} key={`known-${event.id}`}>{event.title} · {event.itemIds.length} photos</option>)}
+              {eventGroups.known.length > 0 && eventGroups.detected.length > 0 && <option disabled>──────────</option>}
+              {eventGroups.detected.map((event) => <option value={event.id} key={`detected-${event.id}`}>{event.title} · {event.itemIds.length} photos</option>)}
             </select>
           </label>
 
@@ -171,6 +222,7 @@ export function CurationPanel(props: CurationPanelProps): JSX.Element {
             {props.busy ? 'Exporting…' : `Export ${selected.length.toLocaleString()} photos`}
           </button>
         </div>
+        {knownOverrideError && <div className="notice error inline-notice">{knownOverrideError}</div>}
         {!props.exportSupported && <div className="notice warning inline-notice">This browser cannot write directly to a chosen export folder. Use a Chromium browser exposing the File System Access API.</div>}
         {props.reconnectRequired && <div className="notice warning inline-notice">Reconnect the source folder before exporting originals.</div>}
         {props.progress && <ExportProgress progress={props.progress} />}
@@ -179,12 +231,12 @@ export function CurationPanel(props: CurationPanelProps): JSX.Element {
 
       <PhotoSelectionBar items={selection.selectedItems} onReview={(targets, state) => targets.forEach((item) => props.onReview(item, state))} onClear={selection.clear} />
 
-      {filteredKeep.length === 0 ? (
-        <div className="curation-empty"><h3>{eventFilter ? 'No keepers in this event' : 'No keepers yet'}</h3><p>{eventFilter ? 'Choose another event or clear the event filter.' : 'Use Library, Review, Quality or Compare to mark photos as Keep. They appear here immediately.'}</p></div>
+      {selected.length === 0 ? (
+        <div className="curation-empty"><h3>No photos match this export selection</h3><p>{eventFilter ? 'Choose another event, clear the event filter, or enable another Selection checkbox.' : 'Enable Keep, Maybe or Known dates & holidays above.'}</p></div>
       ) : (
         <>
           <div className="keeper-grid">
-            {filteredKeep.slice(0, visibleCount).map((item, index) => {
+            {selected.slice(0, visibleCount).map((item, index) => {
               const isSelected = selection.isSelected(item.id)
               return <article className={isSelected ? 'keeper-card explorer-selected' : 'keeper-card'} key={item.id}>
                 <button type="button" className="keeper-preview" aria-pressed={isSelected} onClick={(event) => selection.handlePhotoClick(event, item.id, () => setOpenIndex(index))}>
@@ -195,14 +247,14 @@ export function CurationPanel(props: CurationPanelProps): JSX.Element {
               </article>
             })}
           </div>
-          {hasMore && !automaticFlow && <button className="load-more" type="button" onClick={() => setVisibleCount((count) => Math.min(filteredKeep.length, count + props.batchSize))}>Show {Math.min(props.batchSize, filteredKeep.length - visibleCount).toLocaleString()} more</button>}
+          {hasMore && !automaticFlow && <button className="load-more" type="button" onClick={() => setVisibleCount((count) => Math.min(selected.length, count + props.batchSize))}>Show {Math.min(props.batchSize, selected.length - visibleCount).toLocaleString()} more</button>}
           {hasMore && automaticFlow && <div ref={flowSentinelRef} aria-hidden="true" style={{ height: 1 }} />}
-          <p className="muted">Showing {Math.min(visibleCount, filteredKeep.length).toLocaleString()} of {filteredKeep.length.toLocaleString()} keepers · {props.batchSize.toLocaleString()} per batch{automaticFlow ? ' · Flow on' : ''}. All matching keepers remain included in export scope.</p>
+          <p className="muted">Showing {Math.min(visibleCount, selected.length).toLocaleString()} of {selected.length.toLocaleString()} photos in the current export selection · {props.batchSize.toLocaleString()} per batch{automaticFlow ? ' · Flow on' : ''}.</p>
         </>
       )}
 
-      {openIndex !== null && filteredKeep[openIndex] && (
-        <PhotoLightbox items={filteredKeep} index={openIndex} sessionFiles={props.sessionFiles} onIndex={setOpenIndex} onClose={() => setOpenIndex(null)} onReview={props.onReview} />
+      {openIndex !== null && selected[openIndex] && (
+        <PhotoLightbox items={selected} index={openIndex} sessionFiles={props.sessionFiles} onIndex={setOpenIndex} onClose={() => setOpenIndex(null)} onReview={props.onReview} />
       )}
     </section>
   )
@@ -222,4 +274,8 @@ function ExportResult({ result }: { result: LiteExportResult }): JSX.Element {
     {result.manifestPath && <span>JSON report: {result.manifestPath}</span>}{result.reportPath && <span>HTML report: {result.reportPath}</span>}
     {result.failures.length > 0 && <details><summary>{result.failures.length.toLocaleString()} export notices or failures</summary><ul>{result.failures.slice(0, 30).map((failure) => <li key={failure.itemId}>{failure.relativePath}: {failure.message}</li>)}</ul></details>}
   </div>
+}
+
+function messageOf(cause: unknown): string {
+  return cause instanceof Error ? cause.message : 'Something went wrong.'
 }

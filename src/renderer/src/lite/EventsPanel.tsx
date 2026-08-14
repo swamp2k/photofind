@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { usePhotoFindContextMenu } from './ContextMenu'
+import { applyKnownDateOverrides, createEventKnownDateOverride, isKnownDateEvent, isKnownDateOverride, matchingEventOverride } from './eventOverrides'
 import { isMeaningfulEvent } from './events'
 import { formatCapture } from './formatters'
+import { deleteEventOverride, loadEventOverrides, saveEventOverride } from './libraryDb'
 import { LocalThumbnail } from './LocalThumbnail'
 import { PhotoLightbox } from './PhotoLightbox'
 import { PhotoSelectionBar, useExplorerPhotoSelection } from './PhotoSelection'
 import { ReviewControls } from './ReviewControls'
 import { SourceFolderButton } from './SourcePathView'
 import { sourceFolderLabel, summarizeSourceFolders } from './sourcePaths'
-import type { LiteEventRecord, LiteMediaRecord, LitePersonRecord, LiteReviewState } from './types'
+import type { LiteEventOverride, LiteEventRecord, LiteMediaRecord, LitePersonRecord, LiteReviewState } from './types'
 
 interface EventsPanelProps {
   items: LiteMediaRecord[]
@@ -34,22 +36,47 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
   const [openIndex, setOpenIndex] = useState<number | null>(null)
   const [renameTarget, setRenameTarget] = useState<LiteEventRecord | null>(null)
   const [renameDraft, setRenameDraft] = useState('')
+  const [knownOverrides, setKnownOverrides] = useState<LiteEventOverride[]>([])
+  const [overrideError, setOverrideError] = useState<string | null>(null)
   const { openContextMenu } = usePhotoFindContextMenu()
   const byId = useMemo(() => new Map(items.map((item) => [item.id, item])), [items])
   const peopleById = useMemo(() => new Map(people.map((person) => [person.id, person])), [people])
-  const meaningfulCount = useMemo(() => events.filter(isMeaningfulEvent).length, [events])
-  const knownCount = useMemo(() => events.filter(isKnownDateEvent).length, [events])
+  const libraryId = events[0]?.libraryId ?? items[0]?.libraryId ?? null
+  const effectiveEvents = useMemo(() => applyKnownDateOverrides(events, knownOverrides), [events, knownOverrides])
+  const meaningfulCount = useMemo(() => effectiveEvents.filter((event) => isMeaningfulEvent(event) && !isKnownDateEvent(event)).length, [effectiveEvents])
+  const knownCount = useMemo(() => effectiveEvents.filter(isKnownDateEvent).length, [effectiveEvents])
   const visibleEvents = useMemo(() => {
-    let filtered = scope === 'meaningful' ? events.filter(isMeaningfulEvent) : scope === 'known' ? events.filter(isKnownDateEvent) : events
+    let filtered = scope === 'meaningful'
+      ? effectiveEvents.filter((event) => isMeaningfulEvent(event) && !isKnownDateEvent(event))
+      : scope === 'known'
+        ? effectiveEvents.filter(isKnownDateEvent)
+        : effectiveEvents
     if (personFilter) filtered = filtered.filter((event) => event.personIds.includes(personFilter))
     return [...filtered].sort((left, right) => compareEvents(left, right, byId, sortBy, sortDirection))
-  }, [byId, events, personFilter, scope, sortBy, sortDirection])
+  }, [byId, effectiveEvents, personFilter, scope, sortBy, sortDirection])
   const importedHolidayEvents = useMemo(() => visibleEvents.filter(isImportedHolidayEvent), [visibleEvents])
   const primaryEvents = useMemo(() => visibleEvents.filter((event) => !isImportedHolidayEvent(event)), [visibleEvents])
   const selected = visibleEvents.find((event) => event.id === selectedId) ?? primaryEvents[0] ?? importedHolidayEvents[0] ?? null
   const selectedItems = selected ? selected.itemIds.map((id) => byId.get(id)).filter(isMediaRecord) : []
   const selection = useExplorerPhotoSelection(selectedItems)
   const namedPeople = people.filter((person) => !person.ignored && person.name)
+
+  useEffect(() => {
+    let disposed = false
+    setOverrideError(null)
+    if (!libraryId) {
+      setKnownOverrides([])
+      return () => { disposed = true }
+    }
+    void loadEventOverrides(libraryId)
+      .then((overrides) => {
+        if (!disposed) setKnownOverrides(overrides.filter(isKnownDateOverride))
+      })
+      .catch((cause) => {
+        if (!disposed) setOverrideError(`Known-event classifications could not be loaded: ${messageOf(cause)}`)
+      })
+    return () => { disposed = true }
+  }, [libraryId])
 
   useEffect(() => {
     if (!selected) {
@@ -64,6 +91,21 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
   function beginRename(event: LiteEventRecord): void {
     setRenameTarget(event)
     setRenameDraft(event.customTitle ?? event.title)
+  }
+
+  async function addToKnownEvents(event: LiteEventRecord): Promise<void> {
+    if (!libraryId || isKnownDateEvent(event)) return
+    setOverrideError(null)
+    try {
+      const stored = await loadEventOverrides(libraryId)
+      const prior = matchingEventOverride(event, stored)
+      const next = createEventKnownDateOverride(event, prior)
+      await saveEventOverride(next)
+      if (prior && prior.id !== next.id) await deleteEventOverride(prior.id)
+      setKnownOverrides((current) => [next, ...current.filter((override) => override.id !== next.id && override.id !== prior?.id)])
+    } catch (cause) {
+      setOverrideError(`Event could not be added to Known dates & holidays: ${messageOf(cause)}`)
+    }
   }
 
   function showEventContextMenu(mouseEvent: ReactMouseEvent, event: LiteEventRecord): void {
@@ -87,6 +129,13 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
           label: 'Use generated name',
           onSelect: () => onRename(event, '')
         }] : []),
+        {
+          id: 'add-known-event',
+          label: isKnownDateEvent(event) ? 'Already in known events' : 'Add to known events',
+          disabled: isKnownDateEvent(event),
+          separatorBefore: true,
+          onSelect: () => addToKnownEvents(event)
+        },
         {
           id: 'remove-event',
           label: 'Remove event',
@@ -126,21 +175,23 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
       title="Right-click for event actions"
     >
       <div className="event-mosaic">{eventItems.slice(0, 4).map((item) => <div key={item.id}><LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} /></div>)}</div>
-      <div className="event-card-body"><strong>{event.title}</strong><span>{formatEventRange(event)} · {event.itemIds.length.toLocaleString()} photos</span><small>{event.personIds.map((id) => peopleById.get(id)?.name).filter(Boolean).slice(0, 3).join(', ') || event.folderPaths.slice(0, 2).map(sourceFolderLabel).join(', ')}</small>{event.customTitle ? <em>Named event</em> : event.knownDateTitle ? <em>Known date</em> : null}</div>
+      <div className="event-card-body"><strong>{event.title}</strong><span>{formatEventRange(event)} · {event.itemIds.length.toLocaleString()} photos</span><small>{event.personIds.map((id) => peopleById.get(id)?.name).filter(Boolean).slice(0, 3).join(', ') || event.folderPaths.slice(0, 2).map(sourceFolderLabel).join(', ')}</small>{isKnownDateEvent(event) ? <em>Known event</em> : event.customTitle ? <em>Named event</em> : null}</div>
     </button>
   }
 
   return (
     <section className="events-section compact-mode-section">
       <div className="compact-view-toolbar event-toolbar-controls">
-        <label className="event-person-filter"><span>Show</span><select value={scope} onChange={(event) => { setScope(event.target.value as EventScope); setSelectedId(null) }}><option value="meaningful">Meaningful events ({meaningfulCount.toLocaleString()})</option><option value="known">Known dates & holidays ({knownCount.toLocaleString()})</option><option value="all">All moments ({events.length.toLocaleString()})</option></select></label>
+        <label className="event-person-filter"><span>Show</span><select value={scope} onChange={(event) => { setScope(event.target.value as EventScope); setSelectedId(null) }}><option value="meaningful">Meaningful events ({meaningfulCount.toLocaleString()})</option><option value="known">Known dates & holidays ({knownCount.toLocaleString()})</option><option value="all">All moments ({effectiveEvents.length.toLocaleString()})</option></select></label>
         <label className="event-person-filter"><span>Person</span><select value={personFilter} onChange={(event) => setPersonFilter(event.target.value)}><option value="">All people</option>{namedPeople.map((person) => <option value={person.id} key={person.id}>{person.name}</option>)}</select></label>
         <label className="event-person-filter"><span>Sort by</span><select value={sortBy} onChange={(event) => setSortBy(event.target.value as EventSort)}><option value="captured">Date taken (EXIF / Takeout)</option><option value="modified">Date modified</option><option value="name">Event name</option><option value="count">Photo count</option></select></label>
         <button type="button" className="quiet-button event-sort-direction" onClick={() => setSortDirection((value) => value === 'asc' ? 'desc' : 'asc')} title="Reverse event sort">{sortDirection === 'asc' ? '↑ Ascending' : '↓ Descending'}</button>
-        <span className="compact-toolbar-note">Everyday day-buckets are hidden by default. Imported public holidays stay available below, collapsed into one group.</span>
+        <span className="compact-toolbar-note">Meaningful and Known are separate collections. Right-click a detected event to add it to Known dates & holidays.</span>
       </div>
 
-      {events.length === 0 ? <div className="compact-empty-state"><strong>No events to show.</strong><span>Index photos with usable timestamps. Known dates, GPS, People and similarity analysis can all strengthen grouping.</span></div> : visibleEvents.length === 0 ? <div className="compact-empty-state"><strong>No events match these filters.</strong><span>Choose another event scope or clear the person filter.</span></div> : (
+      {overrideError && <div className="notice error inline-notice">{overrideError}</div>}
+
+      {effectiveEvents.length === 0 ? <div className="compact-empty-state"><strong>No events to show.</strong><span>Index photos with usable timestamps. Known dates, GPS, People and similarity analysis can all strengthen grouping.</span></div> : visibleEvents.length === 0 ? <div className="compact-empty-state"><strong>No events match these filters.</strong><span>Choose another event scope or clear the person filter.</span></div> : (
         <div className="events-workspace">
           <div className="event-list">
             {primaryEvents.slice(0, 500).map(renderEventCard)}
@@ -154,7 +205,7 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
 
           <article className="event-detail">
             {!selected ? <p className="muted">Choose an event.</p> : <>
-              <header className="event-detail-head" onContextMenu={(mouseEvent) => showEventContextMenu(mouseEvent, selected)} title="Right-click for event actions"><div><span className="inspector-label">{selected.knownDateTitle ? 'Known date event' : selected.significance === 'everyday' ? 'Everyday moment' : 'Detected event'}</span><h3>{selected.title}</h3><p>{formatEventRange(selected)} · {selected.itemIds.length.toLocaleString()} photos · right-click for event actions</p></div>{selected.personIds.length > 0 && <div className="event-people">{selected.personIds.slice(0, 6).map((id) => <span key={id}>{peopleById.get(id)?.name || 'Unnamed person'}</span>)}</div>}</header>
+              <header className="event-detail-head" onContextMenu={(mouseEvent) => showEventContextMenu(mouseEvent, selected)} title="Right-click for event actions"><div><span className="inspector-label">{isKnownDateEvent(selected) ? 'Known event' : selected.significance === 'everyday' ? 'Everyday moment' : 'Detected event'}</span><h3>{selected.title}</h3><p>{formatEventRange(selected)} · {selected.itemIds.length.toLocaleString()} photos · right-click for event actions</p></div>{selected.personIds.length > 0 && <div className="event-people">{selected.personIds.slice(0, 6).map((id) => <span key={id}>{peopleById.get(id)?.name || 'Unnamed person'}</span>)}</div>}</header>
 
               <div className="event-evidence"><strong>Why these photos are together</strong><div>{selected.evidence.length > 0 ? selected.evidence.map((value) => <span key={value}>{value}</span>) : <span>single moment</span>}</div></div>
               <div className="event-folders"><strong>Source folders</strong><div>{summarizeSourceFolders(selectedItems).map((summary) => <SourceFolderButton key={summary.folder} folder={summary.folder} count={summary.count} />)}</div></div>
@@ -220,10 +271,6 @@ function sortTime(event: LiteEventRecord, byId: Map<string, LiteMediaRecord>, so
   return values.length > 0 ? Math.min(...values) : undefined
 }
 
-function isKnownDateEvent(event: LiteEventRecord): boolean {
-  return Boolean(event.knownDateId || event.knownDateTitle || event.significance === 'known-date')
-}
-
 function isImportedHolidayEvent(event: LiteEventRecord): boolean {
   return Boolean(event.knownDateId?.startsWith('holiday:'))
 }
@@ -237,4 +284,8 @@ function formatEventRange(event: LiteEventRecord): string {
 
 function isMediaRecord(item: LiteMediaRecord | undefined): item is LiteMediaRecord {
   return Boolean(item)
+}
+
+function messageOf(cause: unknown): string {
+  return cause instanceof Error ? cause.message : 'Something went wrong.'
 }
