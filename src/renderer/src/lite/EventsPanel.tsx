@@ -17,13 +17,15 @@ interface EventsPanelProps {
   sessionFiles: Map<string, File>
   onReview(item: LiteMediaRecord, state: LiteReviewState): void
   onRename(event: LiteEventRecord, title: string): void
+  onRemove(event: LiteEventRecord): void
+  onRemovePhotos(event: LiteEventRecord, items: LiteMediaRecord[]): void
 }
 
 type EventSort = 'name' | 'captured' | 'modified' | 'count'
 type SortDirection = 'asc' | 'desc'
 type EventScope = 'meaningful' | 'known' | 'all'
 
-export function EventsPanel({ items, events, people, sessionFiles, onReview, onRename }: EventsPanelProps): JSX.Element {
+export function EventsPanel({ items, events, people, sessionFiles, onReview, onRename, onRemove, onRemovePhotos }: EventsPanelProps): JSX.Element {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [personFilter, setPersonFilter] = useState('')
   const [scope, setScope] = useState<EventScope>('meaningful')
@@ -84,7 +86,16 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
           id: 'reset-event-name',
           label: 'Use generated name',
           onSelect: () => onRename(event, '')
-        }] : [])
+        }] : []),
+        {
+          id: 'remove-event',
+          label: 'Remove event',
+          danger: true,
+          separatorBefore: true,
+          onSelect: () => {
+            if (window.confirm(`Remove “${event.title}” from Events? Its ${event.itemIds.length.toLocaleString()} photos stay in your library.`)) onRemove(event)
+          }
+        }
       ]
     })
   }
@@ -95,12 +106,21 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
     setRenameTarget(null)
   }
 
+  function removeSelectedPhotos(targets: LiteMediaRecord[]): void {
+    if (!selected || targets.length === 0) return
+    const label = targets.length === 1 ? 'this photo' : `these ${targets.length.toLocaleString()} photos`
+    if (!window.confirm(`Remove ${label} from “${selected.title}”? The photos stay in your library and keep their review state.`)) return
+    onRemovePhotos(selected, targets)
+    selection.clear()
+  }
+
   function renderEventCard(event: LiteEventRecord): JSX.Element {
     const eventItems = event.itemIds.map((id) => byId.get(id)).filter(isMediaRecord)
     return <button
       type="button"
       className={selected?.id === event.id ? 'event-card selected' : 'event-card'}
       key={event.id}
+      data-photofind-event-card="true"
       onClick={() => { setSelectedId(event.id); setOpenIndex(null) }}
       onContextMenu={(mouseEvent) => showEventContextMenu(mouseEvent, event)}
       title="Right-click for event actions"
@@ -139,7 +159,7 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
               <div className="event-evidence"><strong>Why these photos are together</strong><div>{selected.evidence.length > 0 ? selected.evidence.map((value) => <span key={value}>{value}</span>) : <span>single moment</span>}</div></div>
               <div className="event-folders"><strong>Source folders</strong><div>{summarizeSourceFolders(selectedItems).map((summary) => <SourceFolderButton key={summary.folder} folder={summary.folder} count={summary.count} />)}</div></div>
 
-              <PhotoSelectionBar items={selection.selectedItems} onReview={(targets, state) => targets.forEach((item) => onReview(item, state))} onClear={selection.clear} />
+              <PhotoSelectionBar items={selection.selectedItems} onReview={(targets, state) => targets.forEach((item) => onReview(item, state))} onClear={selection.clear} onRemoveFromEvent={removeSelectedPhotos} />
               <div className="event-photo-grid">
                 {selectedItems.slice(0, 300).map((item, index) => {
                   const isSelected = selection.isSelected(item.id)

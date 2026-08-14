@@ -42,6 +42,10 @@ export function updateExplorerSelection(
   return { selectedIds, anchorId: clickedId }
 }
 
+export function preserveExplorerSelectionForPreview(currentSelection: ReadonlySet<string>, clickedId: string): ExplorerSelectionResult {
+  return { selectedIds: new Set(currentSelection), anchorId: clickedId }
+}
+
 export function selectedItemsInOrder<T extends { id: string }>(items: T[], selectedIds: ReadonlySet<string>): T[] {
   return items.filter((item) => selectedIds.has(item.id))
 }

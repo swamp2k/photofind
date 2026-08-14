@@ -61,6 +61,21 @@
 .settings-card-head p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
 .settings-current-keys { white-space: nowrap; color: #cfe0fa; font-weight: 800; }
 
+.settings-select-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #111821;
+}
+.settings-select-row > span { display: grid; gap: 4px; }
+.settings-select-row small { color: var(--muted); line-height: 1.45; }
+.settings-select-row select { min-width: 110px; }
+.settings-flow-toggle { margin-top: 14px; }
+
 .settings-toggle { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; }
 .settings-toggle input { margin-top: 3px; accent-color: var(--accent-strong); }
 .settings-toggle span { display: grid; gap: 4px; }
@@ -92,6 +107,8 @@ kbd { min-width: 24px; padding: 3px 6px; border: 1px solid #49586d; border-botto
 @media (max-width: 650px) {
   .global-settings-button { right: 12px; bottom: 12px; }
   .settings-drawer { width: 100%; padding: 20px; }
+  .settings-select-row { align-items: stretch; flex-direction: column; }
+  .settings-select-row select { width: 100%; }
   .keymap-option { grid-template-columns: auto minmax(0, 1fr); }
   .keymap-keys { grid-column: 2; }
 }

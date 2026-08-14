@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { formatCapture, formatLocation } from './formatters'
 import { hasLocation } from './filters'
 import { LocalThumbnail } from './LocalThumbnail'
@@ -11,24 +11,39 @@ import type { LiteMediaRecord, LiteReviewState } from './types'
 interface PhotoResultsProps {
   items: LiteMediaRecord[]
   visibleCount: number
+  batchSize: number
+  flowLoading: boolean
   selectedId: string | null
   sessionFiles: Map<string, File>
   onShowMore(): void
   onReview(item: LiteMediaRecord, state: LiteReviewState): void
 }
 
-export function PhotoResults({ items, visibleCount, selectedId, sessionFiles, onShowMore, onReview }: PhotoResultsProps): JSX.Element {
+export function PhotoResults({ items, visibleCount, batchSize, flowLoading, selectedId, sessionFiles, onShowMore, onReview }: PhotoResultsProps): JSX.Element {
   const [openIndex, setOpenIndex] = useState<number | null>(null)
   const [sortBy, setSortBy] = useState<LitePhotoSort>('exif')
   const [sortDirection, setSortDirection] = useState<LitePhotoSortDirection>('desc')
+  const flowSentinelRef = useRef<HTMLDivElement | null>(null)
   const sortedItems = useMemo(() => sortLibraryPhotos(items, sortBy, sortDirection), [items, sortBy, sortDirection])
   const visible = sortedItems.slice(0, visibleCount)
   const selection = useExplorerPhotoSelection(sortedItems)
+  const automaticFlow = flowLoading && typeof IntersectionObserver !== 'undefined'
+  const hasMore = visibleCount < sortedItems.length
 
   useEffect(() => {
     setOpenIndex(null)
-    selection.clear()
   }, [sortBy, sortDirection])
+
+  useEffect(() => {
+    if (!automaticFlow || !hasMore) return
+    const target = flowSentinelRef.current
+    if (!target) return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) onShowMore()
+    }, { rootMargin: '600px 0px' })
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [automaticFlow, hasMore, onShowMore, visibleCount])
 
   return (
     <section className="viewer-section">
@@ -41,7 +56,7 @@ export function PhotoResults({ items, visibleCount, selectedId, sessionFiles, on
           <label><span>Sort by</span><select value={sortBy} onChange={(event) => setSortBy(event.target.value as LitePhotoSort)}><option value="exif">Date taken (EXIF)</option><option value="filename">Filename</option><option value="folder">Folder name</option></select></label>
           <button type="button" className="quiet-button" onClick={() => setSortDirection((value) => value === 'asc' ? 'desc' : 'asc')} title="Reverse photo sort">{sortDirection === 'asc' ? '↑ Ascending' : '↓ Descending'}</button>
         </div>
-        <span className="muted library-view-hint">Showing {Math.min(visibleCount, items.length).toLocaleString()} · click to preview · Ctrl-click to select · Shift-click for a range</span>
+        <span className="muted library-view-hint">Showing {Math.min(visibleCount, items.length).toLocaleString()} · {batchSize.toLocaleString()} per batch{automaticFlow ? ' · Flow on' : ''} · click to preview · Ctrl-click to select · Shift-click for a range</span>
       </div>
 
       <PhotoSelectionBar items={selection.selectedItems} onReview={(targets, state) => targets.forEach((item) => onReview(item, state))} onClear={selection.clear} />
@@ -79,11 +94,12 @@ export function PhotoResults({ items, visibleCount, selectedId, sessionFiles, on
           })}
         </div>
       )}
-      {visibleCount < sortedItems.length && (
+      {hasMore && !automaticFlow && (
         <button className="load-more" onClick={onShowMore}>
-          Show {Math.min(120, sortedItems.length - visibleCount)} more
+          Show {Math.min(batchSize, sortedItems.length - visibleCount).toLocaleString()} more
         </button>
       )}
+      {hasMore && automaticFlow && <div ref={flowSentinelRef} aria-hidden="true" style={{ height: 1 }} />}
       {openIndex !== null && (
         <PhotoLightbox
           items={sortedItems}

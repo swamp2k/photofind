@@ -167,6 +167,8 @@ export interface LiteEventOverride {
   libraryId: string
   title: string
   itemIds: string[]
+  hidden?: boolean
+  includedItemIds?: string[]
   updatedAt: number
 }
 

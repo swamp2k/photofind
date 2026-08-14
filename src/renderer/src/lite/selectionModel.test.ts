@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { selectedItemsInOrder, updateExplorerSelection } from './selectionModel'
+import { preserveExplorerSelectionForPreview, selectedItemsInOrder, updateExplorerSelection } from './selectionModel'
 
 const ids = ['a', 'b', 'c', 'd', 'e']
 
@@ -30,6 +30,12 @@ describe('Explorer-style photo selection', () => {
   it('uses the clicked item as the anchor when no usable anchor exists', () => {
     const result = updateExplorerSelection(ids, new Set(), 'missing', 'c', { toggle: false, range: true })
     expect([...result.selectedIds]).toEqual(['c'])
+    expect(result.anchorId).toBe('c')
+  })
+
+  it('keeps existing selections when opening a preview', () => {
+    const result = preserveExplorerSelectionForPreview(new Set(['a', 'd']), 'c')
+    expect([...result.selectedIds]).toEqual(['a', 'd'])
     expect(result.anchorId).toBe('c')
   })
 

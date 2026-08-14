@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   DEFAULT_EXPORT_FOLDER_TEMPLATE,
   EXPORT_FOLDER_TEMPLATE_PRESETS,
@@ -22,6 +22,8 @@ interface CurationPanelProps {
   busy: boolean
   progress: LiteExportProgress | null
   result: LiteExportResult | null
+  batchSize: number
+  flowLoading: boolean
   onReview(item: LiteMediaRecord, state: LiteReviewState): void
   onExport(items: LiteMediaRecord[], layout: LiteExportLayout, includeReports: boolean, embedMetadata: boolean, includeEventName: boolean, preserveModifiedDates: boolean): void
 }
@@ -36,7 +38,9 @@ export function CurationPanel(props: CurationPanelProps): JSX.Element {
   const [embedMetadata, setEmbedMetadata] = useState(true)
   const [preserveModifiedDates, setPreserveModifiedDates] = useState(true)
   const [openIndex, setOpenIndex] = useState<number | null>(null)
+  const [visibleCount, setVisibleCount] = useState(props.batchSize)
   const templateInputRef = useRef<HTMLInputElement | null>(null)
+  const flowSentinelRef = useRef<HTMLDivElement | null>(null)
   const keep = useMemo(() => props.items.filter((item) => item.kind === 'image' && reviewStateOf(item) === 'keep'), [props.items])
   const maybe = useMemo(() => props.items.filter((item) => item.kind === 'image' && reviewStateOf(item) === 'maybe'), [props.items])
   const eventByItemId = useMemo(() => {
@@ -53,6 +57,25 @@ export function CurationPanel(props: CurationPanelProps): JSX.Element {
   const previewItem = selected[0] ?? filteredKeep[0] ?? keep[0]
   const previewEventName = previewItem ? eventByItemId.get(previewItem.id)?.customTitle : undefined
   const templatePreview = previewExportFolderTemplate(previewItem, folderTemplate, previewEventName)
+  const automaticFlow = props.flowLoading && typeof IntersectionObserver !== 'undefined'
+  const hasMore = visibleCount < filteredKeep.length
+
+  useEffect(() => {
+    setVisibleCount(props.batchSize)
+  }, [eventFilter, props.batchSize])
+
+  useEffect(() => {
+    if (!automaticFlow || !hasMore) return
+    const target = flowSentinelRef.current
+    if (!target) return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setVisibleCount((count) => Math.min(filteredKeep.length, count + props.batchSize))
+      }
+    }, { rootMargin: '600px 0px' })
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [automaticFlow, filteredKeep.length, hasMore, props.batchSize, visibleCount])
 
   function insertToken(token: string): void {
     const input = templateInputRef.current
@@ -159,20 +182,24 @@ export function CurationPanel(props: CurationPanelProps): JSX.Element {
       {filteredKeep.length === 0 ? (
         <div className="curation-empty"><h3>{eventFilter ? 'No keepers in this event' : 'No keepers yet'}</h3><p>{eventFilter ? 'Choose another event or clear the event filter.' : 'Use Library, Review, Quality or Compare to mark photos as Keep. They appear here immediately.'}</p></div>
       ) : (
-        <div className="keeper-grid">
-          {filteredKeep.slice(0, 300).map((item, index) => {
-            const isSelected = selection.isSelected(item.id)
-            return <article className={isSelected ? 'keeper-card explorer-selected' : 'keeper-card'} key={item.id}>
-              <button type="button" className="keeper-preview" aria-pressed={isSelected} onClick={(event) => selection.handlePhotoClick(event, item.id, () => setOpenIndex(index))}>
-                <LocalThumbnail item={item} sessionFile={props.sessionFiles.get(item.id)} />
-                {isSelected && <span className="selection-check">✓</span>}
-              </button>
-              <div className="keeper-card-body"><strong title={item.relativePath}>{item.name}</strong>{typeof item.qualityScore === 'number' && <span>Technical {item.qualityScore}/100</span>}<ReviewControls item={item} compact onReview={props.onReview} /></div>
-            </article>
-          })}
-        </div>
+        <>
+          <div className="keeper-grid">
+            {filteredKeep.slice(0, visibleCount).map((item, index) => {
+              const isSelected = selection.isSelected(item.id)
+              return <article className={isSelected ? 'keeper-card explorer-selected' : 'keeper-card'} key={item.id}>
+                <button type="button" className="keeper-preview" aria-pressed={isSelected} onClick={(event) => selection.handlePhotoClick(event, item.id, () => setOpenIndex(index))}>
+                  <LocalThumbnail item={item} sessionFile={props.sessionFiles.get(item.id)} />
+                  {isSelected && <span className="selection-check">✓</span>}
+                </button>
+                <div className="keeper-card-body"><strong title={item.relativePath}>{item.name}</strong>{typeof item.qualityScore === 'number' && <span>Technical {item.qualityScore}/100</span>}<ReviewControls item={item} compact onReview={props.onReview} /></div>
+              </article>
+            })}
+          </div>
+          {hasMore && !automaticFlow && <button className="load-more" type="button" onClick={() => setVisibleCount((count) => Math.min(filteredKeep.length, count + props.batchSize))}>Show {Math.min(props.batchSize, filteredKeep.length - visibleCount).toLocaleString()} more</button>}
+          {hasMore && automaticFlow && <div ref={flowSentinelRef} aria-hidden="true" style={{ height: 1 }} />}
+          <p className="muted">Showing {Math.min(visibleCount, filteredKeep.length).toLocaleString()} of {filteredKeep.length.toLocaleString()} keepers · {props.batchSize.toLocaleString()} per batch{automaticFlow ? ' · Flow on' : ''}. All matching keepers remain included in export scope.</p>
+        </>
       )}
-      {filteredKeep.length > 300 && <p className="muted">Showing the first 300 keepers for this filter. All {filteredKeep.length.toLocaleString()} matching keepers are included in export scope.</p>}
 
       {openIndex !== null && filteredKeep[openIndex] && (
         <PhotoLightbox items={filteredKeep} index={openIndex} sessionFiles={props.sessionFiles} onIndex={setOpenIndex} onClose={() => setOpenIndex(null)} onReview={props.onReview} />

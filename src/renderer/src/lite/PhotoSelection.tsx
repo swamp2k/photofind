@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { MouseEvent } from 'react'
-import { selectedItemsInOrder, updateExplorerSelection } from './selectionModel'
+import { preserveExplorerSelectionForPreview, selectedItemsInOrder, updateExplorerSelection } from './selectionModel'
 import type { LiteMediaRecord, LiteReviewState } from './types'
 
 export interface ExplorerPhotoSelection {
@@ -30,8 +30,9 @@ export function useExplorerPhotoSelection(items: LiteMediaRecord[]): ExplorerPho
     const toggle = event.ctrlKey || event.metaKey
     const range = event.shiftKey
     if (!toggle && !range) {
-      setSelectedIds(new Set())
-      setAnchorId(itemId)
+      const next = preserveExplorerSelectionForPreview(selectedIds, itemId)
+      setSelectedIds(next.selectedIds)
+      setAnchorId(next.anchorId)
       openPreview()
       return
     }
@@ -54,11 +55,13 @@ export function useExplorerPhotoSelection(items: LiteMediaRecord[]): ExplorerPho
 export function PhotoSelectionBar({
   items,
   onReview,
-  onClear
+  onClear,
+  onRemoveFromEvent
 }: {
   items: LiteMediaRecord[]
   onReview(items: LiteMediaRecord[], state: LiteReviewState): void
   onClear(): void
+  onRemoveFromEvent?(items: LiteMediaRecord[]): void
 }): JSX.Element | null {
   if (items.length === 0) return null
 
@@ -75,6 +78,7 @@ export function PhotoSelectionBar({
         <button type="button" className="selection-maybe" onClick={() => apply('maybe')}>? Maybe</button>
         <button type="button" className="selection-reject" onClick={() => apply('reject')}>× Reject</button>
         <button type="button" onClick={() => apply('unreviewed')}>Reset</button>
+        {onRemoveFromEvent && <button type="button" className="danger-outline" onClick={() => onRemoveFromEvent(items)}>Remove from event</button>}
         <button type="button" className="quiet-button" onClick={onClear}>Clear selection</button>
       </div>
     </div>

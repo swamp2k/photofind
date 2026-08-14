@@ -190,6 +190,7 @@ export function usePhotoFindContextMenu(): ContextMenuApi {
 
 function photoIdFromTarget(target: EventTarget | null): string | null {
   if (!(target instanceof Element)) return null
+  if (target.closest('[data-photofind-event-card]')) return null
   const owner = target.closest<HTMLElement>('[data-photofind-photo-id]')
   return owner?.dataset.photofindPhotoId ?? null
 }
