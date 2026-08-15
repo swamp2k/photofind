@@ -14,6 +14,7 @@ export type LiteReviewFilter = 'all' | LiteReviewState
 export type LiteExportLayout = 'flat' | 'date-day' | 'date-month' | 'source-folders'
 export type LiteKnownDateKind = 'birthday' | 'vacation' | 'holiday' | 'custom'
 export type LiteKnownDateSource = 'manual' | 'holiday-api'
+export type LiteKnownDateScope = 'library' | 'global'
 export type LiteEventSignificance = 'known-date' | 'away' | 'moment' | 'everyday'
 
 export type LiteFaceBox = [number, number, number, number]
@@ -96,6 +97,7 @@ export interface LiteKnownDateRecord {
   title: string
   kind: LiteKnownDateKind
   source: LiteKnownDateSource
+  scope?: LiteKnownDateScope
   startDate: string
   endDate: string
   recurringYearly: boolean
