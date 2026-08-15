@@ -1,9 +1,9 @@
 import type { LiteMediaRecord } from './types'
 
-export const DEFAULT_EXPORT_FOLDER_TEMPLATE = '{YYYY}/{MM} - {EVENT}'
+export const DEFAULT_EXPORT_FOLDER_TEMPLATE = '{YYYY}/{YYYY}.{MM} - {EVENT}'
 
 export const EXPORT_FOLDER_TEMPLATE_PRESETS: Array<{ label: string; value: string }> = [
-  { label: 'Year / month + event', value: '{YYYY}/{MM} - {EVENT}' },
+  { label: 'Year / YYYY.MM + event', value: '{YYYY}/{YYYY}.{MM} - {EVENT}' },
   { label: 'Year / dated event', value: '{YYYY}/{YYYY}.{MM}.{DD} - {EVENT}' },
   { label: 'Year / month / day', value: '{YYYY}/{MM}/{DD}' },
   { label: 'Event / year / month', value: '{EVENT}/{YYYY}/{MM}' },
