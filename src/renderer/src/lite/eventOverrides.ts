@@ -67,10 +67,27 @@ export function createEventRemovalOverride(event: LiteEventRecord, prior?: LiteE
   } as StoredEventOverride
 }
 
+export function createEventPhotoAdditionOverride(event: LiteEventRecord, addedItemIds: string[], prior?: LiteEventOverride, now = Date.now()): LiteEventOverride {
+  const currentMembership = prior?.includedItemIds ?? event.itemIds
+  const membership = [...new Set([...currentMembership, ...addedItemIds])]
+  const manual = manualOf(prior) || isManualEvent(event)
+  return {
+    id: eventOverrideId(event.libraryId, event.id),
+    eventId: event.id,
+    libraryId: event.libraryId,
+    title: prior?.title ?? event.customTitle ?? (manual ? event.title : ''),
+    itemIds: [...(prior?.itemIds ?? event.itemIds)],
+    includedItemIds: membership,
+    ...(knownDateOf(prior) || isKnownDateEvent(event) || manual ? { knownDate: true } : {}),
+    ...(manual ? { manual: true } : {}),
+    updatedAt: now
+  } as StoredEventOverride
+}
+
 export function createEventPhotoRemovalOverride(event: LiteEventRecord, removedItemIds: string[], prior?: LiteEventOverride, now = Date.now()): LiteEventOverride {
   const removed = new Set(removedItemIds)
   const currentMembership = prior?.includedItemIds ?? event.itemIds
-  const remaining = currentMembership.filter((id) => event.itemIds.includes(id) && !removed.has(id))
+  const remaining = currentMembership.filter((id) => !removed.has(id))
   const manual = manualOf(prior) || isManualEvent(event)
   return {
     id: eventOverrideId(event.libraryId, event.id),
@@ -217,8 +234,7 @@ function manualOf(override: LiteEventOverride | undefined): boolean {
 }
 
 function projectEventMembership(event: LiteEventRecord, includedItemIds: string[], itemById: Map<string, LiteMediaRecord>): LiteEventRecord | null {
-  const included = new Set(includedItemIds)
-  const itemIds = event.itemIds.filter((id) => included.has(id))
+  const itemIds = [...new Set(includedItemIds)]
   if (itemIds.length === 0) return null
   if (itemById.size === 0) return { ...event, itemIds }
 
@@ -235,7 +251,7 @@ function projectEventMembership(event: LiteEventRecord, includedItemIds: string[
     ...event,
     startTime: Math.min(...times),
     endTime: Math.max(...times),
-    itemIds,
+    itemIds: members.map((item) => item.id),
     personIds,
     folderPaths,
     latitude,
