@@ -3,7 +3,7 @@ import { clearThumbnailDiskCache, loadThumbnailFromDisk, saveThumbnailToDisk, th
 import type { LiteMediaRecord } from './types'
 
 const THUMBNAIL_CACHE_VERSION = 1
-const MAX_HOT_OBJECT_URLS = 1200
+const MAX_HOT_OBJECT_URLS = 2500
 const GENERATION_CONCURRENCY = 6
 
 const hotUrls = new Map<string, string>()
