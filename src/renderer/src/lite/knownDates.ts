@@ -1,4 +1,4 @@
-import type { LiteKnownDateKind, LiteKnownDateRecord } from './types'
+import type { LiteKnownDateKind, LiteKnownDateRecord, LiteKnownDateScope } from './types'
 
 export interface LiteKnownDateOccurrence {
   record: LiteKnownDateRecord
@@ -61,6 +61,7 @@ export function createKnownDate(input: {
   startDate: string
   endDate?: string
   recurringYearly?: boolean
+  scope?: LiteKnownDateScope
   now?: number
 }): LiteKnownDateRecord {
   const now = input.now ?? Date.now()
@@ -75,6 +76,7 @@ export function createKnownDate(input: {
     title,
     kind: input.kind,
     source: 'manual',
+    scope: input.scope ?? 'library',
     startDate: input.startDate,
     endDate,
     recurringYearly: Boolean(input.recurringYearly),
@@ -88,17 +90,19 @@ export function holidayKnownDate(input: {
   countryCode: string
   date: string
   title: string
+  scope?: LiteKnownDateScope
   now?: number
 }): LiteKnownDateRecord {
   const countryCode = input.countryCode.trim().toUpperCase()
   const title = input.title.trim()
   const now = input.now ?? Date.now()
   return {
-    id: `holiday:${stableHash(`${input.libraryId}|${countryCode}|${input.date}|${title}`)}`,
+    id: `holiday:${stableHash(`${countryCode}|${input.date}|${title}`)}`,
     libraryId: input.libraryId,
     title,
     kind: 'holiday',
     source: 'holiday-api',
+    scope: input.scope ?? 'library',
     startDate: input.date,
     endDate: input.date,
     recurringYearly: false,
@@ -109,9 +113,17 @@ export function holidayKnownDate(input: {
 }
 
 export function mergeKnownDates(existing: LiteKnownDateRecord[], incoming: LiteKnownDateRecord[]): LiteKnownDateRecord[] {
-  const byId = new Map(existing.map((record) => [record.id, record]))
-  for (const record of incoming) byId.set(record.id, record)
-  return [...byId.values()].sort(compareKnownDates)
+  const output = [...existing]
+  for (const record of incoming) {
+    const index = output.findIndex((candidate) => candidate.id === record.id || sameImportedHoliday(candidate, record))
+    if (index >= 0) output[index] = record
+    else output.push(record)
+  }
+  return output.sort(compareKnownDates)
+}
+
+export function knownDateScope(record: LiteKnownDateRecord): LiteKnownDateScope {
+  return record.scope === 'global' ? 'global' : 'library'
 }
 
 export function compareKnownDates(left: LiteKnownDateRecord, right: LiteKnownDateRecord): number {
@@ -124,6 +136,13 @@ export function knownDateKindLabel(kind: LiteKnownDateKind): string {
   if (kind === 'vacation') return 'Vacation'
   if (kind === 'holiday') return 'Public holiday'
   return 'Custom'
+}
+
+function sameImportedHoliday(left: LiteKnownDateRecord, right: LiteKnownDateRecord): boolean {
+  if (left.source !== 'holiday-api' || right.source !== 'holiday-api') return false
+  return left.countryCode === right.countryCode
+    && left.startDate === right.startDate
+    && left.title.trim().toLocaleLowerCase() === right.title.trim().toLocaleLowerCase()
 }
 
 function knownDatePriority(record: LiteKnownDateRecord): number {
