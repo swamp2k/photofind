@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { collisionCandidate, exportPathParts } from './exporter'
+import { collisionCandidate, exportModifiedTime, exportPathParts } from './exporter'
 import type { LiteExportLayout, LiteMediaRecord } from './types'
 
 function photo(relativePath: string, effectiveCaptureTime?: number): LiteMediaRecord {
@@ -53,6 +53,17 @@ describe('export path planning', () => {
     const captured = new Date(2011, 5, 14, 12, 0, 0).getTime()
     expect(exportPathParts(photo('Bad:Folder/IMG?.JPG'), 'source-folders')).toEqual({ directories: ['Bad_Folder'], fileName: 'IMG_.JPG' })
     expect(exportPathParts(photo('IMG.JPG', captured), 'date-month', 'Trip: Spain / France').directories).toEqual(['2011', '06 - Trip_ Spain _ France'])
+  })
+})
+
+describe('export modified-time restoration', () => {
+  it('prefers the best known capture time over the current filesystem timestamp', () => {
+    const captured = new Date(2011, 5, 14, 12, 34, 56).getTime()
+    expect(exportModifiedTime(photo('IMG.JPG', captured))).toBe(captured)
+  })
+
+  it('falls back to the filesystem timestamp when no capture time is known', () => {
+    expect(exportModifiedTime(photo('IMG.JPG'))).toBe(100)
   })
 })
 
