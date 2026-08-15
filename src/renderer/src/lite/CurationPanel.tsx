@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { buildExportSelection, splitEventsForExportFilter, type ExportSelectionScope } from './curationSelection'
+import { buildExportSelection, exportEventName, splitEventsForExportFilter, type ExportSelectionScope } from './curationSelection'
 import { applyKnownDateOverrides, isKnownDateOverride } from './eventOverrides'
 import {
   DEFAULT_EXPORT_FOLDER_TEMPLATE,
@@ -69,7 +69,8 @@ export function CurationPanel(props: CurationPanelProps): JSX.Element {
   }, [effectiveEvents])
   const templateError = validateExportFolderTemplate(folderTemplate)
   const previewItem = selected[0] ?? keep[0] ?? knownPhotos[0]
-  const previewEventName = previewItem ? eventByItemId.get(previewItem.id)?.title : undefined
+  const previewEvent = previewItem ? eventByItemId.get(previewItem.id) : undefined
+  const previewEventName = previewEvent ? exportEventName(previewEvent) : undefined
   const templatePreview = previewExportFolderTemplate(previewItem, folderTemplate, previewEventName)
   const automaticFlow = props.flowLoading && typeof IntersectionObserver !== 'undefined'
   const hasMore = visibleCount < selected.length
@@ -203,7 +204,7 @@ export function CurationPanel(props: CurationPanelProps): JSX.Element {
               <span>{templateError ? 'Template error' : 'Preview'}</span>
               <code>{templateError ?? templatePreview}</code>
             </div>
-            <small><strong>{'{EVENT}'}</strong> uses the title of a meaningful or Known event. Photos without an event automatically fall back to the same template with the empty event suffix removed.</small>
+            <small><strong>{'{EVENT}'}</strong> uses Known dates & holidays and events you explicitly named or promoted. Auto-detected meaningful groups stay in the plain month folder.</small>
           </div>
 
           <label className="check-label export-option">
