@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildExportSelection, splitEventsForExportFilter } from './curationSelection'
+import { buildExportEventNameMap, buildExportSelection, splitEventsForExportFilter } from './curationSelection'
 import type { LiteEventRecord, LiteMediaRecord } from './types'
 
 function photo(id: string, reviewState: LiteMediaRecord['reviewState'] = 'unreviewed'): LiteMediaRecord {
@@ -50,6 +50,17 @@ describe('curation export selection', () => {
     const known = event('known-event', ['b', 'c'], { significance: 'known-date' })
     const selected = buildExportSelection(items, new Set(['keep', 'known']), [known], known)
     expect(selected.map((item) => item.id)).toEqual(['b', 'c'])
+  })
+
+  it('maps event titles to member photos for export folders', () => {
+    const names = buildExportEventNameMap([
+      event('trip', ['a', 'b'], { title: 'Motorcycle trip' }),
+      event('holiday', ['c'], { title: 'Christmas Day', significance: 'known-date' })
+    ])
+    expect(names.get('a')).toBe('Motorcycle trip')
+    expect(names.get('b')).toBe('Motorcycle trip')
+    expect(names.get('c')).toBe('Christmas Day')
+    expect(names.has('outside')).toBe(false)
   })
 
   it('orders known events before detected events for the filter menu', () => {
