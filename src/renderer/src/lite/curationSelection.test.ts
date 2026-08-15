@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildExportEventNameMap, buildExportSelection, splitEventsForExportFilter } from './curationSelection'
+import { buildExportEventNameMap, buildExportSelection, exportEventName, splitEventsForExportFilter } from './curationSelection'
 import type { LiteEventRecord, LiteMediaRecord } from './types'
 
 function photo(id: string, reviewState: LiteMediaRecord['reviewState'] = 'unreviewed'): LiteMediaRecord {
@@ -52,15 +52,22 @@ describe('curation export selection', () => {
     expect(selected.map((item) => item.id)).toEqual(['b', 'c'])
   })
 
-  it('maps event titles to member photos for export folders', () => {
-    const names = buildExportEventNameMap([
-      event('trip', ['a', 'b'], { title: 'Motorcycle trip' }),
-      event('holiday', ['c'], { title: 'Christmas Day', significance: 'known-date' })
-    ])
-    expect(names.get('a')).toBe('Motorcycle trip')
+  it('uses only explicit or known event names for export folders', () => {
+    const generated = event('generated', ['a'], { title: 'Jan 5, 2019 – Jan 7, 2019 · Library root', significance: 'moment' })
+    const named = event('named', ['b'], { title: 'Motorcycle trip', customTitle: 'Motorcycle trip', significance: 'moment' })
+    const holiday = event('holiday', ['c'], { title: 'Nytårsdag', knownDateTitle: 'Nytårsdag', significance: 'known-date' })
+    const promoted = { ...event('promoted', ['d'], { title: 'Family day' }), promotedToKnown: true } as LiteEventRecord
+
+    expect(exportEventName(generated)).toBeUndefined()
+    expect(exportEventName(named)).toBe('Motorcycle trip')
+    expect(exportEventName(holiday)).toBe('Nytårsdag')
+    expect(exportEventName(promoted)).toBe('Family day')
+
+    const names = buildExportEventNameMap([generated, named, holiday, promoted])
+    expect(names.has('a')).toBe(false)
     expect(names.get('b')).toBe('Motorcycle trip')
-    expect(names.get('c')).toBe('Christmas Day')
-    expect(names.has('outside')).toBe(false)
+    expect(names.get('c')).toBe('Nytårsdag')
+    expect(names.get('d')).toBe('Family day')
   })
 
   it('orders known events before detected events for the filter menu', () => {
