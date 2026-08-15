@@ -5,12 +5,12 @@ import { classifyLikelyNonPhoto, setScreenshotOverride } from './contentClassifi
 import { usePhotoFindContextMenu } from './ContextMenu'
 import { CurationPanel } from './CurationPanel'
 import { buildExportEventNameMap } from './curationSelection'
-import { applyEventOverrides, createEventOverride, createEventPhotoRemovalOverride, createEventRemovalOverride, matchingEventOverride } from './eventOverrides'
+import { applyEventOverrides, createEventOverride, createEventPhotoRemovalOverride, createEventRemovalOverride, createManualEventOverride, matchingEventOverride } from './eventOverrides'
 import { buildEvents, isMeaningfulEvent } from './events'
 import { EventsPanel } from './EventsPanel'
 import { exportLocalPhotos } from './exporter'
 import { ensureReadPermission, ensureWritePermission, localFolderAccessMode, pickExportDirectory, pickLocalDirectory, pickLocalDirectoryFiles, supportsWritableExport } from './fileAccess'
-import { availableYears, dateInputToEnd, dateInputToStart, filterPhotos, hasLocation } from './filters'
+import { availableYears, containsCoordinate, dateInputToEnd, dateInputToStart, filterPhotos, hasLocation } from './filters'
 import { KnownDatesDialog } from './KnownDatesDialog'
 import { deleteEventOverride, deleteLibrary, listLibraries, loadEventOverrides, loadMedia, loadPeople, putMediaRecords, replaceLibrary, saveEventOverride, saveLibraryKnownDates, savePeopleState } from './libraryDb'
 import { MapResults } from './MapResults'
@@ -74,9 +74,9 @@ export function LiteApp(): JSX.Element {
   const [locationFilter, setLocationFilter] = useState<LiteLocationFilter>('all')
   const [dateMetadataFilter, setDateMetadataFilter] = useState<LiteDateMetadataFilter>('all')
   const [reviewFilter, setReviewFilter] = useState<LiteReviewFilter>('all')
-  const [filterToViewport, setFilterToViewport] = useState(false)
   const [mapBounds, setMapBounds] = useState<LiteGeoBounds | null>(null)
   const [selectedMapId, setSelectedMapId] = useState<string | null>(null)
+  const filterToViewport = view === 'map'
   const folderMode = localFolderAccessMode()
   const supported = folderMode !== 'unsupported'
   const exportSupported = supportsWritableExport()
@@ -144,6 +144,11 @@ export function LiteApp(): JSX.Element {
   }), [year, fromDate, toDate, locationFilter, dateMetadataFilter])
   const contextMapItems = useMemo(() => filterPhotos(searchedImages, baseFilters), [searchedImages, baseFilters])
   const mapItems = useMemo(() => filterByReview(contextMapItems, reviewFilter), [contextMapItems, reviewFilter])
+  const mapViewportItems = useMemo(() => {
+    const located = mapItems.filter(hasLocation)
+    if (!mapBounds) return located
+    return located.filter((item) => containsCoordinate(mapBounds, item.latitude!, item.longitude!))
+  }, [mapBounds, mapItems])
   const contextFilteredImages = useMemo(() => filterPhotos(searchedImages, { ...baseFilters, mapBounds: filterToViewport ? mapBounds : null }), [searchedImages, baseFilters, filterToViewport, mapBounds])
   const filteredImages = useMemo(() => filterByReview(contextFilteredImages, reviewFilter), [contextFilteredImages, reviewFilter])
   const starredFilteredImages = useMemo(() => filteredImages.filter(isStarred), [filteredImages])
@@ -437,6 +442,21 @@ export function LiteApp(): JSX.Element {
     } catch (cause) { setError(`Photos could not be removed from the event: ${messageOf(cause)}`) }
   }
 
+  async function createMapEvent(targets: LiteMediaRecord[], title: string): Promise<void> {
+    if (!activeLibrary) throw new Error('Open a library before creating an event.')
+    const next = createManualEventOverride(activeLibrary.id, targets, title)
+    if (!next) throw new Error('Choose a name and keep at least one photo inside the visible map area.')
+    try {
+      setError(null)
+      await saveEventOverride(next)
+      setEventOverrides((current) => [next, ...current.filter((override) => override.id !== next.id)])
+    } catch (cause) {
+      const message = `Map event could not be saved: ${messageOf(cause)}`
+      setError(message)
+      throw new Error(message)
+    }
+  }
+
   async function replaceKnownDates(records: LiteKnownDateRecord[]): Promise<void> {
     if (!activeLibrary) return
     try {
@@ -535,11 +555,11 @@ export function LiteApp(): JSX.Element {
   }
 
   function resetBrowseState(): void {
-    setKnownDatesOpen(false); setVisibleCount(pageSize); setView('photos'); setSearchQuery(''); setSourceFolderFilter(null); setYear(null); setFromDate(''); setToDate(''); setLocationFilter('all'); setDateMetadataFilter('all'); setReviewFilter('all'); setFilterToViewport(false); setMapBounds(null); setSelectedMapId(null); setSimilarityProgress(null); setQualityProgress(null); setPeopleProgress(null); setExportProgress(null); setExportResult(null)
+    setKnownDatesOpen(false); setVisibleCount(pageSize); setView('photos'); setSearchQuery(''); setSourceFolderFilter(null); setYear(null); setFromDate(''); setToDate(''); setLocationFilter('all'); setDateMetadataFilter('all'); setReviewFilter('all'); setMapBounds(null); setSelectedMapId(null); setSimilarityProgress(null); setQualityProgress(null); setPeopleProgress(null); setExportProgress(null); setExportResult(null)
   }
 
   function clearFilters(): void {
-    setSearchQuery(''); setSourceFolderFilter(null); setYear(null); setFromDate(''); setToDate(''); setLocationFilter('all'); setDateMetadataFilter('all'); setFilterToViewport(false); setMapBounds(null); setVisibleCount(pageSize)
+    setSearchQuery(''); setSourceFolderFilter(null); setYear(null); setFromDate(''); setToDate(''); setLocationFilter('all'); setDateMetadataFilter('all'); setVisibleCount(pageSize)
   }
 
   function showSourceFolder(folder: string): void {
@@ -551,7 +571,6 @@ export function LiteApp(): JSX.Element {
     setLocationFilter('all')
     setDateMetadataFilter('all')
     setReviewFilter('all')
-    setFilterToViewport(false)
     setMapBounds(null)
     setSelectedMapId(null)
     setVisibleCount(pageSize)
@@ -583,7 +602,7 @@ export function LiteApp(): JSX.Element {
               <ModeButton icon="▦" label="Library" active={view === 'photos'} disabled={!activeLibrary} onClick={() => setView('photos')} />
               <ModeButton icon="★" label="Starred" count={starredImages.length} active={view === 'starred'} disabled={!activeLibrary} onClick={() => { setView('starred'); setVisibleCount(pageSize) }} />
               <ModeButton icon="◷" label="Events" count={meaningfulEvents.length} active={view === 'events'} disabled={!activeLibrary} onClick={() => setView('events')} />
-              <ModeButton icon="⌖" label="Map" count={locatedCount} active={view === 'map'} disabled={!activeLibrary} onClick={() => setView('map')} />
+              <ModeButton icon="⌖" label="Map" count={locatedCount} active={view === 'map'} disabled={!activeLibrary} onClick={() => { setMapBounds(null); setView('map') }} />
               <ModeButton icon="◎" label="People" count={visiblePeopleCount} active={view === 'people'} disabled={!activeLibrary} onClick={() => setView('people')} />
               <ModeButton icon="◫" label="Duplicates" count={similarityGroups.length} active={view === 'groups'} disabled={!activeLibrary} onClick={() => setView('groups')} />
               <ModeButton icon="✦" label="Quality" count={qualityReadyCount} active={view === 'quality'} disabled={!activeLibrary} onClick={() => setView('quality')} />
@@ -635,12 +654,12 @@ export function LiteApp(): JSX.Element {
               {browseControls && <details className="filter-disclosure" open>
                 <summary><span>Find & filter</span><strong>{currentBrowseImages.length.toLocaleString()} matching</strong></summary>
                 <BrowseFilters years={years} year={year} fromDate={fromDate} toDate={toDate} location={locationFilter} dateMetadata={dateMetadataFilter} matchingCount={currentBrowseImages.length} totalCount={currentBrowseTotal} viewportActive={filterToViewport && mapBounds !== null}
-                  onYear={(value) => { setYear(value); setVisibleCount(pageSize) }} onFromDate={(value) => { setFromDate(value); setVisibleCount(pageSize) }} onToDate={(value) => { setToDate(value); setVisibleCount(pageSize) }} onLocation={(value) => { setLocationFilter(value); setVisibleCount(pageSize) }} onDateMetadata={(value) => { setDateMetadataFilter(value); setVisibleCount(pageSize) }} onClear={clearFilters} />
+                  onYear={(value) => { setYear(value); setVisibleCount(pageSize) }} onFromDate={(value) => { setFromDate(value); setToDate(value); setVisibleCount(pageSize) }} onToDate={(value) => { setToDate(value); setVisibleCount(pageSize) }} onLocation={(value) => { setLocationFilter(value); setVisibleCount(pageSize) }} onDateMetadata={(value) => { setDateMetadataFilter(value); setVisibleCount(pageSize) }} onClear={clearFilters} />
                 <ReviewToolbar counts={reviewCounts} filter={reviewFilter} matchingCount={currentBrowseImages.length} onFilter={(value) => { setReviewFilter(value); setVisibleCount(pageSize) }} onBulk={bulkReview} />
               </details>}
 
               {view === 'events' && <EventsPanel items={activeImages} events={events} people={people} sessionFiles={sessionFiles} onReview={(item, state) => updateReview([item], state)} onRename={(event, title) => void renameEvent(event, title)} onRemove={(event) => void removeEvent(event)} onRemovePhotos={(event, targets) => void removePhotosFromEvent(event, targets)} />}
-              {view === 'map' && <MapResults items={mapItems} filterToViewport={filterToViewport} selected={selectedMapItem} sessionFiles={sessionFiles} onFilterToViewport={setFilterToViewport} onBoundsChange={handleMapBounds} onSelect={setSelectedMapId} onShowSelected={() => { setView('photos'); setVisibleCount(pageSize) }} onReview={(item, state) => updateReview([item], state)} />}
+              {view === 'map' && <MapResults items={mapItems} visibleItems={mapViewportItems} viewportReady={mapBounds !== null} selected={selectedMapItem} sessionFiles={sessionFiles} onBoundsChange={handleMapBounds} onCreateEvent={createMapEvent} onSelect={setSelectedMapId} onShowSelected={() => { setView('photos'); setVisibleCount(pageSize) }} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'people' && <PeoplePanel items={activeImages} people={people} sessionFiles={sessionFiles} progress={peopleProgress} busy={peopleBusy} reconnectRequired={reconnectRequired} onRename={(personId, name) => void renamePerson(personId, name)} onIgnore={(personId, ignored) => void ignorePerson(personId, ignored)} onMerge={(sourceId, targetId) => void mergePerson(sourceId, targetId)} onSplit={(faceRef) => void splitPersonFace(faceRef)} onExclude={(faceRef, personId) => void excludePersonFace(faceRef, personId)} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'photos' && <PhotoResults items={filteredImages} visibleCount={visibleCount} batchSize={pageSize} flowLoading={settings.flowLoading} selectedId={selectedMapId} sessionFiles={sessionFiles} onShowMore={() => setVisibleCount((count) => count + pageSize)} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'starred' && <PhotoResults items={starredFilteredImages} visibleCount={visibleCount} batchSize={pageSize} flowLoading={settings.flowLoading} selectedId={null} sessionFiles={sessionFiles} onShowMore={() => setVisibleCount((count) => count + pageSize)} onReview={(item, state) => updateReview([item], state)} />}
