@@ -12,11 +12,12 @@ import type { LiteGeoBounds, LiteMediaRecord, LiteReviewState } from './types'
 
 interface MapResultsProps {
   items: LiteMediaRecord[]
-  filterToViewport: boolean
+  visibleItems: LiteMediaRecord[]
+  viewportReady: boolean
   selected: LiteMediaRecord | null
   sessionFiles: Map<string, File>
-  onFilterToViewport(value: boolean): void
   onBoundsChange(bounds: LiteGeoBounds | null): void
+  onCreateEvent(items: LiteMediaRecord[], title: string): Promise<void>
   onSelect(itemId: string): void
   onShowSelected(): void
   onReview(item: LiteMediaRecord, state: LiteReviewState): void
@@ -25,8 +26,15 @@ interface MapResultsProps {
 export function MapResults(props: MapResultsProps): JSX.Element {
   const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([])
   const [openStackIndex, setOpenStackIndex] = useState<number | null>(null)
+  const [createItems, setCreateItems] = useState<LiteMediaRecord[] | null>(null)
+  const [createTitle, setCreateTitle] = useState('')
+  const [createError, setCreateError] = useState<string | null>(null)
+  const [createBusy, setCreateBusy] = useState(false)
+  const [createNotice, setCreateNotice] = useState<string | null>(null)
   const located = props.items.filter(hasLocation)
+  const visibleLocated = props.visibleItems.filter(hasLocation)
   const locations = useMemo(() => groupMappedLocations(located), [located])
+  const visibleLocations = useMemo(() => groupMappedLocations(visibleLocated), [visibleLocated])
   const byId = useMemo(() => new Map(located.map((item) => [item.id, item])), [located])
   const selectedLocationItems = selectedLocationIds.map((id) => byId.get(id)).filter(isMediaRecord)
   const activeItems = selectedLocationItems.length > 0 ? selectedLocationItems : props.selected ? [props.selected] : []
@@ -40,27 +48,56 @@ export function MapResults(props: MapResultsProps): JSX.Element {
     if (itemIds.length === 1) props.onSelect(itemIds[0])
   }
 
+  function beginCreateEvent(): void {
+    if (!props.viewportReady || visibleLocated.length === 0) return
+    setCreateItems([...visibleLocated])
+    setCreateTitle('')
+    setCreateError(null)
+    setCreateNotice(null)
+  }
+
+  async function submitCreateEvent(): Promise<void> {
+    if (!createItems || createItems.length === 0 || !createTitle.trim() || createBusy) return
+    setCreateBusy(true)
+    setCreateError(null)
+    try {
+      await props.onCreateEvent(createItems, createTitle.trim())
+      setCreateNotice(`Created “${createTitle.trim()}” from ${createItems.length.toLocaleString()} photos in the captured map area.`)
+      setCreateItems(null)
+      setCreateTitle('')
+    } catch (cause) {
+      setCreateError(cause instanceof Error ? cause.message : 'The event could not be created.')
+    } finally {
+      setCreateBusy(false)
+    }
+  }
+
   return (
     <section className="map-section">
       <div className="map-toolbar">
         <div className="map-toolbar-left">
-          <label className="check-label">
-            <input type="checkbox" checked={props.filterToViewport} onChange={(event) => props.onFilterToViewport(event.target.checked)} />
-            <span>Filter photo results to visible map area</span>
-          </label>
-          <span className="map-location-summary">
-            <strong>{located.length.toLocaleString()}</strong> geotagged photos · <strong>{locations.length.toLocaleString()}</strong> mapped locations
-            {stackedLocationCount > 0 && <> · <strong>{stackedLocationCount.toLocaleString()}</strong> stacked</>}
-          </span>
+          <button type="button" className="primary map-create-event-button" disabled={!props.viewportReady || visibleLocated.length === 0} onClick={beginCreateEvent}>+ Create Event</button>
+          <div className="map-viewport-summary">
+            <span className="map-location-summary">
+              {props.viewportReady
+                ? <><strong>{visibleLocated.length.toLocaleString()}</strong> photos · <strong>{visibleLocations.length.toLocaleString()}</strong> locations in visible map area</>
+                : <>Calculating visible map area…</>}
+            </span>
+            <span className="map-location-summary">
+              {located.length.toLocaleString()} geotagged photos match the current date/review filters
+              {stackedLocationCount > 0 && <> · {stackedLocationCount.toLocaleString()} stacked locations</>}
+            </span>
+          </div>
         </div>
-        <span className="muted">Blue markers contain multiple photos at the same stored coordinates. Map tiles: OpenStreetMap.</span>
+        <span className="muted">Pan or zoom to change the active photo set. Blue markers contain multiple photos at the same stored coordinates. Map tiles: OpenStreetMap.</span>
       </div>
+      {createNotice && <div className="notice success inline-notice map-create-notice">{createNotice}</div>}
       {located.length === 0 ? (
         <div className="map-empty">No geotagged photos match the current non-map filters.</div>
       ) : (
         <GeoMap
           items={located}
-          filterToViewport={props.filterToViewport}
+          filterToViewport
           onBoundsChange={props.onBoundsChange}
           onSelectItems={selectMapItems}
         />
@@ -116,6 +153,20 @@ export function MapResults(props: MapResultsProps): JSX.Element {
           onClose={() => setOpenStackIndex(null)}
           onReview={props.onReview}
         />
+      )}
+
+      {createItems && (
+        <div className="pf-dialog-backdrop" role="presentation" onMouseDown={() => { if (!createBusy) setCreateItems(null) }}>
+          <form className="pf-dialog map-event-dialog" role="dialog" aria-modal="true" aria-label="Create event from map" onMouseDown={(event) => event.stopPropagation()} onSubmit={(event) => { event.preventDefault(); void submitCreateEvent() }}>
+            <div><span className="mode-kicker">Visible map area</span><h3>Create Event</h3><p>This event will contain the {createItems.length.toLocaleString()} photos that were inside the map viewport when you clicked Create Event. Current date and review filters are already applied.</p></div>
+            <label><span>Event name</span><input autoFocus value={createTitle} onChange={(event) => setCreateTitle(event.target.value)} placeholder="e.g. Weekend in Aarhus" /></label>
+            {createError && <div className="notice error inline-notice">{createError}</div>}
+            <div className="pf-dialog-actions">
+              <button type="button" className="quiet-button" disabled={createBusy} onClick={() => setCreateItems(null)}>Cancel</button>
+              <button type="submit" className="primary" disabled={createBusy || !createTitle.trim()}>{createBusy ? 'Creating…' : `Create event · ${createItems.length.toLocaleString()} photos`}</button>
+            </div>
+          </form>
+        </div>
       )}
     </section>
   )
