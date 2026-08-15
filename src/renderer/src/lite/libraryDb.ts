@@ -93,6 +93,24 @@ export async function saveEventOverride(override: LiteEventOverride): Promise<vo
   }
 }
 
+export async function saveEventOverrideBatch(overrides: LiteEventOverride[], deleteIds: string[] = []): Promise<void> {
+  if (overrides.length === 0 && deleteIds.length === 0) return
+  const db = await openDb()
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(EVENT_OVERRIDES_STORE, 'readwrite')
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error ?? new Error('Event changes could not be saved.'))
+      transaction.onabort = () => reject(transaction.error ?? new Error('Event changes were aborted.'))
+      const store = transaction.objectStore(EVENT_OVERRIDES_STORE)
+      for (const id of new Set(deleteIds)) store.delete(id)
+      for (const override of overrides) store.put(override)
+    })
+  } finally {
+    db.close()
+  }
+}
+
 export async function deleteEventOverride(id: string): Promise<void> {
   const db = await openDb()
   try {
