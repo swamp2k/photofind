@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { applyEventOverrides, applyKnownDateOverrides, createEventKnownDateOverride, createEventOverride, createEventPhotoRemovalOverride, createEventRemovalOverride, isKnownDateEvent, isKnownDateOverride, matchingEventOverride } from './eventOverrides'
-import type { LiteEventRecord } from './types'
+import { applyEventOverrides, applyKnownDateOverrides, createEventKnownDateOverride, createEventOverride, createEventPhotoRemovalOverride, createEventRemovalOverride, createManualEventOverride, isKnownDateEvent, isKnownDateOverride, isManualEvent, matchingEventOverride } from './eventOverrides'
+import type { LiteEventRecord, LiteMediaRecord } from './types'
 
 function event(id: string, itemIds: string[], title = 'Generated event'): LiteEventRecord {
   return {
@@ -13,6 +13,24 @@ function event(id: string, itemIds: string[], title = 'Generated event'): LiteEv
     personIds: [],
     folderPaths: [],
     evidence: []
+  }
+}
+
+function photo(id: string, time: number, latitude = 56, longitude = 10): LiteMediaRecord {
+  return {
+    id,
+    libraryId: 'library',
+    relativePath: `${id}.jpg`,
+    name: `${id}.jpg`,
+    kind: 'image',
+    sizeBytes: 1,
+    lastModified: time,
+    mimeType: 'image/jpeg',
+    effectiveCaptureTime: time,
+    captureTimeSource: 'exif',
+    latitude,
+    longitude,
+    locationSource: 'exif'
   }
 }
 
@@ -101,5 +119,40 @@ describe('event overrides', () => {
     const applied = applyKnownDateOverrides([original], [override])[0]
     expect(applied.title).toBe('Generated event')
     expect(isKnownDateEvent(applied)).toBe(true)
+  })
+
+  it('creates a standalone persistent event from an arbitrary map viewport', () => {
+    const items = [photo('a', 100, 56.1, 10.1), photo('b', 200, 56.2, 10.2)]
+    const manual = createManualEventOverride('library', items, 'Weekend in Aarhus', 12345)!
+    const generated = event('automatic', ['a', 'b'], 'Jan 5 – Jan 7 · Library root')
+    const applied = applyEventOverrides([generated], [manual], items)
+    const created = applied.find((candidate) => candidate.id === manual.eventId)!
+
+    expect(applied).toHaveLength(2)
+    expect(created.title).toBe('Weekend in Aarhus')
+    expect(created.customTitle).toBe('Weekend in Aarhus')
+    expect(created.itemIds).toEqual(['a', 'b'])
+    expect(created.startTime).toBe(100)
+    expect(created.endTime).toBe(200)
+    expect(isManualEvent(created)).toBe(true)
+    expect(matchingEventOverride(generated, [manual])).toBeUndefined()
+  })
+
+  it('keeps a manual event independent through rename, photo removal and deletion', () => {
+    const items = [photo('a', 100), photo('b', 200), photo('c', 300)]
+    const stored = createManualEventOverride('library', items, 'Map event', 10)!
+    const created = applyEventOverrides([], [stored], items)[0]
+    const renamed = createEventOverride(created, 'Renamed map event', 20, stored)!
+    const renamedEvent = applyEventOverrides([], [renamed], items)[0]
+    expect(renamedEvent.title).toBe('Renamed map event')
+    expect(isManualEvent(renamedEvent)).toBe(true)
+
+    const trimmed = createEventPhotoRemovalOverride(renamedEvent, ['b'], renamed, 30)
+    const trimmedEvent = applyEventOverrides([], [trimmed], items)[0]
+    expect(trimmedEvent.itemIds).toEqual(['a', 'c'])
+    expect(isManualEvent(trimmedEvent)).toBe(true)
+
+    const removed = createEventRemovalOverride(trimmedEvent, trimmed, 40)
+    expect(applyEventOverrides([], [removed], items)).toEqual([])
   })
 })
