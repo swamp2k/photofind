@@ -22,7 +22,7 @@ export function createEventOverride(event: LiteEventRecord, title: string, now =
     itemIds: [...(prior?.itemIds ?? event.itemIds)],
     ...(prior?.hidden ? { hidden: true } : {}),
     ...(prior?.includedItemIds !== undefined ? { includedItemIds: [...prior.includedItemIds] } : {}),
-    ...(knownDateOf(prior) || promotedToKnown(event) ? { knownDate: true } : {}),
+    ...(knownDateOf(prior) || promotedToKnown(event) || manual ? { knownDate: true } : {}),
     ...(manual ? { manual: true } : {}),
     updatedAt: now
   } as StoredEventOverride
@@ -45,6 +45,7 @@ export function createManualEventOverride(
     title: normalized,
     itemIds,
     includedItemIds: [...itemIds],
+    knownDate: true,
     manual: true,
     updatedAt: now
   } as StoredEventOverride
@@ -60,7 +61,7 @@ export function createEventRemovalOverride(event: LiteEventRecord, prior?: LiteE
     itemIds: [...(prior?.itemIds ?? event.itemIds)],
     hidden: true,
     ...(prior?.includedItemIds !== undefined ? { includedItemIds: [...prior.includedItemIds] } : {}),
-    ...(knownDateOf(prior) || promotedToKnown(event) ? { knownDate: true } : {}),
+    ...(knownDateOf(prior) || promotedToKnown(event) || manual ? { knownDate: true } : {}),
     ...(manual ? { manual: true } : {}),
     updatedAt: now
   } as StoredEventOverride
@@ -79,7 +80,7 @@ export function createEventPhotoRemovalOverride(event: LiteEventRecord, removedI
     itemIds: [...(prior?.itemIds ?? event.itemIds)],
     ...(remaining.length === 0 ? { hidden: true } : {}),
     includedItemIds: remaining,
-    ...(knownDateOf(prior) || promotedToKnown(event) ? { knownDate: true } : {}),
+    ...(knownDateOf(prior) || promotedToKnown(event) || manual ? { knownDate: true } : {}),
     ...(manual ? { manual: true } : {}),
     updatedAt: now
   } as StoredEventOverride
@@ -118,7 +119,7 @@ export function isManualEvent(event: LiteEventRecord): boolean {
 }
 
 export function isKnownDateEvent(event: LiteEventRecord): boolean {
-  return Boolean(promotedToKnown(event) || event.knownDateId || event.knownDateTitle || event.significance === 'known-date')
+  return Boolean(isManualEvent(event) || promotedToKnown(event) || event.knownDateId || event.knownDateTitle || event.significance === 'known-date')
 }
 
 export function applyKnownDateOverrides(events: LiteEventRecord[], overrides: LiteEventOverride[]): LiteEventRecord[] {
@@ -194,7 +195,7 @@ function manualEventFromOverride(override: LiteEventOverride, itemById: Map<stri
     latitude,
     longitude,
     evidence: ['created from visible map area'],
-    significance: knownDateOf(override) ? 'known-date' : 'moment',
+    significance: 'known-date',
     manual: true
   } as ManualEventRecord
 }
