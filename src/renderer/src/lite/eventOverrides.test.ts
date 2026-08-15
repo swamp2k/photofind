@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyEventOverrides, applyKnownDateOverrides, createEventKnownDateOverride, createEventOverride, createEventPhotoRemovalOverride, createEventRemovalOverride, createManualEventOverride, isKnownDateEvent, isKnownDateOverride, isManualEvent, matchingEventOverride } from './eventOverrides'
+import { applyEventOverrides, applyKnownDateOverrides, createEventKnownDateOverride, createEventOverride, createEventPhotoAdditionOverride, createEventPhotoRemovalOverride, createEventRemovalOverride, createManualEventOverride, isKnownDateEvent, isKnownDateOverride, isManualEvent, matchingEventOverride } from './eventOverrides'
 import type { LiteEventOverride, LiteEventRecord, LiteMediaRecord } from './types'
 
 function event(id: string, itemIds: string[], title = 'Generated event'): LiteEventRecord {
@@ -68,6 +68,18 @@ describe('event overrides', () => {
     const applied = applyEventOverrides([original], [override])[0]
     expect(applied.itemIds).toEqual(['1', '3'])
     expect(override.hidden).toBeUndefined()
+  })
+
+  it('can add a photo outside the detected membership and remove it again', () => {
+    const items = [photo('1', 100), photo('2', 200), photo('3', 300)]
+    const original = { ...event('event-a', ['1', '2'], 'Known event'), significance: 'known-date' as const }
+    const added = createEventPhotoAdditionOverride(original, ['3'], undefined, 10)
+    const expanded = applyEventOverrides([original], [added], items)[0]
+    expect(expanded.itemIds).toEqual(['1', '2', '3'])
+    expect(isKnownDateEvent(expanded)).toBe(true)
+
+    const removed = createEventPhotoRemovalOverride(expanded, ['3'], added, 20)
+    expect(applyEventOverrides([original], [removed], items)[0].itemIds).toEqual(['1', '2'])
   })
 
   it('preserves manual membership when an edited event is renamed or reset', () => {
@@ -171,5 +183,20 @@ describe('event overrides', () => {
     const removed = createEventRemovalOverride(trimmedEvent, trimmed, 40)
     expect(isKnownDateOverride(removed)).toBe(true)
     expect(applyEventOverrides([], [removed], items)).toEqual([])
+  })
+
+  it('can replace multiple source events with one persistent known merged event', () => {
+    const items = [photo('a', 100), photo('b', 200), photo('c', 300)]
+    const first = { ...event('easter-thursday', ['a'], 'Maundy Thursday'), significance: 'known-date' as const }
+    const second = { ...event('good-friday', ['b', 'c'], 'Good Friday'), significance: 'known-date' as const }
+    const merged = createManualEventOverride('library', items, 'Easter holiday', 50)!
+    const hiddenFirst = createEventRemovalOverride(first, undefined, 51)
+    const hiddenSecond = createEventRemovalOverride(second, undefined, 52)
+    const result = applyEventOverrides([first, second], [merged, hiddenFirst, hiddenSecond], items)
+
+    expect(result).toHaveLength(1)
+    expect(result[0].title).toBe('Easter holiday')
+    expect(result[0].itemIds).toEqual(['a', 'b', 'c'])
+    expect(isKnownDateEvent(result[0])).toBe(true)
   })
 })
