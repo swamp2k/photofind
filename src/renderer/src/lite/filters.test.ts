@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { containsCoordinate, filterPhotos } from './filters'
+import { containsCoordinate, dateInputWithYear, filterPhotos } from './filters'
 import type { LiteMediaRecord, LitePhotoFilters } from './types'
 
 function photo(id: string, time: number, latitude?: number, longitude?: number, source: 'takeout' | 'exif' | 'file' = 'exif'): LiteMediaRecord {
@@ -55,5 +55,17 @@ describe('combined photo filtering', () => {
     const items = [photo('captured', time, 56, 12, 'exif'), photo('fallback', time, undefined, undefined, 'file')]
     expect(filterPhotos(items, { ...base, location: 'missing' }).map((item) => item.id)).toEqual(['fallback'])
     expect(filterPhotos(items, { ...base, dateMetadata: 'file-only' }).map((item) => item.id)).toEqual(['fallback'])
+  })
+})
+
+describe('date input helpers', () => {
+  it('jumps directly to another year while preserving month and day', () => {
+    expect(dateInputWithYear('2019-08-14', 2007)).toBe('2007-08-14')
+  })
+
+  it('clamps leap day and supports useful empty-date defaults', () => {
+    expect(dateInputWithYear('2020-02-29', 2019)).toBe('2019-02-28')
+    expect(dateInputWithYear('', 2019, 1, 1)).toBe('2019-01-01')
+    expect(dateInputWithYear('', 2019, 12, 31)).toBe('2019-12-31')
   })
 })
