@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { previewExportFolderTemplate, renderExportFolderTemplate, validateExportFolderTemplate } from './exportPathTemplate'
+import { DEFAULT_EXPORT_FOLDER_TEMPLATE, previewExportFolderTemplate, renderExportFolderTemplate, validateExportFolderTemplate } from './exportPathTemplate'
 import type { LiteMediaRecord } from './types'
 
 function photo(time: number): LiteMediaRecord {
@@ -18,6 +18,13 @@ function photo(time: number): LiteMediaRecord {
 
 describe('dynamic export folder templates', () => {
   const captured = new Date(2016, 3, 25, 12, 0, 0).getTime()
+
+  it('uses year-prefixed month folders by default and drops an empty event cleanly', () => {
+    expect(renderExportFolderTemplate(photo(captured), DEFAULT_EXPORT_FOLDER_TEMPLATE, 'MC kørsel til Bakken'))
+      .toEqual(['2016', '2016.04 - MC kørsel til Bakken'])
+    expect(renderExportFolderTemplate(photo(captured), DEFAULT_EXPORT_FOLDER_TEMPLATE))
+      .toEqual(['2016', '2016.04'])
+  })
 
   it('renders repeated placeholders and literal custom text', () => {
     expect(renderExportFolderTemplate(photo(captured), '{YYYY}/{YYYY}.{MM}.{DD} - {EVENT}', 'MC kørsel til Bakken'))
