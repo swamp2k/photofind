@@ -38,7 +38,7 @@ const SCOPE_LABELS: Record<ExportSelectionScope, string> = {
 }
 
 export function CurationPanel(props: CurationPanelProps): JSX.Element {
-  const [scopes, setScopes] = useState<Set<ExportSelectionScope>>(() => new Set(['keep']))
+  const [scopes, setScopes] = useState<Set<ExportSelectionScope>>(() => new Set(['keep', 'known']))
   const [eventFilter, setEventFilter] = useState('')
   const [folderTemplate, setFolderTemplate] = useState(DEFAULT_EXPORT_FOLDER_TEMPLATE)
   const [includeReports, setIncludeReports] = useState(true)
@@ -69,7 +69,7 @@ export function CurationPanel(props: CurationPanelProps): JSX.Element {
   }, [effectiveEvents])
   const templateError = validateExportFolderTemplate(folderTemplate)
   const previewItem = selected[0] ?? keep[0] ?? knownPhotos[0]
-  const previewEventName = previewItem ? eventByItemId.get(previewItem.id)?.customTitle : undefined
+  const previewEventName = previewItem ? eventByItemId.get(previewItem.id)?.title : undefined
   const templatePreview = previewExportFolderTemplate(previewItem, folderTemplate, previewEventName)
   const automaticFlow = props.flowLoading && typeof IntersectionObserver !== 'undefined'
   const hasMore = visibleCount < selected.length
@@ -193,7 +193,7 @@ export function CurationPanel(props: CurationPanelProps): JSX.Element {
               value={folderTemplate}
               onChange={(event) => setFolderTemplate(event.target.value)}
               spellCheck={false}
-              placeholder="{YYYY}/{MM} - {EVENT}"
+              placeholder="{YYYY}/{YYYY}.{MM} - {EVENT}"
             />
             <div className="template-token-row" aria-label="Insert folder placeholder">
               {EXPORT_FOLDER_TEMPLATE_TOKENS.map((token) => <button type="button" className="token-button" key={token} onClick={() => insertToken(token)}>{token}</button>)}
@@ -203,7 +203,7 @@ export function CurationPanel(props: CurationPanelProps): JSX.Element {
               <span>{templateError ? 'Template error' : 'Preview'}</span>
               <code>{templateError ?? templatePreview}</code>
             </div>
-            <small><strong>{'{EVENT}'}</strong> uses only an event name you explicitly assigned. If no name exists, PhotoFind removes the empty placeholder and trailing separators cleanly.</small>
+            <small><strong>{'{EVENT}'}</strong> uses the title of a meaningful or Known event. Photos without an event automatically fall back to the same template with the empty event suffix removed.</small>
           </div>
 
           <label className="check-label export-option">
@@ -269,7 +269,7 @@ function ExportResult({ result }: { result: LiteExportResult }): JSX.Element {
     <strong>{result.exported.toLocaleString()} photos exported</strong>
     <span>{result.metadataEmbedded.toLocaleString()} JPEG files received embedded normalized metadata · {result.sidecarsWritten.toLocaleString()} XMP sidecars written · {result.metadataUnchanged.toLocaleString()} copied with existing metadata unchanged.</span>
     <span>{result.renamed.toLocaleString()} filenames were safely renamed to avoid overwriting existing files.</span>
-    {result.timestampRestoreCount > 0 && <span><strong>Modified dates:</strong> original filesystem mtimes for {result.timestampRestoreCount.toLocaleString()} exported photos are recorded. Run the included Python script on Linux/macOS or PowerShell script on Windows to apply them to the exported files.</span>}
+    {result.timestampRestoreCount > 0 && <span><strong>Modified dates:</strong> best known photo dates for {result.timestampRestoreCount.toLocaleString()} exported photos are recorded. Run the included Python script on Linux/macOS or PowerShell script on Windows to apply them to the exported files.</span>}
     {result.timestampRestoreFiles?.map((path) => <span key={path}>Timestamp helper: {path}</span>)}
     {result.manifestPath && <span>JSON report: {result.manifestPath}</span>}{result.reportPath && <span>HTML report: {result.reportPath}</span>}
     {result.failures.length > 0 && <details><summary>{result.failures.length.toLocaleString()} export notices or failures</summary><ul>{result.failures.slice(0, 30).map((failure) => <li key={failure.itemId}>{failure.relativePath}: {failure.message}</li>)}</ul></details>}
