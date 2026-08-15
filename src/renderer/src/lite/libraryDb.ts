@@ -1,3 +1,4 @@
+import { clearThumbnailDiskCacheForLibrary } from './thumbnailDb'
 import type { LiteEventOverride, LiteKnownDateRecord, LiteLibraryRecord, LiteMediaRecord, LitePersonRecord } from './types'
 
 const DB_NAME = 'photofind-lite'
@@ -297,6 +298,13 @@ export async function deleteLibrary(libraryId: string): Promise<void> {
     })
   } finally {
     db.close()
+  }
+
+  try {
+    await clearThumbnailDiskCacheForLibrary(libraryId)
+  } catch {
+    // The index is already safely removed. A non-critical cache cleanup failure should not
+    // make PhotoFind report that source/index deletion failed.
   }
 }
 
