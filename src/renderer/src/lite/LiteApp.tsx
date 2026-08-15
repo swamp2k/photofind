@@ -4,6 +4,7 @@ import { ComparePanel } from './ComparePanel'
 import { classifyLikelyNonPhoto, setScreenshotOverride } from './contentClassification'
 import { usePhotoFindContextMenu } from './ContextMenu'
 import { CurationPanel } from './CurationPanel'
+import { buildExportEventNameMap } from './curationSelection'
 import { applyEventOverrides, createEventOverride, createEventPhotoRemovalOverride, createEventRemovalOverride, matchingEventOverride } from './eventOverrides'
 import { buildEvents, isMeaningfulEvent } from './events'
 import { EventsPanel } from './EventsPanel'
@@ -122,14 +123,7 @@ export function LiteApp(): JSX.Element {
   const baseEvents = useMemo(() => buildEvents(activeImages, similarityGroups, knownDates ?? []), [activeImages, similarityGroups, knownDates])
   const events = useMemo(() => applyEventOverrides(baseEvents, eventOverrides, activeImages), [activeImages, baseEvents, eventOverrides])
   const meaningfulEvents = useMemo(() => events.filter(isMeaningfulEvent), [events])
-  const namedEventByItemId = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const event of events) {
-      if (!event.customTitle) continue
-      for (const itemId of event.itemIds) map.set(itemId, event.customTitle)
-    }
-    return map
-  }, [events])
+  const exportEventByItemId = useMemo(() => buildExportEventNameMap(meaningfulEvents), [meaningfulEvents])
   const qualityReadyCount = useMemo(() => activeImages.filter((item) => item.qualityStatus === 'ready').length, [activeImages])
   const greatQualityCount = useMemo(() => activeImages.filter((item) => item.qualityTier === 'great').length, [activeImages])
   const peopleAnalyzedCount = useMemo(() => activeImages.filter((item) => item.faceAnalysisStatus === 'ready').length, [activeImages])
@@ -472,7 +466,7 @@ export function LiteApp(): JSX.Element {
         embedMetadata,
         includeEventName,
         preserveModifiedDates,
-        eventNameForItem: (item) => namedEventByItemId.get(item.id),
+        eventNameForItem: (item) => exportEventByItemId.get(item.id),
         resolveFile: resolveLocalFile,
         onProgress: setExportProgress
       })
