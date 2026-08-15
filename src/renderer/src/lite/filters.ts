@@ -58,3 +58,13 @@ export function dateInputToEnd(value: string): number | null {
   if (parts.length !== 3 || parts.some((part) => !Number.isFinite(part))) return null
   return new Date(parts[0], parts[1] - 1, parts[2], 23, 59, 59, 999).getTime()
 }
+
+export function dateInputWithYear(value: string, year: number, fallbackMonth = 1, fallbackDay = 1): string {
+  if (!Number.isInteger(year) || year < 1) return value
+  const parts = value.split('-').map(Number)
+  const month = parts.length === 3 && Number.isFinite(parts[1]) ? Math.min(12, Math.max(1, parts[1])) : fallbackMonth
+  const requestedDay = parts.length === 3 && Number.isFinite(parts[2]) ? Math.max(1, parts[2]) : fallbackDay
+  const maximumDay = new Date(year, month, 0).getDate()
+  const day = Math.min(requestedDay, maximumDay)
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+}
