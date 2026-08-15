@@ -23,10 +23,22 @@ export function buildExportSelection(
   })
 }
 
+export function exportEventName(event: LiteEventRecord): string | undefined {
+  const customTitle = event.customTitle?.trim()
+  if (customTitle) return customTitle
+  if (!isKnownDateEvent(event)) return undefined
+
+  const knownTitle = event.knownDateTitle?.trim()
+  if (knownTitle) return knownTitle
+
+  const title = event.title.trim()
+  return title || undefined
+}
+
 export function buildExportEventNameMap(events: LiteEventRecord[]): Map<string, string> {
   const map = new Map<string, string>()
   for (const event of events) {
-    const title = event.title.trim()
+    const title = exportEventName(event)
     if (!title) continue
     for (const itemId of event.itemIds) map.set(itemId, title)
   }
