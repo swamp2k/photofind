@@ -1,11 +1,12 @@
 import type { LiteEventOverride, LiteKnownDateRecord, LiteLibraryRecord, LiteMediaRecord, LitePersonRecord } from './types'
 
 const DB_NAME = 'photofind-lite'
-const DB_VERSION = 3
+const DB_VERSION = 4
 const LIBRARIES_STORE = 'libraries'
 const MEDIA_STORE = 'media'
 const PEOPLE_STORE = 'people'
 const EVENT_OVERRIDES_STORE = 'eventOverrides'
+const GLOBAL_KNOWN_DATES_STORE = 'globalKnownDates'
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -34,6 +35,9 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(EVENT_OVERRIDES_STORE)) {
         const store = db.createObjectStore(EVENT_OVERRIDES_STORE, { keyPath: 'id' })
         store.createIndex('libraryId', 'libraryId', { unique: false })
+      }
+      if (!db.objectStoreNames.contains(GLOBAL_KNOWN_DATES_STORE)) {
+        db.createObjectStore(GLOBAL_KNOWN_DATES_STORE, { keyPath: 'id' })
       }
     }
     request.onsuccess = () => resolve(request.result)
@@ -79,6 +83,17 @@ export async function loadEventOverrides(libraryId: string): Promise<LiteEventOv
     const transaction = db.transaction(EVENT_OVERRIDES_STORE, 'readonly')
     const rows = await requestResult(transaction.objectStore(EVENT_OVERRIDES_STORE).index('libraryId').getAll(libraryId)) as LiteEventOverride[]
     return rows.sort((a, b) => b.updatedAt - a.updatedAt)
+  } finally {
+    db.close()
+  }
+}
+
+export async function loadGlobalKnownDates(): Promise<LiteKnownDateRecord[]> {
+  const db = await openDb()
+  try {
+    const transaction = db.transaction(GLOBAL_KNOWN_DATES_STORE, 'readonly')
+    const rows = await requestResult(transaction.objectStore(GLOBAL_KNOWN_DATES_STORE).getAll()) as LiteKnownDateRecord[]
+    return rows.sort((a, b) => a.startDate.localeCompare(b.startDate) || a.title.localeCompare(b.title))
   } finally {
     db.close()
   }
@@ -145,6 +160,45 @@ export async function saveLibraryKnownDates(libraryId: string, knownDates: LiteK
         }
         next = { ...current, knownDates }
         store.put(next)
+      }
+    })
+  } finally {
+    db.close()
+  }
+}
+
+export async function saveKnownDateState(
+  libraryId: string,
+  localKnownDates: LiteKnownDateRecord[],
+  globalKnownDates: LiteKnownDateRecord[]
+): Promise<LiteLibraryRecord> {
+  const db = await openDb()
+  try {
+    return await new Promise<LiteLibraryRecord>((resolve, reject) => {
+      const transaction = db.transaction([LIBRARIES_STORE, GLOBAL_KNOWN_DATES_STORE], 'readwrite')
+      const libraryStore = transaction.objectStore(LIBRARIES_STORE)
+      const globalStore = transaction.objectStore(GLOBAL_KNOWN_DATES_STORE)
+      let next: LiteLibraryRecord | null = null
+
+      transaction.oncomplete = () => {
+        if (next) resolve(next)
+        else reject(new Error('The local PhotoFind library no longer exists.'))
+      }
+      transaction.onerror = () => reject(transaction.error ?? new Error('Known dates could not be saved.'))
+      transaction.onabort = () => reject(transaction.error ?? new Error('Known-date update was aborted.'))
+
+      const request = libraryStore.get(libraryId)
+      request.onerror = () => transaction.abort()
+      request.onsuccess = () => {
+        const current = request.result as LiteLibraryRecord | undefined
+        if (!current) {
+          transaction.abort()
+          return
+        }
+        next = { ...current, knownDates: localKnownDates }
+        libraryStore.put(next)
+        globalStore.clear()
+        for (const record of globalKnownDates) globalStore.put({ ...record, scope: 'global' })
       }
     })
   } finally {
