@@ -12,7 +12,8 @@ import { exportLocalPhotos } from './exporter'
 import { ensureReadPermission, ensureWritePermission, localFolderAccessMode, pickExportDirectory, pickLocalDirectory, pickLocalDirectoryFiles, supportsWritableExport } from './fileAccess'
 import { availableYears, containsCoordinate, dateInputToEnd, dateInputToStart, filterPhotos, hasLocation } from './filters'
 import { KnownDatesDialog } from './KnownDatesDialog'
-import { deleteEventOverride, deleteLibrary, listLibraries, loadEventOverrides, loadMedia, loadPeople, putMediaRecords, replaceLibrary, saveEventOverride, saveEventOverrideBatch, saveLibraryKnownDates, savePeopleState } from './libraryDb'
+import { mergeKnownDates } from './knownDates'
+import { deleteEventOverride, deleteLibrary, listLibraries, loadEventOverrides, loadGlobalKnownDates, loadMedia, loadPeople, putMediaRecords, replaceLibrary, saveEventOverride, saveEventOverrideBatch, saveKnownDateState, savePeopleState } from './libraryDb'
 import { MapResults } from './MapResults'
 import { analyzePeople } from './peopleAnalysis'
 import { clusterPeople, excludeFaceFromPerson, mergePeople as mergePeopleState, renamePerson as renamePersonState, setPersonIgnored, splitFaceIntoNewPerson } from './people'
@@ -52,6 +53,7 @@ export function LiteApp(): JSX.Element {
   const [people, setPeople] = useState<LitePersonRecord[]>([])
   const [eventOverrides, setEventOverrides] = useState<LiteEventOverride[]>([])
   eventOverridesRef.current = eventOverrides
+  const [globalKnownDates, setGlobalKnownDates] = useState<LiteKnownDateRecord[]>([])
   const [sessionFiles, setSessionFiles] = useState<Map<string, File>>(new Map())
   const [progress, setProgress] = useState<LiteScanProgress | null>(null)
   const [similarityProgress, setSimilarityProgress] = useState<LiteSimilarityProgress | null>(null)
@@ -86,7 +88,10 @@ export function LiteApp(): JSX.Element {
   const reviewBusy = reviewWrites > 0
   const working = busy || similarityBusy || qualityBusy || peopleBusy || reviewBusy || exportBusy
 
-  useEffect(() => { void refreshLibraries() }, [])
+  useEffect(() => {
+    void refreshLibraries()
+    void refreshGlobalKnownDates()
+  }, [])
   useEffect(() => { setVisibleCount(pageSize) }, [pageSize])
   useEffect(() => {
     registerPhotoActions({
@@ -148,8 +153,9 @@ export function LiteApp(): JSX.Element {
   const reviewCounts = useMemo(() => countReviewStates(images), [images])
   const allSimilarityGroups = useMemo(() => buildSimilarityGroups(images), [images])
   const similarityGroups = useMemo(() => buildSimilarityGroups(activeImages), [activeImages])
-  const knownDates = activeLibrary?.knownDates
-  const baseEvents = useMemo(() => buildEvents(activeImages, similarityGroups, knownDates ?? []), [activeImages, similarityGroups, knownDates])
+  const localKnownDates = activeLibrary?.knownDates
+  const knownDates = useMemo(() => mergeKnownDates(localKnownDates ?? [], globalKnownDates), [globalKnownDates, localKnownDates])
+  const baseEvents = useMemo(() => buildEvents(activeImages, similarityGroups, knownDates), [activeImages, similarityGroups, knownDates])
   const events = useMemo(() => applyEventOverrides(baseEvents, eventOverrides, activeImages), [activeImages, baseEvents, eventOverrides])
   eventsRef.current = events
   const meaningfulEvents = useMemo(() => events.filter(isMeaningfulEvent), [events])
@@ -234,6 +240,10 @@ export function LiteApp(): JSX.Element {
 
   async function refreshLibraries(): Promise<void> {
     try { setLibraries(await listLibraries()) } catch (cause) { setError(messageOf(cause)) }
+  }
+
+  async function refreshGlobalKnownDates(): Promise<void> {
+    try { setGlobalKnownDates(await loadGlobalKnownDates()) } catch (cause) { setError(`Global known dates could not be loaded: ${messageOf(cause)}`) }
   }
 
   async function addFolder(): Promise<void> {
@@ -574,11 +584,12 @@ export function LiteApp(): JSX.Element {
     }
   }
 
-  async function replaceKnownDates(records: LiteKnownDateRecord[]): Promise<void> {
+  async function replaceKnownDates(localRecords: LiteKnownDateRecord[], globalRecords: LiteKnownDateRecord[]): Promise<void> {
     if (!activeLibrary) return
     try {
-      const updated = await saveLibraryKnownDates(activeLibrary.id, records)
+      const updated = await saveKnownDateState(activeLibrary.id, localRecords, globalRecords)
       setActiveLibrary(updated)
+      setGlobalKnownDates(globalRecords)
       setLibraries((current) => current.map((library) => library.id === updated.id ? updated : library))
     } catch (cause) {
       setError(`Known dates were not saved: ${messageOf(cause)}`)
@@ -764,7 +775,7 @@ export function LiteApp(): JSX.Element {
                 <div className="collection-actions">
                   <div className="collection-totals"><span><strong>{activeLibrary.imageCount.toLocaleString()}</strong> photos</span><span className="keep"><strong>{reviewCounts.keep.toLocaleString()}</strong> keep</span><span className="maybe"><strong>{reviewCounts.maybe.toLocaleString()}</strong> maybe</span>{starredImages.length > 0 && <span><strong>{starredImages.length.toLocaleString()}</strong> starred</span>}{greatQualityCount > 0 && <span><strong>{greatQualityCount.toLocaleString()}</strong> great</span>}</div>
                   <div className="collection-action-buttons">
-                    {view === 'events' && <button type="button" disabled={working} onClick={() => setKnownDatesOpen(true)}>Known dates{knownDates?.length ? ` (${knownDates.length})` : ''}</button>}
+                    {view === 'events' && <button type="button" disabled={working} onClick={() => setKnownDatesOpen(true)}>Known dates{knownDates.length ? ` (${knownDates.length})` : ''}</button>}
                     {view === 'people' && <button
                       type="button"
                       className={peopleBusy ? 'danger-outline' : 'primary'}
@@ -801,7 +812,7 @@ export function LiteApp(): JSX.Element {
           </main>
         </div>
 
-        {knownDatesOpen && activeLibrary && <KnownDatesDialog libraryId={activeLibrary.id} records={activeLibrary.knownDates ?? []} years={years} onReplace={replaceKnownDates} onClose={() => setKnownDatesOpen(false)} />}
+        {knownDatesOpen && activeLibrary && <KnownDatesDialog libraryId={activeLibrary.id} localRecords={activeLibrary.knownDates ?? []} globalRecords={globalKnownDates} years={years} onReplace={replaceKnownDates} onClose={() => setKnownDatesOpen(false)} />}
       </div>
     </SourceNavigationProvider>
   )
