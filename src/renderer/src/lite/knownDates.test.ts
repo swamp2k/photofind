@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { holidayKnownDate, matchingKnownDate, mergeKnownDates } from './knownDates'
+import { createKnownDate, holidayKnownDate, knownDateScope, matchingKnownDate, mergeKnownDates } from './knownDates'
 import type { LiteKnownDateRecord } from './types'
 
 function record(overrides: Partial<LiteKnownDateRecord> = {}): LiteKnownDateRecord {
@@ -42,11 +42,29 @@ describe('known dates', () => {
     expect(matchingKnownDate([holiday, vacation], new Date(2010, 3, 25, 12).getTime())?.record.id).toBe('vacation')
   })
 
-  it('deduplicates repeated holiday imports by deterministic id', () => {
-    const first = holidayKnownDate({ libraryId: 'library', countryCode: 'DK', date: '2026-12-25', title: 'Christmas Day', now: 1 })
-    const second = holidayKnownDate({ libraryId: 'library', countryCode: 'DK', date: '2026-12-25', title: 'Christmas Day', now: 2 })
+  it('treats legacy records without a scope as library-local', () => {
+    expect(knownDateScope(record())).toBe('library')
+  })
+
+  it('creates explicitly global manual dates', () => {
+    const created = createKnownDate({
+      libraryId: 'library-a',
+      title: 'Birthday',
+      kind: 'birthday',
+      startDate: '2010-04-25',
+      recurringYearly: true,
+      scope: 'global',
+      now: 10
+    })
+    expect(knownDateScope(created)).toBe('global')
+  })
+
+  it('deduplicates repeated holiday imports by semantic holiday identity', () => {
+    const first = holidayKnownDate({ libraryId: 'library-a', countryCode: 'DK', date: '2026-12-25', title: 'Christmas Day', scope: 'library', now: 1 })
+    const second = holidayKnownDate({ libraryId: 'library-b', countryCode: 'DK', date: '2026-12-25', title: 'Christmas Day', scope: 'global', now: 2 })
     const merged = mergeKnownDates([first], [second])
     expect(merged).toHaveLength(1)
     expect(merged[0].updatedAt).toBe(2)
+    expect(knownDateScope(merged[0])).toBe('global')
   })
 })
