@@ -7,6 +7,7 @@ export interface PhotoFindContextMenuAction {
   danger?: boolean
   disabled?: boolean
   separatorBefore?: boolean
+  children?: PhotoFindContextMenuAction[]
   onSelect(): void | Promise<void>
 }
 
@@ -22,15 +23,27 @@ export interface PhotoContextDescriptor {
   screenshot: boolean
 }
 
+export interface PhotoContextEventDescriptor {
+  id: string
+  title: string
+  hint?: string
+  containsPhoto: boolean
+}
+
 export interface PhotoContextActions {
   resolvePhoto(id: string): PhotoContextDescriptor | null
   setStarred(id: string, starred: boolean): void | Promise<void>
   setScreenshot(id: string, screenshot: boolean): void | Promise<void>
+  listKnownEvents?(photoId: string): PhotoContextEventDescriptor[]
+  resolveEvent?(eventId: string, photoId: string): PhotoContextEventDescriptor | null
+  addToEvent?(photoId: string, eventId: string): void | Promise<void>
+  removeFromEvent?(photoId: string, eventId: string): void | Promise<void>
 }
 
 interface OpenMenuState extends PhotoFindContextMenuSpec {
   x: number
   y: number
+  submenuLeft: boolean
 }
 
 interface ContextMenuApi {
@@ -74,6 +87,18 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
       if (photo && photoActions) {
         event.stopPropagation()
         claimed.current = true
+        const knownEvents = photoActions.listKnownEvents?.(photo.id) ?? []
+        const currentEventId = eventIdFromTarget(target)
+        const currentEvent = currentEventId ? photoActions.resolveEvent?.(currentEventId, photo.id) ?? null : null
+        const addChildren: PhotoFindContextMenuAction[] = knownEvents.length > 0
+          ? knownEvents.map((knownEvent) => ({
+              id: `add-event-${knownEvent.id}`,
+              label: knownEvent.title,
+              hint: knownEvent.containsPhoto ? 'Added' : knownEvent.hint,
+              disabled: knownEvent.containsPhoto || !photoActions.addToEvent,
+              onSelect: () => photoActions.addToEvent?.(photo.id, knownEvent.id)
+            }))
+          : [{ id: 'no-known-events', label: 'No known events yet', disabled: true, onSelect: () => undefined }]
         setMenu(positionMenu(event.clientX, event.clientY, {
           title: photo.name,
           actions: [
@@ -83,6 +108,20 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
               hint: '★',
               onSelect: () => photoActions.setStarred(photo.id, !photo.starred)
             },
+            {
+              id: 'add-to-event',
+              label: 'Add to event…',
+              hint: '›',
+              separatorBefore: true,
+              disabled: !photoActions.addToEvent,
+              children: addChildren,
+              onSelect: () => undefined
+            },
+            ...(currentEvent && currentEvent.containsPhoto && photoActions.removeFromEvent ? [{
+              id: 'remove-from-event',
+              label: `Remove from “${currentEvent.title}”`,
+              onSelect: () => photoActions.removeFromEvent?.(photo.id, currentEvent.id)
+            }] : []),
             {
               id: 'mark-screenshot',
               label: 'Mark screenshot',
@@ -141,7 +180,7 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
 
   useEffect(() => {
     if (!menu) return
-    const first = menuRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')
+    const first = menuRef.current?.querySelector<HTMLButtonElement>(':scope > .pf-context-menu-row > button:not(:disabled)')
     first?.focus({ preventScroll: true })
   }, [menu])
 
@@ -151,7 +190,7 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
       {menu && (
         <div
           ref={menuRef}
-          className="pf-context-menu"
+          className={menu.submenuLeft ? 'pf-context-menu submenu-left' : 'pf-context-menu'}
           style={{ left: menu.x, top: menu.y }}
           role="menu"
           aria-label={menu.title ?? 'PhotoFind actions'}
@@ -160,13 +199,15 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
         >
           {menu.title && <div className="pf-context-menu-title">{menu.title}</div>}
           {menu.actions.map((action) => (
-            <div key={action.id} className={action.separatorBefore ? 'pf-context-menu-row separated' : 'pf-context-menu-row'}>
+            <div key={action.id} className={`${action.separatorBefore ? 'pf-context-menu-row separated' : 'pf-context-menu-row'}${action.children?.length ? ' has-submenu' : ''}`}>
               <button
                 type="button"
                 role="menuitem"
+                aria-haspopup={action.children?.length ? 'menu' : undefined}
                 className={action.danger ? 'danger' : ''}
                 disabled={action.disabled}
                 onClick={() => {
+                  if (action.children?.length) return
                   setMenu(null)
                   void action.onSelect()
                 }}
@@ -174,6 +215,27 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
                 <span>{action.label}</span>
                 {action.hint && <kbd>{action.hint}</kbd>}
               </button>
+              {action.children?.length ? (
+                <div className="pf-context-submenu" role="menu" aria-label={action.label}>
+                  {action.children.map((child) => (
+                    <div key={child.id} className={child.separatorBefore ? 'pf-context-menu-row separated' : 'pf-context-menu-row'}>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className={child.danger ? 'danger' : ''}
+                        disabled={child.disabled}
+                        onClick={() => {
+                          setMenu(null)
+                          void child.onSelect()
+                        }}
+                      >
+                        <span>{child.label}</span>
+                        {child.hint && <kbd>{child.hint}</kbd>}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ))}
         </div>
@@ -195,20 +257,26 @@ function photoIdFromTarget(target: EventTarget | null): string | null {
   return owner?.dataset.photofindPhotoId ?? null
 }
 
+function eventIdFromTarget(target: EventTarget | null): string | null {
+  if (!(target instanceof Element)) return null
+  return target.closest<HTMLElement>('[data-photofind-event-id]')?.dataset.photofindEventId ?? null
+}
+
 function positionMenu(x: number, y: number, spec: PhotoFindContextMenuSpec): OpenMenuState {
   const estimatedHeight = 38 + spec.actions.length * 38 + spec.actions.filter((action) => action.separatorBefore).length * 7
   const width = 250
   return {
     ...spec,
     x: Math.max(8, Math.min(x, window.innerWidth - width - 8)),
-    y: Math.max(8, Math.min(y, window.innerHeight - estimatedHeight - 8))
+    y: Math.max(8, Math.min(y, window.innerHeight - estimatedHeight - 8)),
+    submenuLeft: x + width * 2 + 18 > window.innerWidth
   }
 }
 
 function handleMenuKeyboard(event: React.KeyboardEvent<HTMLDivElement>): void {
   if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
   event.preventDefault()
-  const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+  const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>(':scope > .pf-context-menu-row > button:not(:disabled)'))
   if (buttons.length === 0) return
   const current = document.activeElement instanceof HTMLButtonElement ? buttons.indexOf(document.activeElement) : -1
   const delta = event.key === 'ArrowDown' ? 1 : -1
