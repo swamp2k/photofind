@@ -23,6 +23,16 @@ export function buildExportSelection(
   })
 }
 
+export function buildExportEventNameMap(events: LiteEventRecord[]): Map<string, string> {
+  const map = new Map<string, string>()
+  for (const event of events) {
+    const title = event.title.trim()
+    if (!title) continue
+    for (const itemId of event.itemIds) map.set(itemId, title)
+  }
+  return map
+}
+
 export function splitEventsForExportFilter(events: LiteEventRecord[]): { known: LiteEventRecord[]; detected: LiteEventRecord[] } {
   const sorted = [...events].sort((left, right) => left.startTime - right.startTime || left.title.localeCompare(right.title))
   return {
