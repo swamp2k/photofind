@@ -1,4 +1,7 @@
+import { useEffect, useState } from 'react'
 import type { PhotoBatchSize, ReviewKeyBindings, ReviewKeymapPreset, ReviewSettingsState } from './ReviewSettings'
+import { clearThumbnailCache, thumbnailCacheStats } from './thumbnailCache'
+import type { ThumbnailDiskCacheStats } from './thumbnailDb'
 
 const KEYMAPS: Array<{ id: ReviewKeymapPreset; label: string; detail: string; keys: [string, string, string] }> = [
   { id: 'kmr', label: 'K / M / R', detail: 'Keep K · Maybe M · Reject R', keys: ['K', 'M', 'R'] },
@@ -18,6 +21,35 @@ interface SettingsPanelProps {
 }
 
 export function SettingsPanel({ settings, bindings, onAutoAdvance, onKeymap, onPhotoBatchSize, onFlowLoading }: SettingsPanelProps): JSX.Element {
+  const [cacheStats, setCacheStats] = useState<ThumbnailDiskCacheStats | null>(null)
+  const [cacheBusy, setCacheBusy] = useState(false)
+  const [cacheStatus, setCacheStatus] = useState<string | null>(null)
+
+  useEffect(() => {
+    let disposed = false
+    void thumbnailCacheStats().then((stats) => {
+      if (!disposed) setCacheStats(stats)
+    }).catch(() => {
+      if (!disposed) setCacheStatus('Thumbnail cache size could not be measured.')
+    })
+    return () => { disposed = true }
+  }, [])
+
+  async function clearDiskCache(): Promise<void> {
+    setCacheBusy(true)
+    setCacheStatus(null)
+    try {
+      await clearThumbnailCache()
+      const stats = await thumbnailCacheStats()
+      setCacheStats(stats)
+      setCacheStatus('Thumbnail disk cache cleared. Visible hot thumbnails remain in memory until they age out or PhotoFind reloads.')
+    } catch (cause) {
+      setCacheStatus(cause instanceof Error ? cause.message : 'Thumbnail cache could not be cleared.')
+    } finally {
+      setCacheBusy(false)
+    }
+  }
+
   return (
     <section className="settings-page">
       <div className="settings-hero">
@@ -41,6 +73,19 @@ export function SettingsPanel({ settings, bindings, onAutoAdvance, onKeymap, onP
       </section>
 
       <section className="settings-card">
+        <div className="settings-card-head"><div><h2>Thumbnail cache</h2><p>Generated 640px previews are stored on disk and reused across views and browser restarts. PhotoFind does not automatically evict them.</p></div></div>
+        <div className="settings-cache-row">
+          <div>
+            <strong>{cacheStats ? `${cacheStats.count.toLocaleString()} cached thumbnails` : 'Measuring cache…'}</strong>
+            <small>{cacheStats ? `${formatBytes(cacheStats.bytes)} used by thumbnail previews` : 'Large libraries can use substantial disk space.'}</small>
+            {cacheStats?.originUsage !== undefined && cacheStats.originQuota !== undefined && <small>Browser origin storage: {formatBytes(cacheStats.originUsage)} / {formatBytes(cacheStats.originQuota)}{cacheStats.persistent ? ' · persistent' : ''}</small>}
+          </div>
+          <button type="button" className="danger-outline settings-cache-clear" disabled={cacheBusy || cacheStats?.count === 0} onClick={() => void clearDiskCache()}>{cacheBusy ? 'Clearing…' : 'Clear thumbnail cache'}</button>
+        </div>
+        {cacheStatus && <p className="settings-cache-status">{cacheStatus}</p>}
+      </section>
+
+      <section className="settings-card">
         <div className="settings-card-head"><div><h2>Review flow</h2><p>Choose whether a decision immediately continues to the next photo.</p></div></div>
         <label className="settings-toggle">
           <input type="checkbox" checked={settings.autoAdvance} onChange={(event) => onAutoAdvance(event.target.checked)} />
@@ -61,4 +106,17 @@ export function SettingsPanel({ settings, bindings, onAutoAdvance, onKeymap, onP
       </section>
     </section>
   )
+}
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let value = bytes
+  let index = 0
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024
+    index += 1
+  }
+  const digits = index >= 3 ? 2 : index >= 2 ? 1 : 0
+  return `${value.toFixed(digits)} ${units[index]}`
 }
