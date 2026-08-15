@@ -19,6 +19,7 @@ const DB_NAME = 'photofind-thumbnails'
 const DB_VERSION = 1
 const THUMBNAILS_STORE = 'thumbnails'
 let persistenceRequested = false
+let databasePromise: Promise<IDBDatabase> | null = null
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -28,9 +29,13 @@ function requestResult<T>(request: IDBRequest<T>): Promise<T> {
 }
 
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  if (databasePromise) return databasePromise
+  databasePromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
-    request.onerror = () => reject(request.error ?? new Error('Thumbnail cache could not be opened.'))
+    request.onerror = () => {
+      databasePromise = null
+      reject(request.error ?? new Error('Thumbnail cache could not be opened.'))
+    }
     request.onupgradeneeded = () => {
       const db = request.result
       if (!db.objectStoreNames.contains(THUMBNAILS_STORE)) {
@@ -39,19 +44,23 @@ function openDb(): Promise<IDBDatabase> {
         store.createIndex('libraryId', 'libraryId', { unique: false })
       }
     }
-    request.onsuccess = () => resolve(request.result)
+    request.onsuccess = () => {
+      const db = request.result
+      db.onversionchange = () => {
+        db.close()
+        databasePromise = null
+      }
+      resolve(db)
+    }
   })
+  return databasePromise
 }
 
 export async function loadThumbnailFromDisk(key: string): Promise<Blob | null> {
   const db = await openDb()
-  try {
-    const transaction = db.transaction(THUMBNAILS_STORE, 'readonly')
-    const row = await requestResult(transaction.objectStore(THUMBNAILS_STORE).get(key)) as ThumbnailDiskRecord | undefined
-    return row?.blob instanceof Blob ? row.blob : null
-  } finally {
-    db.close()
-  }
+  const transaction = db.transaction(THUMBNAILS_STORE, 'readonly')
+  const row = await requestResult(transaction.objectStore(THUMBNAILS_STORE).get(key)) as ThumbnailDiskRecord | undefined
+  return row?.blob instanceof Blob ? row.blob : null
 }
 
 export async function saveThumbnailToDisk(input: {
@@ -62,96 +71,80 @@ export async function saveThumbnailToDisk(input: {
 }): Promise<void> {
   void requestPersistentStorageBestEffort()
   const db = await openDb()
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(THUMBNAILS_STORE, 'readwrite')
-      const store = transaction.objectStore(THUMBNAILS_STORE)
-      transaction.oncomplete = () => resolve()
-      transaction.onerror = () => reject(transaction.error ?? new Error('Thumbnail could not be cached.'))
-      transaction.onabort = () => reject(transaction.error ?? new Error('Thumbnail cache write was aborted.'))
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(THUMBNAILS_STORE, 'readwrite')
+    const store = transaction.objectStore(THUMBNAILS_STORE)
+    transaction.oncomplete = () => resolve()
+    transaction.onerror = () => reject(transaction.error ?? new Error('Thumbnail could not be cached.'))
+    transaction.onabort = () => reject(transaction.error ?? new Error('Thumbnail cache write was aborted.'))
 
-      // A source file can change while keeping the same PhotoFind item id. Keep only the
-      // current generated representation so old versions do not accumulate forever.
-      const cursorRequest = store.index('itemId').openCursor(IDBKeyRange.only(input.itemId))
-      cursorRequest.onerror = () => transaction.abort()
-      cursorRequest.onsuccess = () => {
-        const cursor = cursorRequest.result
-        if (cursor) {
-          if (cursor.primaryKey !== input.key) cursor.delete()
-          cursor.continue()
-          return
-        }
-        const row: ThumbnailDiskRecord = {
-          key: input.key,
-          itemId: input.itemId,
-          libraryId: input.libraryId,
-          blob: input.blob,
-          sizeBytes: input.blob.size,
-          createdAt: Date.now()
-        }
-        store.put(row)
+    // A source file can change while keeping the same PhotoFind item id. Keep only the
+    // current generated representation so old versions do not accumulate forever.
+    const cursorRequest = store.index('itemId').openCursor(IDBKeyRange.only(input.itemId))
+    cursorRequest.onerror = () => transaction.abort()
+    cursorRequest.onsuccess = () => {
+      const cursor = cursorRequest.result
+      if (cursor) {
+        if (cursor.primaryKey !== input.key) cursor.delete()
+        cursor.continue()
+        return
       }
-    })
-  } finally {
-    db.close()
-  }
+      const row: ThumbnailDiskRecord = {
+        key: input.key,
+        itemId: input.itemId,
+        libraryId: input.libraryId,
+        blob: input.blob,
+        sizeBytes: input.blob.size,
+        createdAt: Date.now()
+      }
+      store.put(row)
+    }
+  })
 }
 
 export async function clearThumbnailDiskCache(): Promise<void> {
   const db = await openDb()
-  try {
-    await requestResult(db.transaction(THUMBNAILS_STORE, 'readwrite').objectStore(THUMBNAILS_STORE).clear())
-  } finally {
-    db.close()
-  }
+  await requestResult(db.transaction(THUMBNAILS_STORE, 'readwrite').objectStore(THUMBNAILS_STORE).clear())
 }
 
 export async function clearThumbnailDiskCacheForLibrary(libraryId: string): Promise<void> {
   const db = await openDb()
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(THUMBNAILS_STORE, 'readwrite')
-      const request = transaction.objectStore(THUMBNAILS_STORE).index('libraryId').openCursor(IDBKeyRange.only(libraryId))
-      transaction.oncomplete = () => resolve()
-      transaction.onerror = () => reject(transaction.error ?? new Error('Thumbnail cache cleanup failed.'))
-      transaction.onabort = () => reject(transaction.error ?? new Error('Thumbnail cache cleanup was aborted.'))
-      request.onerror = () => transaction.abort()
-      request.onsuccess = () => {
-        const cursor = request.result
-        if (!cursor) return
-        cursor.delete()
-        cursor.continue()
-      }
-    })
-  } finally {
-    db.close()
-  }
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(THUMBNAILS_STORE, 'readwrite')
+    const request = transaction.objectStore(THUMBNAILS_STORE).index('libraryId').openCursor(IDBKeyRange.only(libraryId))
+    transaction.oncomplete = () => resolve()
+    transaction.onerror = () => reject(transaction.error ?? new Error('Thumbnail cache cleanup failed.'))
+    transaction.onabort = () => reject(transaction.error ?? new Error('Thumbnail cache cleanup was aborted.'))
+    request.onerror = () => transaction.abort()
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor) return
+      cursor.delete()
+      cursor.continue()
+    }
+  })
 }
 
 export async function thumbnailDiskCacheStats(): Promise<ThumbnailDiskCacheStats> {
   const db = await openDb()
   let count = 0
   let bytes = 0
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const transaction = db.transaction(THUMBNAILS_STORE, 'readonly')
-      const request = transaction.objectStore(THUMBNAILS_STORE).openCursor()
-      transaction.oncomplete = () => resolve()
-      transaction.onerror = () => reject(transaction.error ?? new Error('Thumbnail cache could not be measured.'))
-      transaction.onabort = () => reject(transaction.error ?? new Error('Thumbnail cache measurement was aborted.'))
-      request.onerror = () => transaction.abort()
-      request.onsuccess = () => {
-        const cursor = request.result
-        if (!cursor) return
-        const row = cursor.value as ThumbnailDiskRecord
-        count += 1
-        bytes += Number.isFinite(row.sizeBytes) ? row.sizeBytes : row.blob?.size ?? 0
-        cursor.continue()
-      }
-    })
-  } finally {
-    db.close()
-  }
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(THUMBNAILS_STORE, 'readonly')
+    const request = transaction.objectStore(THUMBNAILS_STORE).openCursor()
+    transaction.oncomplete = () => resolve()
+    transaction.onerror = () => reject(transaction.error ?? new Error('Thumbnail cache could not be measured.'))
+    transaction.onabort = () => reject(transaction.error ?? new Error('Thumbnail cache measurement was aborted.'))
+    request.onerror = () => transaction.abort()
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor) return
+      const row = cursor.value as ThumbnailDiskRecord
+      count += 1
+      bytes += Number.isFinite(row.sizeBytes) ? row.sizeBytes : row.blob?.size ?? 0
+      cursor.continue()
+    }
+  })
 
   const storage = typeof navigator !== 'undefined' ? navigator.storage : undefined
   if (!storage) return { count, bytes }
