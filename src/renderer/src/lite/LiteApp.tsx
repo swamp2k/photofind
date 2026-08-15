@@ -5,14 +5,14 @@ import { classifyLikelyNonPhoto, setScreenshotOverride } from './contentClassifi
 import { usePhotoFindContextMenu } from './ContextMenu'
 import { CurationPanel } from './CurationPanel'
 import { buildExportEventNameMap } from './curationSelection'
-import { applyEventOverrides, createEventOverride, createEventPhotoRemovalOverride, createEventRemovalOverride, createManualEventOverride, matchingEventOverride } from './eventOverrides'
+import { applyEventOverrides, createEventKnownDateOverride, createEventOverride, createEventPhotoAdditionOverride, createEventPhotoRemovalOverride, createEventRemovalOverride, createManualEventOverride, isKnownDateEvent, matchingEventOverride } from './eventOverrides'
 import { buildEvents, isMeaningfulEvent } from './events'
 import { EventsPanel } from './EventsPanel'
 import { exportLocalPhotos } from './exporter'
 import { ensureReadPermission, ensureWritePermission, localFolderAccessMode, pickExportDirectory, pickLocalDirectory, pickLocalDirectoryFiles, supportsWritableExport } from './fileAccess'
 import { availableYears, containsCoordinate, dateInputToEnd, dateInputToStart, filterPhotos, hasLocation } from './filters'
 import { KnownDatesDialog } from './KnownDatesDialog'
-import { deleteEventOverride, deleteLibrary, listLibraries, loadEventOverrides, loadMedia, loadPeople, putMediaRecords, replaceLibrary, saveEventOverride, saveLibraryKnownDates, savePeopleState } from './libraryDb'
+import { deleteEventOverride, deleteLibrary, listLibraries, loadEventOverrides, loadMedia, loadPeople, putMediaRecords, replaceLibrary, saveEventOverride, saveEventOverrideBatch, saveLibraryKnownDates, savePeopleState } from './libraryDb'
 import { MapResults } from './MapResults'
 import { analyzePeople } from './peopleAnalysis'
 import { clusterPeople, excludeFaceFromPerson, mergePeople as mergePeopleState, renamePerson as renamePersonState, setPersonIgnored, splitFaceIntoNewPerson } from './people'
@@ -42,6 +42,8 @@ export function LiteApp(): JSX.Element {
   const [activeLibrary, setActiveLibrary] = useState<LiteLibraryRecord | null>(null)
   const [media, setMedia] = useState<LiteMediaRecord[]>([])
   const mediaRef = useRef<LiteMediaRecord[]>([])
+  const eventsRef = useRef<LiteEventRecord[]>([])
+  const eventOverridesRef = useRef<LiteEventOverride[]>([])
   const reviewQueue = useRef<Promise<void>>(Promise.resolve())
   const similarityAbortRef = useRef<AbortController | null>(null)
   const qualityAbortRef = useRef<AbortController | null>(null)
@@ -49,6 +51,7 @@ export function LiteApp(): JSX.Element {
   const { registerPhotoActions } = usePhotoFindContextMenu()
   const [people, setPeople] = useState<LitePersonRecord[]>([])
   const [eventOverrides, setEventOverrides] = useState<LiteEventOverride[]>([])
+  eventOverridesRef.current = eventOverrides
   const [sessionFiles, setSessionFiles] = useState<Map<string, File>>(new Map())
   const [progress, setProgress] = useState<LiteScanProgress | null>(null)
   const [similarityProgress, setSimilarityProgress] = useState<LiteSimilarityProgress | null>(null)
@@ -96,6 +99,32 @@ export function LiteApp(): JSX.Element {
       },
       setScreenshot(id, screenshot) {
         setScreenshotState(id, screenshot)
+      },
+      listKnownEvents(photoId) {
+        return eventsRef.current
+          .filter(isKnownDateEvent)
+          .sort((left, right) => right.startTime - left.startTime || left.title.localeCompare(right.title))
+          .map((event) => ({
+            id: event.id,
+            title: event.title,
+            hint: `${formatContextEventDate(event)} · ${event.itemIds.length.toLocaleString()}`,
+            containsPhoto: event.itemIds.includes(photoId)
+          }))
+      },
+      resolveEvent(eventId, photoId) {
+        const event = eventsRef.current.find((candidate) => candidate.id === eventId)
+        return event ? {
+          id: event.id,
+          title: event.title,
+          hint: formatContextEventDate(event),
+          containsPhoto: event.itemIds.includes(photoId)
+        } : null
+      },
+      addToEvent(photoId, eventId) {
+        return addPhotoToEventById(photoId, eventId)
+      },
+      removeFromEvent(photoId, eventId) {
+        return removePhotoFromEventById(photoId, eventId)
       }
     })
     return () => registerPhotoActions(null)
@@ -122,6 +151,7 @@ export function LiteApp(): JSX.Element {
   const knownDates = activeLibrary?.knownDates
   const baseEvents = useMemo(() => buildEvents(activeImages, similarityGroups, knownDates ?? []), [activeImages, similarityGroups, knownDates])
   const events = useMemo(() => applyEventOverrides(baseEvents, eventOverrides, activeImages), [activeImages, baseEvents, eventOverrides])
+  eventsRef.current = events
   const meaningfulEvents = useMemo(() => events.filter(isMeaningfulEvent), [events])
   const exportEventByItemId = useMemo(() => buildExportEventNameMap(meaningfulEvents), [meaningfulEvents])
   const qualityReadyCount = useMemo(() => activeImages.filter((item) => item.qualityStatus === 'ready').length, [activeImages])
@@ -167,6 +197,15 @@ export function LiteApp(): JSX.Element {
   function setMediaState(next: LiteMediaRecord[]): void {
     mediaRef.current = next
     setMedia(next)
+  }
+
+  function updateEventOverrideState(upserts: LiteEventOverride[], removeIds: string[] = []): void {
+    const replacedIds = new Set([...removeIds, ...upserts.map((override) => override.id)])
+    setEventOverrides((current) => {
+      const next = [...upserts, ...current.filter((override) => !replacedIds.has(override.id))]
+      eventOverridesRef.current = next
+      return next
+    })
   }
 
   function setStarredState(itemId: string, starred: boolean): void {
@@ -220,6 +259,7 @@ export function LiteApp(): JSX.Element {
       setActiveLibrary(library)
       setMediaState(storedMedia)
       setPeople(storedPeople)
+      eventOverridesRef.current = storedEventOverrides
       setEventOverrides(storedEventOverrides)
       setSessionFiles(new Map())
       resetBrowseState()
@@ -403,43 +443,120 @@ export function LiteApp(): JSX.Element {
     } catch (cause) { setError(`Face correction was not saved: ${messageOf(cause)}`) }
   }
 
+  async function addKnownEvent(event: LiteEventRecord): Promise<void> {
+    if (!activeLibrary || isKnownDateEvent(event)) return
+    const prior = matchingEventOverride(event, eventOverridesRef.current)
+    const next = createEventKnownDateOverride(event, prior)
+    const removeIds = prior && prior.id !== next.id ? [prior.id] : []
+    try {
+      setError(null)
+      await saveEventOverrideBatch([next], removeIds)
+      updateEventOverrideState([next], removeIds)
+    } catch (cause) {
+      const message = `Event could not be added to Known dates & holidays: ${messageOf(cause)}`
+      setError(message)
+      throw new Error(message)
+    }
+  }
+
   async function renameEvent(event: LiteEventRecord, title: string): Promise<void> {
     if (!activeLibrary) return
-    const prior = matchingEventOverride(event, eventOverrides)
+    const prior = matchingEventOverride(event, eventOverridesRef.current)
     const next = createEventOverride(event, title, Date.now(), prior)
     try {
       if (!next) {
         if (!prior) return
         await deleteEventOverride(prior.id)
-        setEventOverrides((current) => current.filter((override) => override.id !== prior.id))
+        updateEventOverrideState([], [prior.id])
         return
       }
-      await saveEventOverride(next)
-      if (prior && prior.id !== next.id) await deleteEventOverride(prior.id)
-      setEventOverrides((current) => [next, ...current.filter((override) => override.id !== next.id && override.id !== prior?.id)])
+      const removeIds = prior && prior.id !== next.id ? [prior.id] : []
+      await saveEventOverrideBatch([next], removeIds)
+      updateEventOverrideState([next], removeIds)
     } catch (cause) { setError(`Event name was not saved: ${messageOf(cause)}`) }
   }
 
   async function removeEvent(event: LiteEventRecord): Promise<void> {
     if (!activeLibrary) return
-    const prior = matchingEventOverride(event, eventOverrides)
+    const prior = matchingEventOverride(event, eventOverridesRef.current)
     const next = createEventRemovalOverride(event, prior)
+    const removeIds = prior && prior.id !== next.id ? [prior.id] : []
     try {
-      await saveEventOverride(next)
-      if (prior && prior.id !== next.id) await deleteEventOverride(prior.id)
-      setEventOverrides((current) => [next, ...current.filter((override) => override.id !== next.id && override.id !== prior?.id)])
+      await saveEventOverrideBatch([next], removeIds)
+      updateEventOverrideState([next], removeIds)
     } catch (cause) { setError(`Event could not be removed: ${messageOf(cause)}`) }
   }
 
   async function removePhotosFromEvent(event: LiteEventRecord, targets: LiteMediaRecord[]): Promise<void> {
     if (!activeLibrary || targets.length === 0) return
-    const prior = matchingEventOverride(event, eventOverrides)
+    const prior = matchingEventOverride(event, eventOverridesRef.current)
     const next = createEventPhotoRemovalOverride(event, targets.map((item) => item.id), prior)
+    const removeIds = prior && prior.id !== next.id ? [prior.id] : []
     try {
-      await saveEventOverride(next)
-      if (prior && prior.id !== next.id) await deleteEventOverride(prior.id)
-      setEventOverrides((current) => [next, ...current.filter((override) => override.id !== next.id && override.id !== prior?.id)])
+      await saveEventOverrideBatch([next], removeIds)
+      updateEventOverrideState([next], removeIds)
     } catch (cause) { setError(`Photos could not be removed from the event: ${messageOf(cause)}`) }
+  }
+
+  async function addPhotoToEventById(photoId: string, eventId: string): Promise<void> {
+    const event = eventsRef.current.find((candidate) => candidate.id === eventId && isKnownDateEvent(candidate))
+    const item = mediaRef.current.find((candidate) => candidate.id === photoId && candidate.kind === 'image')
+    if (!event || !item || event.itemIds.includes(photoId)) return
+    const prior = matchingEventOverride(event, eventOverridesRef.current)
+    const next = createEventPhotoAdditionOverride(event, [photoId], prior)
+    const removeIds = prior && prior.id !== next.id ? [prior.id] : []
+    try {
+      setError(null)
+      await saveEventOverrideBatch([next], removeIds)
+      updateEventOverrideState([next], removeIds)
+    } catch (cause) {
+      setError(`Photo could not be added to “${event.title}”: ${messageOf(cause)}`)
+    }
+  }
+
+  async function removePhotoFromEventById(photoId: string, eventId: string): Promise<void> {
+    const event = eventsRef.current.find((candidate) => candidate.id === eventId)
+    const item = mediaRef.current.find((candidate) => candidate.id === photoId && candidate.kind === 'image')
+    if (!event || !item || !event.itemIds.includes(photoId)) return
+    const prior = matchingEventOverride(event, eventOverridesRef.current)
+    const next = createEventPhotoRemovalOverride(event, [photoId], prior)
+    const removeIds = prior && prior.id !== next.id ? [prior.id] : []
+    try {
+      setError(null)
+      await saveEventOverrideBatch([next], removeIds)
+      updateEventOverrideState([next], removeIds)
+    } catch (cause) {
+      setError(`Photo could not be removed from “${event.title}”: ${messageOf(cause)}`)
+    }
+  }
+
+  async function mergeEvents(targets: LiteEventRecord[], title: string): Promise<void> {
+    if (!activeLibrary || targets.length < 2) return
+    const targetIds = new Set(targets.flatMap((event) => event.itemIds))
+    const unionItems = mediaRef.current.filter((item) => item.kind === 'image' && targetIds.has(item.id))
+    const now = Date.now()
+    const merged = createManualEventOverride(activeLibrary.id, unionItems, title, now)
+    if (!merged) throw new Error('Choose a name and at least two events with photos.')
+
+    const currentOverrides = eventOverridesRef.current
+    const writes: LiteEventOverride[] = [merged]
+    const deleteIds: string[] = []
+    targets.forEach((event, index) => {
+      const prior = matchingEventOverride(event, currentOverrides)
+      const hidden = createEventRemovalOverride(event, prior, now + index + 1)
+      writes.push(hidden)
+      if (prior && prior.id !== hidden.id) deleteIds.push(prior.id)
+    })
+
+    try {
+      setError(null)
+      await saveEventOverrideBatch(writes, deleteIds)
+      updateEventOverrideState(writes, deleteIds)
+    } catch (cause) {
+      const message = `Events could not be merged: ${messageOf(cause)}`
+      setError(message)
+      throw new Error(message)
+    }
   }
 
   async function createMapEvent(targets: LiteMediaRecord[], title: string): Promise<void> {
@@ -449,7 +566,7 @@ export function LiteApp(): JSX.Element {
     try {
       setError(null)
       await saveEventOverride(next)
-      setEventOverrides((current) => [next, ...current.filter((override) => override.id !== next.id)])
+      updateEventOverrideState([next])
     } catch (cause) {
       const message = `Map event could not be saved: ${messageOf(cause)}`
       setError(message)
@@ -518,7 +635,10 @@ export function LiteApp(): JSX.Element {
     setActiveLibrary(persistedLibrary)
     setMediaState(reconciled.items)
     setPeople(reconciled.people)
-    if (!existingLibrary) setEventOverrides([])
+    if (!existingLibrary) {
+      eventOverridesRef.current = []
+      setEventOverrides([])
+    }
     setSessionFiles(nextSessionFiles)
     resetBrowseState()
     await refreshLibraries()
@@ -549,7 +669,16 @@ export function LiteApp(): JSX.Element {
     if (!window.confirm(`Forget the local PhotoFind index for “${library.name}”? No photo files will be deleted.`)) return
     try {
       await deleteLibrary(library.id)
-      if (activeLibrary?.id === library.id) { setActiveLibrary(null); setMediaState([]); setPeople([]); setEventOverrides([]); setSessionFiles(new Map()); resetBrowseState() }
+      if (activeLibrary?.id === library.id) {
+        setActiveLibrary(null)
+        setMediaState([])
+        setPeople([])
+        eventOverridesRef.current = []
+        eventsRef.current = []
+        setEventOverrides([])
+        setSessionFiles(new Map())
+        resetBrowseState()
+      }
       await refreshLibraries()
     } catch (cause) { setError(messageOf(cause)) }
   }
@@ -658,7 +787,7 @@ export function LiteApp(): JSX.Element {
                 <ReviewToolbar counts={reviewCounts} filter={reviewFilter} matchingCount={currentBrowseImages.length} onFilter={(value) => { setReviewFilter(value); setVisibleCount(pageSize) }} onBulk={bulkReview} />
               </details>}
 
-              {view === 'events' && <EventsPanel items={activeImages} events={events} people={people} sessionFiles={sessionFiles} onReview={(item, state) => updateReview([item], state)} onRename={(event, title) => void renameEvent(event, title)} onRemove={(event) => void removeEvent(event)} onRemovePhotos={(event, targets) => void removePhotosFromEvent(event, targets)} />}
+              {view === 'events' && <EventsPanel items={activeImages} events={events} people={people} sessionFiles={sessionFiles} onReview={(item, state) => updateReview([item], state)} onRename={(event, title) => void renameEvent(event, title)} onAddKnown={addKnownEvent} onRemove={(event) => void removeEvent(event)} onRemovePhotos={(event, targets) => void removePhotosFromEvent(event, targets)} onMerge={mergeEvents} />}
               {view === 'map' && <MapResults items={mapItems} visibleItems={mapViewportItems} viewportReady={mapBounds !== null} selected={selectedMapItem} sessionFiles={sessionFiles} onBoundsChange={handleMapBounds} onCreateEvent={createMapEvent} onSelect={setSelectedMapId} onShowSelected={() => { setView('photos'); setVisibleCount(pageSize) }} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'people' && <PeoplePanel items={activeImages} people={people} sessionFiles={sessionFiles} progress={peopleProgress} busy={peopleBusy} reconnectRequired={reconnectRequired} onRename={(personId, name) => void renamePerson(personId, name)} onIgnore={(personId, ignored) => void ignorePerson(personId, ignored)} onMerge={(sourceId, targetId) => void mergePerson(sourceId, targetId)} onSplit={(faceRef) => void splitPersonFace(faceRef)} onExclude={(faceRef, personId) => void excludePersonFace(faceRef, personId)} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'photos' && <PhotoResults items={filteredImages} visibleCount={visibleCount} batchSize={pageSize} flowLoading={settings.flowLoading} selectedId={selectedMapId} sessionFiles={sessionFiles} onShowMore={() => setVisibleCount((count) => count + pageSize)} onReview={(item, state) => updateReview([item], state)} />}
@@ -708,6 +837,13 @@ function collectDiagnostics(items: LiteMediaRecord[]): Array<{ path: string; mes
     if (item.faceAnalysisError) output.push({ path: item.relativePath, message: `People analysis: ${item.faceAnalysisError}` })
   }
   return output
+}
+
+function formatContextEventDate(event: LiteEventRecord): string {
+  const start = new Date(event.startTime)
+  const end = new Date(event.endTime)
+  const format = (value: Date): string => value.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' })
+  return start.toDateString() === end.toDateString() ? format(start) : `${format(start)} – ${format(end)}`
 }
 
 function viewTitle(view: Exclude<BrowseView, 'review' | 'compare'>): string {
