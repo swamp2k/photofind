@@ -74,8 +74,9 @@ export async function exportLocalPhotos(options: ExportOptions): Promise<LiteExp
       exportedPath = [...plan.directories, unique.name].join('/')
       exported += 1
 
-      if (Number.isFinite(item.lastModified) && item.lastModified > 0) {
-        timestampEntries.push({ path: exportedPath, lastModifiedMs: item.lastModified })
+      const restoredModifiedTime = exportModifiedTime(item)
+      if (restoredModifiedTime !== undefined) {
+        timestampEntries.push({ path: exportedPath, lastModifiedMs: restoredModifiedTime })
       }
 
       if (prepared.metadataMode === 'embedded') metadataEmbedded += 1
@@ -172,6 +173,14 @@ export async function exportLocalPhotos(options: ExportOptions): Promise<LiteExp
   }
 
   return { exported, renamed, metadataEmbedded, sidecarsWritten, metadataUnchanged, timestampRestoreCount, timestampRestoreFiles, failures, manifestPath, reportPath }
+}
+
+export function exportModifiedTime(item: LiteMediaRecord): number | undefined {
+  const captureTime = item.effectiveCaptureTime
+  if (typeof captureTime === 'number' && Number.isFinite(captureTime) && captureTime > 0) return captureTime
+  const fileTime = item.lastModified
+  if (Number.isFinite(fileTime) && fileTime > 0) return fileTime
+  return undefined
 }
 
 export function exportPathParts(item: LiteMediaRecord, layout: LiteExportLayout, eventName?: string): { directories: string[]; fileName: string } {
