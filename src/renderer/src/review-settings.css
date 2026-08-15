@@ -76,6 +76,22 @@
 .settings-select-row select { min-width: 110px; }
 .settings-flow-toggle { margin-top: 14px; }
 
+.settings-cache-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #111821;
+}
+.settings-cache-row > div { min-width: 0; display: grid; gap: 4px; }
+.settings-cache-row strong { color: var(--text); }
+.settings-cache-row small { color: var(--muted); line-height: 1.4; }
+.settings-cache-clear { margin-top: 0; flex: 0 0 auto; }
+.settings-cache-status { margin: 10px 2px 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
+
 .settings-toggle { display: flex; align-items: flex-start; gap: 12px; cursor: pointer; }
 .settings-toggle input { margin-top: 3px; accent-color: var(--accent-strong); }
 .settings-toggle span { display: grid; gap: 4px; }
@@ -107,8 +123,9 @@ kbd { min-width: 24px; padding: 3px 6px; border: 1px solid #49586d; border-botto
 @media (max-width: 650px) {
   .global-settings-button { right: 12px; bottom: 12px; }
   .settings-drawer { width: 100%; padding: 20px; }
-  .settings-select-row { align-items: stretch; flex-direction: column; }
+  .settings-select-row, .settings-cache-row { align-items: stretch; flex-direction: column; }
   .settings-select-row select { width: 100%; }
+  .settings-cache-clear { align-self: flex-start; }
   .keymap-option { grid-template-columns: auto minmax(0, 1fr); }
   .keymap-keys { grid-column: 2; }
 }
