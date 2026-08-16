@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SMART_CATEGORY_SETTINGS, findLikelyProductPhotos, normalizeSmartCategorySettings, productPhotoThreshold, setProductPhotoOverride } from './smartCategories'
+import { DEFAULT_SMART_CATEGORY_SETTINGS, findLikelyProductPhotos, normalizeSmartCategorySettings, productPhotoThreshold, productSemanticFloor, setProductPhotoOverride } from './smartCategories'
 import type { LiteMediaRecord, LiteSimilarityGroup } from './types'
 
 describe('smart categories', () => {
@@ -7,10 +7,28 @@ describe('smart categories', () => {
     expect(normalizeSmartCategorySettings(undefined)).toEqual(DEFAULT_SMART_CATEGORY_SETTINGS)
     expect(productPhotoThreshold('conservative')).toBeGreaterThan(productPhotoThreshold('balanced'))
     expect(productPhotoThreshold('balanced')).toBeGreaterThan(productPhotoThreshold('broad'))
+    expect(productSemanticFloor('conservative')).toBeGreaterThan(productSemanticFloor('balanced'))
   })
 
-  it('finds a short visually related no-people product series', () => {
-    const items = [0, 1, 2, 3].map((index) => image(`p${index}`, 1_000 + index * 20_000, { faceAnalysisStatus: 'ready', faces: [] }))
+  it('does not classify an ordinary photo series without semantic product evidence', () => {
+    const items = [0, 1, 2, 3].map((index) => image(`family${index}`, 1_000 + index * 20_000))
+    const groups: LiteSimilarityGroup[] = [{
+      id: 'similar-family',
+      kind: 'similar',
+      itemIds: items.map((item) => item.id),
+      reason: 'fixture'
+    }]
+    expect(findLikelyProductPhotos(items, groups, DEFAULT_SMART_CATEGORY_SETTINGS.productPhotos)).toHaveLength(0)
+  })
+
+  it('finds a semantically plausible visually related no-people product series', () => {
+    const items = [0, 1, 2, 3].map((index) => image(`p${index}`, 1_000 + index * 20_000, {
+      productAnalysisStatus: 'ready',
+      productSemanticScore: 0.58,
+      productSemanticLabel: 'a used item photographed for an online marketplace sale',
+      faceAnalysisStatus: 'ready',
+      faces: []
+    }))
     const groups: LiteSimilarityGroup[] = [{
       id: 'similar-products',
       kind: 'similar',
@@ -22,13 +40,25 @@ describe('smart categories', () => {
     expect(matches.every((match) => match.score >= productPhotoThreshold('balanced'))).toBe(true)
   })
 
-  it('penalizes people when that signal is enabled', () => {
-    const items = [0, 1, 2].map((index) => image(`family${index}`, 1_000 + index * 20_000, {
+  it('uses people as an optional negative signal after semantic matching', () => {
+    const item = image('person-with-item', 1_000, {
+      productAnalysisStatus: 'ready',
+      productSemanticScore: 0.62,
       faceAnalysisStatus: 'ready',
-      faces: [{ id: `face-${index}`, box: [0.1, 0.1, 0.2, 0.2], confidence: 0.9, embedding: [0.1] }]
-    }))
-    const groups: LiteSimilarityGroup[] = [{ id: 'family', kind: 'similar', itemIds: items.map((item) => item.id), reason: 'fixture' }]
-    expect(findLikelyProductPhotos(items, groups, DEFAULT_SMART_CATEGORY_SETTINGS.productPhotos)).toHaveLength(0)
+      faces: [{ id: 'face', box: [0.1, 0.1, 0.2, 0.2], confidence: 0.9, embedding: [0.1] }]
+    })
+    expect(findLikelyProductPhotos([item], [], DEFAULT_SMART_CATEGORY_SETTINGS.productPhotos)).toHaveLength(0)
+
+    const withoutPeoplePenalty = findLikelyProductPhotos([item], [], {
+      ...DEFAULT_SMART_CATEGORY_SETTINGS.productPhotos,
+      preferNoPeople: false
+    })
+    expect(withoutPeoplePenalty).toHaveLength(0)
+  })
+
+  it('allows an explicit sale folder without semantic analysis', () => {
+    const item = image('listed', 1_000, { relativePath: 'DBA/listed.jpg' })
+    expect(findLikelyProductPhotos([item], [], DEFAULT_SMART_CATEGORY_SETTINGS.productPhotos).map((match) => match.item.id)).toEqual(['listed'])
   })
 
   it('honors explicit include and exclude corrections', () => {
