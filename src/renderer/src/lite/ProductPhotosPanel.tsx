@@ -5,6 +5,7 @@ import { analyzeProductPhotos, PRODUCT_MODEL_ID, PRODUCT_NEGATIVE_PROMPTS, PRODU
 import { DEFAULT_SMART_CATEGORY_SETTINGS, findLikelyProductPhotos, normalizeSmartCategorySettings, productPhotoThreshold, productSemanticFloor, setProductPhotoOverride } from './smartCategories'
 import { buildSimilarityGroups } from './similarity'
 import type { LiteMediaRecord, LiteProductPhotoSettings, LiteReviewState, LiteSmartCategorySensitivity } from './types'
+import { registerUndo } from './undoHistory'
 
 type MatchFilter = 'all' | 'strong' | 'manual' | 'excluded'
 
@@ -150,8 +151,9 @@ export function ProductPhotosPanel({ items, sessionFiles, onReview }: ProductPho
 
   async function updateOverride(item: LiteMediaRecord, override: boolean | null): Promise<void> {
     setSaveError(null)
+    const priorItem = effectiveItems.find((candidate) => candidate.id === item.id)
     const result = setProductPhotoOverride(effectiveItems, item.id, override)
-    if (!result.changed) return
+    if (!result.changed || !priorItem) return
     const sessionKey = overrideSessionKey(libraryId, item.id)
     const hadSessionValue = SESSION_OVERRIDES.has(sessionKey)
     const priorSessionValue = SESSION_OVERRIDES.get(sessionKey)
@@ -159,6 +161,12 @@ export function ProductPhotosPanel({ items, sessionFiles, onReview }: ProductPho
     setLocalOverrides((current) => new Map(current).set(item.id, override))
     try {
       await putMediaRecords([result.changed])
+      registerUndo(productOverrideUndoLabel(override), async () => {
+        await putMediaRecords([priorItem])
+        if (hadSessionValue) SESSION_OVERRIDES.set(sessionKey, priorSessionValue ?? null)
+        else SESSION_OVERRIDES.delete(sessionKey)
+        setLocalOverrides(sessionOverridesForLibrary(libraryId))
+      })
     } catch (cause) {
       if (hadSessionValue) SESSION_OVERRIDES.set(sessionKey, priorSessionValue ?? null)
       else SESSION_OVERRIDES.delete(sessionKey)
@@ -169,111 +177,122 @@ export function ProductPhotosPanel({ items, sessionFiles, onReview }: ProductPho
 
   return (
     <section className="product-photos-section compact-mode-section">
-      <div className="smart-category-settings">
-        <div className="smart-category-settings-copy">
-          <span className="inspector-label">Product photo detection</span>
-          <h3>Keep sale photos together, not mixed into family moments</h3>
-          <p>Semantic image understanding decides whether a photo actually looks like a sale/product photo. Similarity, short series and People analysis only refine that decision. Nothing is deleted or rejected automatically.</p>
-          <div className="collection-action-buttons">
-            <button
-              type="button"
-              className={analysisBusy ? 'danger-outline' : 'primary'}
-              disabled={!analysisBusy && !hasLocalFileAccess}
-              onClick={analysisBusy ? () => analysisAbortRef.current?.abort() : () => void runSemanticAnalysis()}
-            >
-              {analysisBusy ? 'Stop product analysis' : semanticAnalyzed > 0 ? 'Refresh product analysis' : 'Analyze product photos'}
-            </button>
-            <span className="muted">{semanticAnalyzed.toLocaleString()} / {effectiveItems.length.toLocaleString()} semantically analyzed{semanticFailed ? ` · ${semanticFailed.toLocaleString()} failed` : ''}</span>
-          </div>
-          {!hasLocalFileAccess && <p className="muted">Reconnect the source folder before running semantic analysis. Existing cached results remain usable.</p>}
-        </div>
-
-        {analysisProgress && (
-          <div className="analysis-progress product-analysis-progress">
-            <div>
-              <strong>{analysisProgress.phase === 'model' ? 'Loading semantic model' : 'Understanding product photos locally'}</strong>
-              <span>{analysisProgress.complete.toLocaleString()} / {analysisProgress.total.toLocaleString()} · {analysisProgress.reused.toLocaleString()} reused{analysisProgress.failed ? ` · ${analysisProgress.failed.toLocaleString()} failed` : ''}</span>
-            </div>
-            <progress max={Math.max(1, analysisProgress.total)} value={analysisProgress.complete} />
-            <span className="muted" title={analysisProgress.currentPath}>{analysisProgress.currentPath}</span>
-          </div>
-        )}
-
-        <div className="smart-sensitivity" role="radiogroup" aria-label="Product photo detection sensitivity">
-          {SENSITIVITY_OPTIONS.map((option) => (
-            <button
-              type="button"
-              role="radio"
-              aria-checked={settings.sensitivity === option.value}
-              className={settings.sensitivity === option.value ? 'smart-sensitivity-option active' : 'smart-sensitivity-option'}
-              key={option.value}
-              onClick={() => updateSettings({ ...settings, sensitivity: option.value })}
-            >
-              <strong>{option.label}</strong>
-              <span>{option.description}</span>
-            </button>
-          ))}
-        </div>
-
-        <div className="smart-category-toggles">
-          <label>
-            <input type="checkbox" checked={settings.recognizeSeries} onChange={(event) => updateSettings({ ...settings, recognizeSeries: event.target.checked })} />
-            <span><strong>Recognize photo series</strong><small>Boost an already plausible product photo when related shots appear together.</small></span>
-          </label>
-          <label>
-            <input type="checkbox" checked={settings.preferNoPeople} onChange={(event) => updateSettings({ ...settings, preferNoPeople: event.target.checked })} />
-            <span><strong>Prefer photos without people</strong><small>Use People analysis as an optional extra signal when available. It is not required.</small></span>
-          </label>
-        </div>
-
-        <details className="smart-category-details">
-          <summary><span>Fine tune & explain</span><strong>{Math.round(threshold * 100)}% final threshold</strong></summary>
-          <div className="smart-category-detail-grid">
-            <div><strong>Semantic signal</strong><span>{semanticAnalyzed.toLocaleString()} of {effectiveItems.length.toLocaleString()} photos analyzed. Balanced requires at least {Math.round(semanticFloor * 100)}% semantic product evidence before boosters count.</span></div>
-            <div><strong>Series signal</strong><span>{similarityAnalyzed.toLocaleString()} photos have visual similarity data. Series can strengthen a match but can no longer create one by itself.</span></div>
-            <div><strong>People signal</strong><span>{peopleAnalyzed.toLocaleString()} photos have face-analysis data. Missing People data is neutral; detected people reduce product confidence.</span></div>
-            <div><strong>Model</strong><span>{PRODUCT_MODEL_ID}. The model is downloaded on first use and cached by the browser; photo bytes are processed locally and are not uploaded.</span></div>
-            <div><strong>Looks like a product</strong><span>{PRODUCT_POSITIVE_PROMPTS.join(' · ')}</span></div>
-            <div><strong>Looks like a memory</strong><span>{PRODUCT_NEGATIVE_PROMPTS.join(' · ')}</span></div>
-            <div><strong>Manual corrections</strong><span>{manualCount.toLocaleString()} included · {excludedItems.length.toLocaleString()} excluded. Corrections persist in the local PhotoFind index.</span></div>
-          </div>
-        </details>
-      </div>
-
       {saveError && <div className="notice error inline-notice">{saveError}</div>}
 
-      <div className="smart-result-toolbar">
-        <div><strong>{matches.length.toLocaleString()} likely product photos</strong><span className="muted">Review the category; it does not change Keep / Maybe / Reject by itself.</span></div>
-        <div className="smart-result-filters" role="group" aria-label="Product photo result filter">
-          <button type="button" className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>All {matches.length.toLocaleString()}</button>
-          <button type="button" className={filter === 'strong' ? 'active' : ''} onClick={() => setFilter('strong')}>Strong {strongCount.toLocaleString()}</button>
-          {manualCount > 0 && <button type="button" className={filter === 'manual' ? 'active' : ''} onClick={() => setFilter('manual')}>Added by you {manualCount.toLocaleString()}</button>}
-          <button type="button" className={filter === 'excluded' ? 'active' : ''} onClick={() => setFilter('excluded')}>Excluded {excludedItems.length.toLocaleString()}</button>
+      <div className="product-photos-workspace">
+        <div className="product-photos-browser">
+          <div className="product-photos-browser-toolbar">
+            <div>
+              <strong>{visibleItems.length.toLocaleString()} {resultFilterLabel(filter)}</strong>
+              <span className="muted">{matches.length.toLocaleString()} likely product photos total · review decisions stay separate from this category.</span>
+            </div>
+          </div>
+
+          {matches.length === 0 && filter !== 'excluded' && (
+            <div className="compact-empty-state">
+              <strong>{semanticAnalyzed === 0 ? 'Run semantic product analysis to get reliable matches.' : 'No likely product photos at this sensitivity.'}</strong>
+              <span>{semanticAnalyzed === 0 ? 'Similarity and photo-series data deliberately cannot classify ordinary family bursts as product photos anymore.' : 'Try Broad sensitivity to review weaker semantic candidates, or manually mark a known product photo.'}</span>
+            </div>
+          )}
+
+          {visibleItems.length === 0 && (matches.length > 0 || filter === 'excluded') && <p className="muted">No photos match this result filter.</p>}
+          {visibleItems.length > 0 && (
+            <PhotoResults
+              items={visibleItems}
+              visibleCount={visibleCount}
+              batchSize={BATCH_SIZE}
+              flowLoading
+              selectedId={null}
+              sessionFiles={sessionFiles}
+              itemActionLabel={filter === 'excluded' ? 'Use automatic detection' : 'Not product photo'}
+              onItemAction={(item) => void updateOverride(item, filter === 'excluded' ? null : false)}
+              onShowMore={() => setVisibleCount((count) => count + BATCH_SIZE)}
+              onReview={onReview}
+            />
+          )}
         </div>
+
+        <aside className="product-photo-inspector smart-category-settings">
+          <div className="smart-category-settings-copy">
+            <span className="inspector-label">Product photo detection</span>
+            <h3>Keep sale photos together, not mixed into family moments</h3>
+            <p>Semantic image understanding decides whether a photo actually looks like a sale/product photo. Similarity, short series and People analysis only refine that decision. Nothing is deleted or rejected automatically.</p>
+            <div className="collection-action-buttons">
+              <button
+                type="button"
+                className={analysisBusy ? 'danger-outline' : 'primary'}
+                disabled={!analysisBusy && !hasLocalFileAccess}
+                onClick={analysisBusy ? () => analysisAbortRef.current?.abort() : () => void runSemanticAnalysis()}
+              >
+                {analysisBusy ? 'Stop product analysis' : semanticAnalyzed > 0 ? 'Refresh product analysis' : 'Analyze product photos'}
+              </button>
+              <span className="muted">{semanticAnalyzed.toLocaleString()} / {effectiveItems.length.toLocaleString()} semantically analyzed{semanticFailed ? ` · ${semanticFailed.toLocaleString()} failed` : ''}</span>
+            </div>
+            {!hasLocalFileAccess && <p className="muted">Reconnect the source folder before running semantic analysis. Existing cached results remain usable.</p>}
+          </div>
+
+          {analysisProgress && (
+            <div className="analysis-progress product-analysis-progress">
+              <div>
+                <strong>{analysisProgress.phase === 'model' ? 'Loading semantic model' : 'Understanding product photos locally'}</strong>
+                <span>{analysisProgress.complete.toLocaleString()} / {analysisProgress.total.toLocaleString()} · {analysisProgress.reused.toLocaleString()} reused{analysisProgress.failed ? ` · ${analysisProgress.failed.toLocaleString()} failed` : ''}</span>
+              </div>
+              <progress max={Math.max(1, analysisProgress.total)} value={analysisProgress.complete} />
+              <span className="muted" title={analysisProgress.currentPath}>{analysisProgress.currentPath}</span>
+            </div>
+          )}
+
+          <div className="smart-result-filter-panel">
+            <span className="inspector-label">View results</span>
+            <div className="smart-result-filters vertical" role="group" aria-label="Product photo result filter">
+              <button type="button" className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>All <span>{matches.length.toLocaleString()}</span></button>
+              <button type="button" className={filter === 'strong' ? 'active' : ''} onClick={() => setFilter('strong')}>Strong <span>{strongCount.toLocaleString()}</span></button>
+              {manualCount > 0 && <button type="button" className={filter === 'manual' ? 'active' : ''} onClick={() => setFilter('manual')}>Added by you <span>{manualCount.toLocaleString()}</span></button>}
+              <button type="button" className={filter === 'excluded' ? 'active' : ''} onClick={() => setFilter('excluded')}>Excluded <span>{excludedItems.length.toLocaleString()}</span></button>
+            </div>
+          </div>
+
+          <div className="smart-sensitivity" role="radiogroup" aria-label="Product photo detection sensitivity">
+            {SENSITIVITY_OPTIONS.map((option) => (
+              <button
+                type="button"
+                role="radio"
+                aria-checked={settings.sensitivity === option.value}
+                className={settings.sensitivity === option.value ? 'smart-sensitivity-option active' : 'smart-sensitivity-option'}
+                key={option.value}
+                onClick={() => updateSettings({ ...settings, sensitivity: option.value })}
+              >
+                <strong>{option.label}</strong>
+                <span>{option.description}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="smart-category-toggles">
+            <label>
+              <input type="checkbox" checked={settings.recognizeSeries} onChange={(event) => updateSettings({ ...settings, recognizeSeries: event.target.checked })} />
+              <span><strong>Recognize photo series</strong><small>Boost an already plausible product photo when related shots appear together.</small></span>
+            </label>
+            <label>
+              <input type="checkbox" checked={settings.preferNoPeople} onChange={(event) => updateSettings({ ...settings, preferNoPeople: event.target.checked })} />
+              <span><strong>Prefer photos without people</strong><small>Use People analysis as an optional extra signal when available. It is not required.</small></span>
+            </label>
+          </div>
+
+          <details className="smart-category-details">
+            <summary><span>Fine tune & explain</span><strong>{Math.round(threshold * 100)}% final threshold</strong></summary>
+            <div className="smart-category-detail-grid">
+              <div><strong>Semantic signal</strong><span>{semanticAnalyzed.toLocaleString()} of {effectiveItems.length.toLocaleString()} photos analyzed. Balanced requires at least {Math.round(semanticFloor * 100)}% semantic product evidence before boosters count.</span></div>
+              <div><strong>Series signal</strong><span>{similarityAnalyzed.toLocaleString()} photos have visual similarity data. Series can strengthen a match but can no longer create one by itself.</span></div>
+              <div><strong>People signal</strong><span>{peopleAnalyzed.toLocaleString()} photos have face-analysis data. Missing People data is neutral; detected people reduce product confidence.</span></div>
+              <div><strong>Model</strong><span>{PRODUCT_MODEL_ID}. The model is downloaded on first use and cached by the browser; photo bytes are processed locally and are not uploaded.</span></div>
+              <div><strong>Looks like a product</strong><span>{PRODUCT_POSITIVE_PROMPTS.join(' · ')}</span></div>
+              <div><strong>Looks like a memory</strong><span>{PRODUCT_NEGATIVE_PROMPTS.join(' · ')}</span></div>
+              <div><strong>Manual corrections</strong><span>{manualCount.toLocaleString()} included · {excludedItems.length.toLocaleString()} excluded. Corrections persist in the local PhotoFind index.</span></div>
+            </div>
+          </details>
+        </aside>
       </div>
-
-      {matches.length === 0 && filter !== 'excluded' && (
-        <div className="compact-empty-state">
-          <strong>{semanticAnalyzed === 0 ? 'Run semantic product analysis to get reliable matches.' : 'No likely product photos at this sensitivity.'}</strong>
-          <span>{semanticAnalyzed === 0 ? 'Similarity and photo-series data deliberately cannot classify ordinary family bursts as product photos anymore.' : 'Try Broad sensitivity to review weaker semantic candidates, or manually mark a known product photo.'}</span>
-        </div>
-      )}
-
-      {visibleItems.length === 0 && (matches.length > 0 || filter === 'excluded') && <p className="muted">No photos match this result filter.</p>}
-      {visibleItems.length > 0 && (
-        <PhotoResults
-          items={visibleItems}
-          visibleCount={visibleCount}
-          batchSize={BATCH_SIZE}
-          flowLoading
-          selectedId={null}
-          sessionFiles={sessionFiles}
-          itemActionLabel={filter === 'excluded' ? 'Use automatic detection' : 'Not product photo'}
-          onItemAction={(item) => void updateOverride(item, filter === 'excluded' ? null : false)}
-          onShowMore={() => setVisibleCount((count) => count + BATCH_SIZE)}
-          onReview={onReview}
-        />
-      )}
     </section>
   )
 }
@@ -324,6 +343,19 @@ function overrideSessionKey(libraryId: string, itemId: string): string {
 
 function analysisSessionKey(libraryId: string, itemId: string): string {
   return `${libraryId}:${itemId}`
+}
+
+function resultFilterLabel(filter: MatchFilter): string {
+  if (filter === 'strong') return 'strong matches'
+  if (filter === 'manual') return 'photos added by you'
+  if (filter === 'excluded') return 'excluded photos'
+  return 'matching photos'
+}
+
+function productOverrideUndoLabel(override: boolean | null): string {
+  if (override === false) return 'Exclude product photo'
+  if (override === true) return 'Include product photo'
+  return 'Restore automatic product detection'
 }
 
 function isAbort(cause: unknown): boolean {
