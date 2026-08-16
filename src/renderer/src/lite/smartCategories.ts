@@ -45,9 +45,15 @@ export function normalizeSmartCategorySettings(settings?: LiteSmartCategorySetti
 }
 
 export function productPhotoThreshold(sensitivity: LiteSmartCategorySensitivity): number {
-  if (sensitivity === 'conservative') return 0.78
-  if (sensitivity === 'broad') return 0.4
+  if (sensitivity === 'conservative') return 0.72
+  if (sensitivity === 'broad') return 0.46
   return 0.58
+}
+
+export function productSemanticFloor(sensitivity: LiteSmartCategorySensitivity): number {
+  if (sensitivity === 'conservative') return 0.62
+  if (sensitivity === 'broad') return 0.3
+  return 0.45
 }
 
 export function findLikelyProductPhotos(
@@ -59,6 +65,7 @@ export function findLikelyProductPhotos(
   const similarityByItem = buildSimilaritySignals(similarityGroups)
   const temporalSeriesByItem = settings.recognizeSeries ? buildTemporalSeriesSizes(images) : new Map<string, number>()
   const threshold = productPhotoThreshold(settings.sensitivity)
+  const semanticFloor = productSemanticFloor(settings.sensitivity)
   const matches: LiteProductPhotoMatch[] = []
 
   for (const item of images) {
@@ -69,13 +76,25 @@ export function findLikelyProductPhotos(
     }
     if (classifyLikelyNonPhoto(item)) continue
 
-    let score = 0.04
+    const pathHint = PRODUCT_PATH_HINT.test(item.relativePath) || PRODUCT_PATH_HINT.test(item.name)
+    const semanticReady = item.productAnalysisStatus === 'ready' && typeof item.productSemanticScore === 'number'
+    const semanticScore = semanticReady ? item.productSemanticScore! : 0
+
+    // Visual similarity and burst timing are common in family photos too. They may
+    // strengthen a semantic product match, but are never sufficient by themselves.
+    if (!pathHint && (!semanticReady || semanticScore < semanticFloor)) continue
+
+    let score = semanticReady ? semanticScore * 0.85 : 0.7
     const reasons: string[] = []
     let seriesSize = temporalSeriesByItem.get(item.id) ?? 1
 
-    if (PRODUCT_PATH_HINT.test(item.relativePath) || PRODUCT_PATH_HINT.test(item.name)) {
-      score += 0.7
-      reasons.push('Folder or filename suggests sale/product photos')
+    if (semanticReady) {
+      reasons.push(`${Math.round(semanticScore * 100)}% semantic product signal${item.productSemanticLabel ? ` — ${item.productSemanticLabel}` : ''}`)
+    }
+
+    if (pathHint) {
+      score += 0.15
+      reasons.push('Folder or filename explicitly suggests sale/product photos')
     }
 
     if (settings.recognizeSeries) {
@@ -86,24 +105,22 @@ export function findLikelyProductPhotos(
         reasons.push(visual.label)
       }
       if (seriesSize >= 3) {
-        score += 0.22
+        score += 0.04
         reasons.push(`${seriesSize} photos were captured as a short series`)
-        if (seriesSize >= 5) score += 0.08
+        if (seriesSize >= 5) score += 0.02
       }
     }
 
-    if (item.faceAnalysisStatus === 'ready') {
+    if (item.faceAnalysisStatus === 'ready' && settings.preferNoPeople) {
       const faceCount = item.faces?.length ?? 0
-      if (faceCount === 0 && settings.preferNoPeople) {
-        score += 0.16
+      if (faceCount === 0) {
+        score += 0.05
         reasons.push('No people detected')
-      } else if (faceCount > 0 && settings.preferNoPeople) {
-        score -= 0.34
+      } else {
+        score -= 0.2
         reasons.push('People detected in the photo')
       }
     }
-
-    if (item.cameraMake?.trim() || item.cameraModel?.trim()) score += 0.04
 
     score = roundScore(score)
     if (score >= threshold) matches.push({ item, score, reasons, seriesSize, manuallyIncluded: false })
@@ -139,7 +156,7 @@ function buildSimilaritySignals(groups: LiteSimilarityGroup[]): Map<string, Simi
     if (group.kind === 'exact') continue
     const size = group.itemIds.length
     if (size < 2) continue
-    const strength = size >= 3 ? (group.kind === 'burst' ? 0.36 : 0.32) : (group.kind === 'burst' ? 0.2 : 0.18)
+    const strength = size >= 3 ? (group.kind === 'burst' ? 0.06 : 0.05) : 0.03
     const label = group.kind === 'burst'
       ? `${size} visually related burst photos`
       : `${size} visually similar photos`
