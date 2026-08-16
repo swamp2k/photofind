@@ -9,6 +9,7 @@ export type LiteSimilarityGroupKind = 'exact' | 'burst' | 'similar'
 export type LiteQualityStatus = 'ready' | 'failed'
 export type LiteQualityTier = 'great' | 'good' | 'okay' | 'weak'
 export type LiteFaceAnalysisStatus = 'ready' | 'failed'
+export type LiteProductAnalysisStatus = 'ready' | 'failed'
 export type LiteReviewState = 'unreviewed' | 'keep' | 'maybe' | 'reject'
 export type LiteReviewFilter = 'all' | LiteReviewState
 export type LiteExportLayout = 'flat' | 'date-day' | 'date-month' | 'source-folders'
@@ -96,6 +97,14 @@ export interface LiteMediaRecord {
   faces?: LiteFaceObservation[]
   faceAnalysisError?: string
   facesAnalyzedAt?: number
+  productAnalysisVersion?: number
+  productAnalysisStatus?: LiteProductAnalysisStatus
+  productAnalysisFingerprint?: string
+  productSemanticScore?: number
+  productSemanticLabel?: string
+  productSemanticNegativeLabel?: string
+  productAnalysisError?: string
+  productAnalyzedAt?: number
   reviewState?: LiteReviewState
   reviewUpdatedAt?: number
   screenshotOverride?: boolean
