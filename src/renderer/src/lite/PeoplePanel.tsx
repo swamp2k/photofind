@@ -1,7 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { PeoplePanel as PeopleFacePanel } from './PeopleFacePanel'
 import { ProductPhotosPanel } from './ProductPhotosPanel'
-import { buildSimilarityGroups } from './similarity'
 import type { LiteMediaRecord, LitePeopleProgress, LitePersonRecord, LiteReviewState } from './types'
 
 interface PeoplePanelProps {
@@ -23,7 +22,6 @@ type SmartCategoryView = 'people' | 'product-photos'
 
 export function PeoplePanel(props: PeoplePanelProps): JSX.Element {
   const [view, setView] = useState<SmartCategoryView>('people')
-  const similarityGroups = useMemo(() => buildSimilarityGroups(props.items), [props.items])
 
   return (
     <section className="smart-categories-workspace">
@@ -45,7 +43,6 @@ export function PeoplePanel(props: PeoplePanelProps): JSX.Element {
       ) : (
         <ProductPhotosPanel
           items={props.items}
-          groups={similarityGroups}
           sessionFiles={props.sessionFiles}
           onReview={props.onReview}
         />
