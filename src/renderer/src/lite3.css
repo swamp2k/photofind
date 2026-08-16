@@ -85,6 +85,7 @@
 .similarity-group { border: 1px solid var(--border); border-radius: 10px; background: var(--panel); overflow: hidden; }
 .similarity-group-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
 .similarity-group-head > div { min-width: 0; }
+.similarity-group-actions { display: flex; align-items: center; gap: 7px; flex: 0 0 auto; }
 .similarity-group-head strong { margin-left: 9px; font-size: 13px; }
 .similarity-group-head p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
 .group-kind { display: inline-flex; padding: 3px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
@@ -106,4 +107,5 @@
   .similarity-hero { align-items: stretch; flex-direction: column; }
   .similarity-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .similarity-group-head { align-items: flex-start; flex-direction: column; }
+  .similarity-group-actions { align-self: flex-end; }
 }
