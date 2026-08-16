@@ -193,6 +193,7 @@ async function createClassifier(): Promise<ProductClassifier> {
   const wasmBackend = module.env.backends.onnx.wasm
   if (!wasmBackend) throw new Error('Transformers.js did not expose the ONNX WASM runtime configuration.')
   wasmBackend.wasmPaths = new URL('/onnx-wasm/', window.location.origin).href
+  wasmBackend.numThreads = preferredWasmThreadCount()
 
   if (isLocalDevelopment()) {
     module.env.remoteHost = 'https://huggingface.co/'
@@ -265,6 +266,12 @@ function topEvidence(predictions: SemanticPrediction[]): number {
   if (predictions.length === 0) return 0
   const top = predictions.slice(0, 2)
   return top.reduce((sum, prediction) => sum + prediction.score, 0) / top.length
+}
+
+function preferredWasmThreadCount(): number {
+  if (!globalThis.crossOriginIsolated) return 1
+  const logicalCpus = Math.max(1, navigator.hardwareConcurrency || 1)
+  return Math.max(1, Math.min(8, Math.floor(logicalCpus / 2)))
 }
 
 async function hasUsableWebGpu(): Promise<boolean> {
