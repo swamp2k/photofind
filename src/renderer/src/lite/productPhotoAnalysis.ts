@@ -2,25 +2,25 @@ import { decodeBitmapForAnalysis } from './imageDecode'
 import type { LiteMediaRecord } from './types'
 
 export const PRODUCT_ANALYSIS_VERSION = 1
-export const PRODUCT_MODEL_ID = 'Xenova/mobileclip_s0'
+export const PRODUCT_MODEL_ID = 'Xenova/siglip-base-patch16-224'
 const PROMPT_SET_VERSION = 1
 const PERSIST_BATCH_SIZE = 4
 const MAX_ANALYSIS_DIMENSION = 768
 
 export const PRODUCT_POSITIVE_PROMPTS = [
-  'a used item photographed for an online marketplace sale',
-  'a product listing photo with one item as the main subject',
+  'a used item listed for sale online',
+  'a marketplace product listing',
   'clothing or shoes displayed for sale',
-  'electronics or a household item photographed for sale',
-  'a bicycle, tool, toy, or piece of equipment photographed for sale'
+  'electronics or a household item displayed for sale',
+  'a bicycle, tool, toy, or piece of equipment displayed for sale'
 ] as const
 
 export const PRODUCT_NEGATIVE_PROMPTS = [
   'a family snapshot with people',
-  'a child playing or posing for a photo',
+  'a child playing or posing',
   'people eating, visiting, or spending time together',
-  'a travel, landscape, nature, or outdoor memory photo',
-  'a casual everyday photo of home life rather than an item for sale'
+  'a travel, landscape, nature, or outdoor memory',
+  'casual everyday home life rather than an item for sale'
 ] as const
 
 const CANDIDATE_PROMPTS = [...PRODUCT_POSITIVE_PROMPTS, ...PRODUCT_NEGATIVE_PROMPTS]
@@ -50,7 +50,7 @@ interface SemanticPrediction {
 }
 
 interface ProductClassifier {
-  (image: unknown, candidateLabels: readonly string[], options?: { hypothesis_template?: string }): Promise<SemanticPrediction[]>
+  (image: unknown, candidateLabels: readonly string[]): Promise<SemanticPrediction[]>
 }
 
 let classifierPromise: Promise<ProductClassifier> | null = null
@@ -124,11 +124,19 @@ async function analyzeOne(
       const module = await import('@huggingface/transformers')
       const image = module.RawImage.fromCanvas(canvas)
       signal?.throwIfAborted()
-      const predictions = await classifier(image, CANDIDATE_PROMPTS, { hypothesis_template: '{}' })
+      const predictions = await classifier(image, CANDIDATE_PROMPTS)
       signal?.throwIfAborted()
-      const productScore = round(predictions.reduce((sum, prediction) => sum + (POSITIVE_PROMPTS.has(prediction.label) ? prediction.score : 0), 0))
-      const positive = predictions.filter((prediction) => POSITIVE_PROMPTS.has(prediction.label)).sort((left, right) => right.score - left.score)[0]
-      const negative = predictions.filter((prediction) => !POSITIVE_PROMPTS.has(prediction.label)).sort((left, right) => right.score - left.score)[0]
+
+      const positives = predictions
+        .filter((prediction) => POSITIVE_PROMPTS.has(prediction.label))
+        .sort((left, right) => right.score - left.score)
+      const negatives = predictions
+        .filter((prediction) => !POSITIVE_PROMPTS.has(prediction.label))
+        .sort((left, right) => right.score - left.score)
+      const positiveEvidence = topEvidence(positives)
+      const negativeEvidence = topEvidence(negatives)
+      const evidenceTotal = positiveEvidence + negativeEvidence
+      const productScore = round(evidenceTotal > 0 ? positiveEvidence / evidenceTotal : 0.5)
 
       return {
         ...item,
@@ -136,8 +144,8 @@ async function analyzeOne(
         productAnalysisStatus: 'ready',
         productAnalysisFingerprint: fingerprint,
         productSemanticScore: productScore,
-        productSemanticLabel: positive?.label,
-        productSemanticNegativeLabel: negative?.label,
+        productSemanticLabel: positives[0]?.label,
+        productSemanticNegativeLabel: negatives[0]?.label,
         productAnalysisError: undefined,
         productAnalyzedAt: Date.now()
       }
@@ -189,6 +197,12 @@ export function productAnalysisIsCurrent(item: LiteMediaRecord): boolean {
 
 function analysisFingerprint(item: LiteMediaRecord): string {
   return `${PRODUCT_ANALYSIS_VERSION}|${PROMPT_SET_VERSION}|${PRODUCT_MODEL_ID}|${item.sizeBytes}|${item.lastModified}`
+}
+
+function topEvidence(predictions: SemanticPrediction[]): number {
+  if (predictions.length === 0) return 0
+  const top = predictions.slice(0, 2)
+  return top.reduce((sum, prediction) => sum + prediction.score, 0) / top.length
 }
 
 function supportsWebGpu(): boolean {
