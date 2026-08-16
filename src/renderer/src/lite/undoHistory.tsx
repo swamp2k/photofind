@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 export const UNDO_HISTORY_LIMIT = 20
-export const UNDO_APPLIED_EVENT = 'photofind:undo-applied'
+export const LIBRARY_STATE_CHANGED_EVENT = 'photofind:library-state-changed'
 
 interface UndoEntry {
   id: number
@@ -31,6 +31,10 @@ export function clearUndoHistory(): void {
   emit()
 }
 
+export function notifyLibraryStateChanged(): void {
+  window.dispatchEvent(new CustomEvent(LIBRARY_STATE_CHANGED_EVENT))
+}
+
 export async function undoLast(): Promise<void> {
   if (busy || entries.length === 0) return
   const entry = entries[entries.length - 1]
@@ -39,7 +43,7 @@ export async function undoLast(): Promise<void> {
   emit()
   try {
     await entry.undo()
-    window.dispatchEvent(new CustomEvent(UNDO_APPLIED_EVENT, { detail: { label: entry.label } }))
+    notifyLibraryStateChanged()
   } catch (cause) {
     entries = [...entries, entry].slice(-UNDO_HISTORY_LIMIT)
     throw cause
