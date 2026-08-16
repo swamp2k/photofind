@@ -54,6 +54,12 @@ interface ProductClassifier {
   (image: unknown, candidateLabels: readonly string[]): Promise<SemanticPrediction[]>
 }
 
+interface NavigatorWithWebGpu extends Navigator {
+  gpu?: {
+    requestAdapter(): Promise<unknown | null>
+  }
+}
+
 let classifierPromise: Promise<ProductClassifier> | null = null
 
 export async function analyzeProductPhotos(items: LiteMediaRecord[], options: ProductAnalysisOptions): Promise<LiteMediaRecord[]> {
@@ -197,25 +203,35 @@ async function createClassifier(): Promise<ProductClassifier> {
     module.env.remotePathTemplate = '{model}/resolve/{revision}/'
   }
 
-  const device = supportsWebGpu() ? 'webgpu' : 'wasm'
+  const webGpuAvailable = await hasUsableWebGpu()
+  if (!webGpuAvailable) {
+    try {
+      const classifier = await module.pipeline('zero-shot-image-classification', PRODUCT_MODEL_ID, {
+        revision: PRODUCT_MODEL_REVISION,
+        dtype: 'q8'
+      })
+      return classifier as unknown as ProductClassifier
+    } catch (cause) {
+      throw new Error(`Semantic model failed to load with local CPU/WASM runtime: ${messageOf(cause)}`)
+    }
+  }
+
   try {
     const classifier = await module.pipeline('zero-shot-image-classification', PRODUCT_MODEL_ID, {
       revision: PRODUCT_MODEL_REVISION,
-      device,
+      device: 'webgpu',
       dtype: 'q8'
     })
     return classifier as unknown as ProductClassifier
   } catch (cause) {
-    if (device === 'wasm') throw new Error(`Semantic model failed to load with local WASM runtime: ${messageOf(cause)}`)
     try {
       const classifier = await module.pipeline('zero-shot-image-classification', PRODUCT_MODEL_ID, {
         revision: PRODUCT_MODEL_REVISION,
-        device: 'wasm',
         dtype: 'q8'
       })
       return classifier as unknown as ProductClassifier
     } catch (fallbackCause) {
-      throw new Error(`Semantic model failed on WebGPU and local WASM fallback. WebGPU: ${messageOf(cause)} WASM: ${messageOf(fallbackCause)}`)
+      throw new Error(`Semantic model failed on WebGPU and CPU/WASM fallback. WebGPU: ${messageOf(cause)} CPU/WASM: ${messageOf(fallbackCause)}`)
     }
   }
 }
@@ -251,8 +267,14 @@ function topEvidence(predictions: SemanticPrediction[]): number {
   return top.reduce((sum, prediction) => sum + prediction.score, 0) / top.length
 }
 
-function supportsWebGpu(): boolean {
-  return Boolean((navigator as Navigator & { gpu?: unknown }).gpu)
+async function hasUsableWebGpu(): Promise<boolean> {
+  const gpu = (navigator as NavigatorWithWebGpu).gpu
+  if (!gpu || typeof gpu.requestAdapter !== 'function') return false
+  try {
+    return Boolean(await gpu.requestAdapter())
+  } catch {
+    return false
+  }
 }
 
 function isLocalDevelopment(): boolean {
