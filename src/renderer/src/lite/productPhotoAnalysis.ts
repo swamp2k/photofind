@@ -184,9 +184,11 @@ async function createClassifier(): Promise<ProductClassifier> {
   module.env.allowLocalModels = false
   module.env.allowRemoteModels = true
   module.env.useBrowserCache = true
-  module.env.backends.onnx.wasm.wasmPaths = new URL('/onnx-wasm/', window.location.origin).href
+  const wasmBackend = module.env.backends.onnx.wasm
+  if (!wasmBackend) throw new Error('Transformers.js did not expose the ONNX WASM runtime configuration.')
+  wasmBackend.wasmPaths = new URL('/onnx-wasm/', window.location.origin).href
 
-  if (import.meta.env.DEV) {
+  if (isLocalDevelopment()) {
     module.env.remoteHost = 'https://huggingface.co/'
     module.env.remotePathTemplate = '{model}/resolve/{revision}/'
   } else {
@@ -251,6 +253,10 @@ function topEvidence(predictions: SemanticPrediction[]): number {
 
 function supportsWebGpu(): boolean {
   return Boolean((navigator as Navigator & { gpu?: unknown }).gpu)
+}
+
+function isLocalDevelopment(): boolean {
+  return window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname === '[::1]'
 }
 
 function round(value: number): number {
