@@ -34,10 +34,11 @@ export interface PhotoContextActions {
   resolvePhoto(id: string): PhotoContextDescriptor | null
   setStarred(id: string, starred: boolean): void | Promise<void>
   setScreenshot(id: string, screenshot: boolean): void | Promise<void>
-  listKnownEvents?(photoId: string): PhotoContextEventDescriptor[]
-  resolveEvent?(eventId: string, photoId: string): PhotoContextEventDescriptor | null
-  addToEvent?(photoId: string, eventId: string): void | Promise<void>
-  removeFromEvent?(photoId: string, eventId: string): void | Promise<void>
+  listKnownEvents?(photoIds: string[]): PhotoContextEventDescriptor[]
+  resolveEvent?(eventId: string, photoIds: string[]): PhotoContextEventDescriptor | null
+  createEvent?(photoIds: string[]): void | Promise<void>
+  addToEvent?(photoIds: string[], eventId: string): void | Promise<void>
+  removeFromEvent?(photoIds: string[], eventId: string): void | Promise<void>
 }
 
 interface OpenMenuState extends PhotoFindContextMenuSpec {
@@ -87,20 +88,40 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
       if (photo && photoActions) {
         event.stopPropagation()
         claimed.current = true
-        const knownEvents = photoActions.listKnownEvents?.(photo.id) ?? []
+        const targetPhotoIds = contextPhotoTargets(photo.id, selectedPhotoIdsForTarget(target))
+        const knownEvents = photoActions.listKnownEvents?.(targetPhotoIds) ?? []
         const currentEventId = eventIdFromTarget(target)
-        const currentEvent = currentEventId ? photoActions.resolveEvent?.(currentEventId, photo.id) ?? null : null
-        const addChildren: PhotoFindContextMenuAction[] = knownEvents.length > 0
-          ? knownEvents.map((knownEvent) => ({
+        const currentEvent = currentEventId ? photoActions.resolveEvent?.(currentEventId, targetPhotoIds) ?? null : null
+        const addChildren: PhotoFindContextMenuAction[] = []
+        if (photoActions.createEvent) {
+          addChildren.push({
+            id: 'create-new-event',
+            label: 'Create new event…',
+            onSelect: () => photoActions.createEvent?.(targetPhotoIds)
+          })
+        }
+        if (knownEvents.length > 0) {
+          for (const [index, knownEvent] of knownEvents.entries()) {
+            addChildren.push({
               id: `add-event-${knownEvent.id}`,
               label: knownEvent.title,
               hint: knownEvent.containsPhoto ? 'Added' : knownEvent.hint,
               disabled: knownEvent.containsPhoto || !photoActions.addToEvent,
-              onSelect: () => photoActions.addToEvent?.(photo.id, knownEvent.id)
-            }))
-          : [{ id: 'no-known-events', label: 'No known events yet', disabled: true, onSelect: () => undefined }]
+              separatorBefore: index === 0 && Boolean(photoActions.createEvent),
+              onSelect: () => photoActions.addToEvent?.(targetPhotoIds, knownEvent.id)
+            })
+          }
+        } else {
+          addChildren.push({
+            id: 'no-known-events',
+            label: 'No known events yet',
+            disabled: true,
+            separatorBefore: Boolean(photoActions.createEvent),
+            onSelect: () => undefined
+          })
+        }
         setMenu(positionMenu(event.clientX, event.clientY, {
-          title: photo.name,
+          title: targetPhotoIds.length > 1 ? `${targetPhotoIds.length.toLocaleString()} selected photos` : photo.name,
           actions: [
             {
               id: 'toggle-starred',
@@ -113,14 +134,14 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
               label: 'Add to event…',
               hint: '›',
               separatorBefore: true,
-              disabled: !photoActions.addToEvent,
+              disabled: !photoActions.addToEvent && !photoActions.createEvent,
               children: addChildren,
               onSelect: () => undefined
             },
             ...(currentEvent && currentEvent.containsPhoto && photoActions.removeFromEvent ? [{
               id: 'remove-from-event',
-              label: `Remove from “${currentEvent.title}”`,
-              onSelect: () => photoActions.removeFromEvent?.(photo.id, currentEvent.id)
+              label: targetPhotoIds.length > 1 ? `Remove ${targetPhotoIds.length.toLocaleString()} photos from “${currentEvent.title}”` : `Remove from “${currentEvent.title}”`,
+              onSelect: () => photoActions.removeFromEvent?.(targetPhotoIds, currentEvent.id)
             }] : []),
             {
               id: 'mark-screenshot',
@@ -248,6 +269,22 @@ export function usePhotoFindContextMenu(): ContextMenuApi {
   const value = useContext(ContextMenuContext)
   if (!value) throw new Error('usePhotoFindContextMenu must be used inside PhotoFindContextMenuProvider.')
   return value
+}
+
+export function contextPhotoTargets(clickedPhotoId: string, selectedPhotoIds: readonly string[]): string[] {
+  const selected = [...new Set(selectedPhotoIds.filter((id) => Boolean(id)))]
+  return selected.includes(clickedPhotoId) ? selected : [clickedPhotoId]
+}
+
+function selectedPhotoIdsForTarget(target: EventTarget | null): string[] {
+  if (!(target instanceof Element)) return []
+  const owner = target.closest<HTMLElement>('[data-photofind-photo-id]')
+  if (!owner?.closest('.explorer-selected')) return []
+  return Array.from(document.querySelectorAll<HTMLElement>('.explorer-selected'))
+    .map((selected) => selected.dataset.photofindPhotoId
+      ?? selected.querySelector<HTMLElement>('[data-photofind-photo-id]')?.dataset.photofindPhotoId
+      ?? '')
+    .filter(Boolean)
 }
 
 function photoIdFromTarget(target: EventTarget | null): string | null {

@@ -68,6 +68,10 @@ export function LiteApp(): JSX.Element {
   const [reviewWrites, setReviewWrites] = useState(0)
   const [exportBusy, setExportBusy] = useState(false)
   const [knownDatesOpen, setKnownDatesOpen] = useState(false)
+  const [contextCreateItemIds, setContextCreateItemIds] = useState<string[] | null>(null)
+  const [contextCreateTitle, setContextCreateTitle] = useState('')
+  const [contextCreateBusy, setContextCreateBusy] = useState(false)
+  const [contextCreateError, setContextCreateError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [visibleCount, setVisibleCount] = useState(pageSize)
   const [view, setView] = useState<BrowseView>('photos')
@@ -105,31 +109,42 @@ export function LiteApp(): JSX.Element {
       setScreenshot(id, screenshot) {
         setScreenshotState(id, screenshot)
       },
-      listKnownEvents(photoId) {
+      listKnownEvents(photoIds) {
+        const targets = [...new Set(photoIds)]
         return eventsRef.current
           .filter(isKnownDateEvent)
           .sort((left, right) => right.startTime - left.startTime || left.title.localeCompare(right.title))
-          .map((event) => ({
-            id: event.id,
-            title: event.title,
-            hint: `${formatContextEventDate(event)} · ${event.itemIds.length.toLocaleString()}`,
-            containsPhoto: event.itemIds.includes(photoId)
-          }))
+          .map((event) => {
+            const included = targets.reduce((count, id) => count + (event.itemIds.includes(id) ? 1 : 0), 0)
+            const partial = targets.length > 1 && included > 0 && included < targets.length
+              ? `${included.toLocaleString()}/${targets.length.toLocaleString()} selected already added · `
+              : ''
+            return {
+              id: event.id,
+              title: event.title,
+              hint: `${partial}${formatContextEventDate(event)} · ${event.itemIds.length.toLocaleString()}`,
+              containsPhoto: targets.length > 0 && included === targets.length
+            }
+          })
       },
-      resolveEvent(eventId, photoId) {
+      resolveEvent(eventId, photoIds) {
         const event = eventsRef.current.find((candidate) => candidate.id === eventId)
+        const targets = [...new Set(photoIds)]
         return event ? {
           id: event.id,
           title: event.title,
           hint: formatContextEventDate(event),
-          containsPhoto: event.itemIds.includes(photoId)
+          containsPhoto: targets.length > 0 && targets.every((id) => event.itemIds.includes(id))
         } : null
       },
-      addToEvent(photoId, eventId) {
-        return addPhotoToEventById(photoId, eventId)
+      createEvent(photoIds) {
+        beginContextCreateEvent(photoIds)
       },
-      removeFromEvent(photoId, eventId) {
-        return removePhotoFromEventById(photoId, eventId)
+      addToEvent(photoIds, eventId) {
+        return addPhotosToEventByIds(photoIds, eventId)
+      },
+      removeFromEvent(photoIds, eventId) {
+        return removePhotosFromEventByIds(photoIds, eventId)
       }
     })
     return () => registerPhotoActions(null)
@@ -508,35 +523,78 @@ export function LiteApp(): JSX.Element {
     } catch (cause) { setError(`Photos could not be removed from the event: ${messageOf(cause)}`) }
   }
 
-  async function addPhotoToEventById(photoId: string, eventId: string): Promise<void> {
+  async function addPhotosToEventByIds(photoIds: string[], eventId: string): Promise<void> {
     const event = eventsRef.current.find((candidate) => candidate.id === eventId && isKnownDateEvent(candidate))
-    const item = mediaRef.current.find((candidate) => candidate.id === photoId && candidate.kind === 'image')
-    if (!event || !item || event.itemIds.includes(photoId)) return
+    if (!event) return
+    const availableIds = new Set(mediaRef.current.filter((candidate) => candidate.kind === 'image' && !isRejected(candidate)).map((candidate) => candidate.id))
+    const additions = [...new Set(photoIds)].filter((id) => availableIds.has(id) && !event.itemIds.includes(id))
+    if (additions.length === 0) return
     const prior = matchingEventOverride(event, eventOverridesRef.current)
-    const next = createEventPhotoAdditionOverride(event, [photoId], prior)
+    const next = createEventPhotoAdditionOverride(event, additions, prior)
     const removeIds = prior && prior.id !== next.id ? [prior.id] : []
     try {
       setError(null)
       await saveEventOverrideBatch([next], removeIds)
       updateEventOverrideState([next], removeIds)
     } catch (cause) {
-      setError(`Photo could not be added to “${event.title}”: ${messageOf(cause)}`)
+      setError(`${additions.length === 1 ? 'Photo' : 'Photos'} could not be added to “${event.title}”: ${messageOf(cause)}`)
     }
   }
 
-  async function removePhotoFromEventById(photoId: string, eventId: string): Promise<void> {
+  async function removePhotosFromEventByIds(photoIds: string[], eventId: string): Promise<void> {
     const event = eventsRef.current.find((candidate) => candidate.id === eventId)
-    const item = mediaRef.current.find((candidate) => candidate.id === photoId && candidate.kind === 'image')
-    if (!event || !item || !event.itemIds.includes(photoId)) return
+    if (!event) return
+    const removals = [...new Set(photoIds)].filter((id) => event.itemIds.includes(id))
+    if (removals.length === 0) return
     const prior = matchingEventOverride(event, eventOverridesRef.current)
-    const next = createEventPhotoRemovalOverride(event, [photoId], prior)
+    const next = createEventPhotoRemovalOverride(event, removals, prior)
     const removeIds = prior && prior.id !== next.id ? [prior.id] : []
     try {
       setError(null)
       await saveEventOverrideBatch([next], removeIds)
       updateEventOverrideState([next], removeIds)
     } catch (cause) {
-      setError(`Photo could not be removed from “${event.title}”: ${messageOf(cause)}`)
+      setError(`${removals.length === 1 ? 'Photo' : 'Photos'} could not be removed from “${event.title}”: ${messageOf(cause)}`)
+    }
+  }
+
+  function beginContextCreateEvent(photoIds: string[]): void {
+    const availableIds = new Set(mediaRef.current.filter((candidate) => candidate.kind === 'image' && !isRejected(candidate)).map((candidate) => candidate.id))
+    const targets = [...new Set(photoIds)].filter((id) => availableIds.has(id))
+    if (targets.length === 0) return
+    setContextCreateItemIds(targets)
+    setContextCreateTitle('')
+    setContextCreateError(null)
+  }
+
+  async function submitContextCreateEvent(): Promise<void> {
+    if (!contextCreateItemIds || contextCreateItemIds.length === 0 || !contextCreateTitle.trim() || contextCreateBusy) return
+    const targetIds = new Set(contextCreateItemIds)
+    const targets = mediaRef.current.filter((item) => item.kind === 'image' && !isRejected(item) && targetIds.has(item.id))
+    const libraryId = targets[0]?.libraryId
+    if (!libraryId || targets.length === 0) {
+      setContextCreateError('The selected photos are no longer available in this index.')
+      return
+    }
+    const next = createManualEventOverride(libraryId, targets, contextCreateTitle.trim())
+    if (!next) {
+      setContextCreateError('Choose an event name and at least one photo.')
+      return
+    }
+    setContextCreateBusy(true)
+    setContextCreateError(null)
+    try {
+      setError(null)
+      await saveEventOverride(next)
+      updateEventOverrideState([next])
+      setContextCreateItemIds(null)
+      setContextCreateTitle('')
+    } catch (cause) {
+      const message = `Event could not be created: ${messageOf(cause)}`
+      setContextCreateError(message)
+      setError(message)
+    } finally {
+      setContextCreateBusy(false)
     }
   }
 
@@ -813,6 +871,19 @@ export function LiteApp(): JSX.Element {
         </div>
 
         {knownDatesOpen && activeLibrary && <KnownDatesDialog libraryId={activeLibrary.id} localRecords={activeLibrary.knownDates ?? []} globalRecords={globalKnownDates} years={years} onReplace={replaceKnownDates} onClose={() => setKnownDatesOpen(false)} />}
+        {contextCreateItemIds && (
+          <div className="pf-dialog-backdrop" role="presentation" onMouseDown={() => { if (!contextCreateBusy) setContextCreateItemIds(null) }}>
+            <form className="pf-dialog event-rename-dialog" role="dialog" aria-modal="true" aria-label="Create event from selected photos" onMouseDown={(event) => event.stopPropagation()} onSubmit={(event) => { event.preventDefault(); void submitContextCreateEvent() }}>
+              <div><span className="mode-kicker">Known event</span><h3>Create Event</h3><p>Create a persistent Known event from {contextCreateItemIds.length.toLocaleString()} selected photo{contextCreateItemIds.length === 1 ? '' : 's'}.</p></div>
+              <label><span>Event name</span><input autoFocus value={contextCreateTitle} onChange={(event) => setContextCreateTitle(event.target.value)} placeholder="e.g. Easter holiday" /></label>
+              {contextCreateError && <div className="notice error inline-notice">{contextCreateError}</div>}
+              <div className="pf-dialog-actions">
+                <button type="button" className="quiet-button" disabled={contextCreateBusy} onClick={() => setContextCreateItemIds(null)}>Cancel</button>
+                <button type="submit" className="primary" disabled={contextCreateBusy || !contextCreateTitle.trim()}>{contextCreateBusy ? 'Creating…' : `Create event · ${contextCreateItemIds.length.toLocaleString()} photo${contextCreateItemIds.length === 1 ? '' : 's'}`}</button>
+              </div>
+            </form>
+          </div>
+        )}
       </div>
     </SourceNavigationProvider>
   )

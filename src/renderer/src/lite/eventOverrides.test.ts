@@ -82,6 +82,17 @@ describe('event overrides', () => {
     expect(applyEventOverrides([original], [removed], items)[0].itemIds).toEqual(['1', '2'])
   })
 
+  it('adds multiple selected Library photos to an existing manual Known event', () => {
+    const items = [photo('1', 100), photo('2', 200), photo('3', 300), photo('4', 400)]
+    const stored = createManualEventOverride('library', items.slice(0, 1), 'Holiday', 10)!
+    const created = applyEventOverrides([], [stored], items)[0]
+    const expanded = createEventPhotoAdditionOverride(created, ['2', '3', '4'], stored, 20)
+    const applied = applyEventOverrides([], [expanded], items)[0]
+
+    expect(applied.itemIds).toEqual(['1', '2', '3', '4'])
+    expect(isKnownDateEvent(applied)).toBe(true)
+  })
+
   it('preserves manual membership when an edited event is renamed or reset', () => {
     const original = event('event-a', ['1', '2', '3'])
     const membership = createEventPhotoRemovalOverride(original, ['2'], undefined, 10)

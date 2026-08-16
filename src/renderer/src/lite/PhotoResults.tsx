@@ -69,7 +69,7 @@ export function PhotoResults({ items, visibleCount, batchSize, flowLoading, sele
             const selected = selection.isSelected(item.id)
             const mapSelected = selectedId === item.id
             return (
-              <article className={[selected ? 'photo-card explorer-selected' : 'photo-card', mapSelected ? 'selected' : ''].filter(Boolean).join(' ')} key={item.id}>
+              <article className={[selected ? 'photo-card explorer-selected' : 'photo-card', mapSelected ? 'selected' : ''].filter(Boolean).join(' ')} key={item.id} data-photofind-photo-id={item.id}>
                 <button
                   type="button"
                   className="photo-open-button"

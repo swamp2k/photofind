@@ -274,7 +274,7 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
               <div className="event-photo-grid">
                 {selectedItems.slice(0, 300).map((item, index) => {
                   const isSelected = selection.isSelected(item.id)
-                  return <article className={isSelected ? 'explorer-selected' : ''} key={item.id} data-photofind-event-id={selected.id}>
+                  return <article className={isSelected ? 'explorer-selected' : ''} key={item.id} data-photofind-event-id={selected.id} data-photofind-photo-id={item.id}>
                     <button type="button" className="event-photo-open" aria-pressed={isSelected} onClick={(event) => selection.handlePhotoClick(event, item.id, () => setOpenIndex(index))}>
                       <div className="event-photo-thumb"><LocalThumbnail item={item} sessionFile={sessionFiles.get(item.id)} />{isSelected && <span className="selection-check">✓</span>}</div>
                     </button>
