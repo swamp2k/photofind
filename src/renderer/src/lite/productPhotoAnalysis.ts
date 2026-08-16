@@ -3,6 +3,7 @@ import type { LiteMediaRecord } from './types'
 
 export const PRODUCT_ANALYSIS_VERSION = 1
 export const PRODUCT_MODEL_ID = 'Xenova/siglip-base-patch16-224'
+const PRODUCT_MODEL_REVISION = 'main'
 const PROMPT_SET_VERSION = 1
 const PERSIST_BATCH_SIZE = 4
 const MAX_ANALYSIS_DIMENSION = 768
@@ -169,23 +170,66 @@ async function analyzeOne(
 }
 
 async function loadClassifier(): Promise<ProductClassifier> {
-  classifierPromise ??= (async (): Promise<ProductClassifier> => {
-    const module = await import('@huggingface/transformers')
-    module.env.allowLocalModels = false
-    module.env.allowRemoteModels = true
-    module.env.useBrowserCache = true
-
-    const device = supportsWebGpu() ? 'webgpu' : 'wasm'
-    try {
-      const classifier = await module.pipeline('zero-shot-image-classification', PRODUCT_MODEL_ID, { device, dtype: 'q8' })
-      return classifier as unknown as ProductClassifier
-    } catch (cause) {
-      if (device === 'wasm') throw cause
-      const classifier = await module.pipeline('zero-shot-image-classification', PRODUCT_MODEL_ID, { device: 'wasm', dtype: 'q8' })
-      return classifier as unknown as ProductClassifier
-    }
-  })()
+  if (!classifierPromise) {
+    classifierPromise = createClassifier().catch((cause) => {
+      classifierPromise = null
+      throw cause
+    })
+  }
   return classifierPromise
+}
+
+async function createClassifier(): Promise<ProductClassifier> {
+  const module = await import('@huggingface/transformers')
+  module.env.allowLocalModels = false
+  module.env.allowRemoteModels = true
+  module.env.useBrowserCache = true
+  module.env.backends.onnx.wasm.wasmPaths = new URL('/onnx-wasm/', window.location.origin).href
+
+  if (import.meta.env.DEV) {
+    module.env.remoteHost = 'https://huggingface.co/'
+    module.env.remotePathTemplate = '{model}/resolve/{revision}/'
+  } else {
+    await verifyModelGateway()
+    module.env.remoteHost = new URL('/api/hf-models/', window.location.origin).href
+    module.env.remotePathTemplate = '{model}/resolve/{revision}/'
+  }
+
+  const device = supportsWebGpu() ? 'webgpu' : 'wasm'
+  try {
+    const classifier = await module.pipeline('zero-shot-image-classification', PRODUCT_MODEL_ID, {
+      revision: PRODUCT_MODEL_REVISION,
+      device,
+      dtype: 'q8'
+    })
+    return classifier as unknown as ProductClassifier
+  } catch (cause) {
+    if (device === 'wasm') throw new Error(`Semantic model failed to load with local WASM runtime: ${messageOf(cause)}`)
+    try {
+      const classifier = await module.pipeline('zero-shot-image-classification', PRODUCT_MODEL_ID, {
+        revision: PRODUCT_MODEL_REVISION,
+        device: 'wasm',
+        dtype: 'q8'
+      })
+      return classifier as unknown as ProductClassifier
+    } catch (fallbackCause) {
+      throw new Error(`Semantic model failed on WebGPU and local WASM fallback. WebGPU: ${messageOf(cause)} WASM: ${messageOf(fallbackCause)}`)
+    }
+  }
+}
+
+async function verifyModelGateway(): Promise<void> {
+  const url = new URL(`/api/hf-models/${PRODUCT_MODEL_ID}/resolve/${PRODUCT_MODEL_REVISION}/config.json`, window.location.origin)
+  let response: Response
+  try {
+    response = await fetch(url, { headers: { Accept: 'application/json' }, cache: 'no-store' })
+  } catch (cause) {
+    throw new Error(`PhotoFind model gateway could not be reached: ${messageOf(cause)}`)
+  }
+  if (!response.ok) {
+    const detail = await response.text().catch(() => '')
+    throw new Error(`PhotoFind model gateway returned ${response.status}${detail ? `: ${detail.slice(0, 180)}` : ''}`)
+  }
 }
 
 export function productAnalysisIsCurrent(item: LiteMediaRecord): boolean {
