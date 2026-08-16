@@ -49,8 +49,9 @@ interface SemanticPrediction {
   score: number
 }
 
-type TransformersModule = typeof import('@huggingface/transformers')
-type ProductClassifier = Awaited<ReturnType<TransformersModule['pipeline']>>
+interface ProductClassifier {
+  (image: unknown, candidateLabels: readonly string[], options?: { hypothesis_template?: string }): Promise<SemanticPrediction[]>
+}
 
 let classifierPromise: Promise<ProductClassifier> | null = null
 
@@ -123,9 +124,8 @@ async function analyzeOne(
       const module = await import('@huggingface/transformers')
       const image = module.RawImage.fromCanvas(canvas)
       signal?.throwIfAborted()
-      const rawOutput = await classifier(image, CANDIDATE_PROMPTS, { hypothesis_template: '{}' })
+      const predictions = await classifier(image, CANDIDATE_PROMPTS, { hypothesis_template: '{}' })
       signal?.throwIfAborted()
-      const predictions = rawOutput as SemanticPrediction[]
       const productScore = round(predictions.reduce((sum, prediction) => sum + (POSITIVE_PROMPTS.has(prediction.label) ? prediction.score : 0), 0))
       const positive = predictions.filter((prediction) => POSITIVE_PROMPTS.has(prediction.label)).sort((left, right) => right.score - left.score)[0]
       const negative = predictions.filter((prediction) => !POSITIVE_PROMPTS.has(prediction.label)).sort((left, right) => right.score - left.score)[0]
@@ -161,7 +161,7 @@ async function analyzeOne(
 }
 
 async function loadClassifier(): Promise<ProductClassifier> {
-  classifierPromise ??= (async () => {
+  classifierPromise ??= (async (): Promise<ProductClassifier> => {
     const module = await import('@huggingface/transformers')
     module.env.allowLocalModels = false
     module.env.allowRemoteModels = true
@@ -169,10 +169,12 @@ async function loadClassifier(): Promise<ProductClassifier> {
 
     const device = supportsWebGpu() ? 'webgpu' : 'wasm'
     try {
-      return await module.pipeline('zero-shot-image-classification', PRODUCT_MODEL_ID, { device, dtype: 'q8' })
+      const classifier = await module.pipeline('zero-shot-image-classification', PRODUCT_MODEL_ID, { device, dtype: 'q8' })
+      return classifier as unknown as ProductClassifier
     } catch (cause) {
       if (device === 'wasm') throw cause
-      return module.pipeline('zero-shot-image-classification', PRODUCT_MODEL_ID, { device: 'wasm', dtype: 'q8' })
+      const classifier = await module.pipeline('zero-shot-image-classification', PRODUCT_MODEL_ID, { device: 'wasm', dtype: 'q8' })
+      return classifier as unknown as ProductClassifier
     }
   })()
   return classifierPromise
