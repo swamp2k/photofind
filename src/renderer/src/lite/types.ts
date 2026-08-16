@@ -16,6 +16,17 @@ export type LiteKnownDateKind = 'birthday' | 'vacation' | 'holiday' | 'custom'
 export type LiteKnownDateSource = 'manual' | 'holiday-api'
 export type LiteKnownDateScope = 'library' | 'global'
 export type LiteEventSignificance = 'known-date' | 'away' | 'moment' | 'everyday'
+export type LiteSmartCategorySensitivity = 'conservative' | 'balanced' | 'broad'
+
+export interface LiteProductPhotoSettings {
+  sensitivity: LiteSmartCategorySensitivity
+  recognizeSeries: boolean
+  preferNoPeople: boolean
+}
+
+export interface LiteSmartCategorySettings {
+  productPhotos: LiteProductPhotoSettings
+}
 
 export type LiteFaceBox = [number, number, number, number]
 
@@ -89,6 +100,8 @@ export interface LiteMediaRecord {
   reviewUpdatedAt?: number
   screenshotOverride?: boolean
   screenshotOverrideUpdatedAt?: number
+  productPhotoOverride?: boolean
+  productPhotoOverrideUpdatedAt?: number
 }
 
 export interface LiteKnownDateRecord {
@@ -121,6 +134,7 @@ export interface LiteLibraryRecord {
   accessMode: LiteLibraryAccessMode
   rootHandle?: FileSystemDirectoryHandle
   knownDates?: LiteKnownDateRecord[]
+  smartCategories?: LiteSmartCategorySettings
 }
 
 export interface LitePersonRecord {
