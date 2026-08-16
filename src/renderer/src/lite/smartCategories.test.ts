@@ -8,6 +8,8 @@ describe('smart categories', () => {
     expect(productPhotoThreshold('conservative')).toBeGreaterThan(productPhotoThreshold('balanced'))
     expect(productPhotoThreshold('balanced')).toBeGreaterThan(productPhotoThreshold('broad'))
     expect(productSemanticFloor('conservative')).toBeGreaterThan(productSemanticFloor('balanced'))
+    expect(productSemanticFloor('balanced')).toBeGreaterThan(0.5)
+    expect(productSemanticFloor('broad')).toBeGreaterThan(0.5)
   })
 
   it('does not classify an ordinary photo series without semantic product evidence', () => {
@@ -21,10 +23,21 @@ describe('smart categories', () => {
     expect(findLikelyProductPhotos(items, groups, DEFAULT_SMART_CATEGORY_SETTINGS.productPhotos)).toHaveLength(0)
   })
 
+  it('does not let an ambiguous semantic result cross the gate via series boosts', () => {
+    const items = [0, 1, 2, 3, 4].map((index) => image(`ambiguous${index}`, 1_000 + index * 20_000, {
+      productAnalysisStatus: 'ready',
+      productSemanticScore: 0.52,
+      faceAnalysisStatus: 'ready',
+      faces: []
+    }))
+    const groups: LiteSimilarityGroup[] = [{ id: 'ambiguous-series', kind: 'burst', itemIds: items.map((item) => item.id), reason: 'fixture' }]
+    expect(findLikelyProductPhotos(items, groups, DEFAULT_SMART_CATEGORY_SETTINGS.productPhotos)).toHaveLength(0)
+  })
+
   it('finds a semantically plausible visually related no-people product series', () => {
     const items = [0, 1, 2, 3].map((index) => image(`p${index}`, 1_000 + index * 20_000, {
       productAnalysisStatus: 'ready',
-      productSemanticScore: 0.58,
+      productSemanticScore: 0.66,
       productSemanticLabel: 'a used item photographed for an online marketplace sale',
       faceAnalysisStatus: 'ready',
       faces: []
