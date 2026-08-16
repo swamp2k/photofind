@@ -15,11 +15,13 @@ interface PhotoResultsProps {
   flowLoading: boolean
   selectedId: string | null
   sessionFiles: Map<string, File>
+  itemActionLabel?: string
+  onItemAction?(item: LiteMediaRecord): void
   onShowMore(): void
   onReview(item: LiteMediaRecord, state: LiteReviewState): void
 }
 
-export function PhotoResults({ items, visibleCount, batchSize, flowLoading, selectedId, sessionFiles, onShowMore, onReview }: PhotoResultsProps): JSX.Element {
+export function PhotoResults({ items, visibleCount, batchSize, flowLoading, selectedId, sessionFiles, itemActionLabel, onItemAction, onShowMore, onReview }: PhotoResultsProps): JSX.Element {
   const [openIndex, setOpenIndex] = useState<number | null>(null)
   const [sortBy, setSortBy] = useState<LitePhotoSort>('exif')
   const [sortDirection, setSortDirection] = useState<LitePhotoSortDirection>('desc')
@@ -89,6 +91,7 @@ export function PhotoResults({ items, visibleCount, batchSize, flowLoading, sele
                   </div>
                 </button>
                 <ReviewControls item={item} compact onReview={onReview} />
+                {itemActionLabel && onItemAction && <button type="button" className="quiet-button photo-card-extra-action" onClick={() => onItemAction(item)}>{itemActionLabel}</button>}
               </article>
             )
           })}
