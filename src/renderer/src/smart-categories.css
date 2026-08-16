@@ -72,10 +72,62 @@
   line-height: 1.5;
 }
 
+.product-photos-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(360px, .8fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.product-photos-browser {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: var(--panel);
+}
+
+.product-photos-browser-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.product-photos-browser-toolbar > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.product-photo-inspector {
+  position: sticky;
+  top: 76px;
+  max-height: calc(100vh - 100px);
+  overflow: auto;
+}
+
+.product-photo-inspector .collection-action-buttons {
+  align-items: flex-start;
+  flex-direction: column;
+  margin-top: 12px;
+}
+
+.smart-result-filter-panel {
+  display: grid;
+  gap: 8px;
+  padding-top: 2px;
+}
+
 .smart-sensitivity {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+}
+
+.product-photo-inspector .smart-sensitivity {
+  grid-template-columns: 1fr;
 }
 
 .smart-sensitivity-option {
@@ -106,6 +158,10 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+}
+
+.product-photo-inspector .smart-category-toggles {
+  grid-template-columns: 1fr;
 }
 
 .smart-category-toggles label {
@@ -159,6 +215,10 @@
   margin-top: 12px;
 }
 
+.product-photo-inspector .smart-category-detail-grid {
+  grid-template-columns: 1fr;
+}
+
 .smart-category-detail-grid > div {
   display: flex;
   flex-direction: column;
@@ -194,9 +254,26 @@
   gap: 6px;
 }
 
+.smart-result-filters.vertical {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
 .smart-result-filters button {
   padding: 7px 10px;
   font-size: 12px;
+}
+
+.smart-result-filters.vertical button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  text-align: left;
+}
+
+.smart-result-filters.vertical button span {
+  color: var(--muted);
 }
 
 .smart-result-filters button.active {
@@ -209,6 +286,17 @@
   margin: 0 6px 6px;
   padding: 6px 8px;
   font-size: 11px;
+}
+
+@media (max-width: 1180px) {
+  .product-photos-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .product-photo-inspector {
+    position: static;
+    max-height: none;
+  }
 }
 
 @media (max-width: 760px) {
