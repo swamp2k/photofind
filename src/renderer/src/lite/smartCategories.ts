@@ -51,9 +51,12 @@ export function productPhotoThreshold(sensitivity: LiteSmartCategorySensitivity)
 }
 
 export function productSemanticFloor(sensitivity: LiteSmartCategorySensitivity): number {
-  if (sensitivity === 'conservative') return 0.62
-  if (sensitivity === 'broad') return 0.3
-  return 0.45
+  // Five positive and five negative prompts make ~0.50 the neutral semantic mass.
+  // Keep every automatic mode above that neutral point so an ambiguous image
+  // cannot become a product match merely because similarity/series boosters fire.
+  if (sensitivity === 'conservative') return 0.75
+  if (sensitivity === 'broad') return 0.53
+  return 0.62
 }
 
 export function findLikelyProductPhotos(
