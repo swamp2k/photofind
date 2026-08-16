@@ -13,6 +13,7 @@ import './review-settings.css'
 import './event-export-polish.css'
 import './selection-known-events.css'
 import './large-library-polish.css'
+import './smart-categories.css'
 import './lite/performance.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

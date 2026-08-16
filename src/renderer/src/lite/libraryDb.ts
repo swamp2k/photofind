@@ -1,5 +1,5 @@
 import { clearThumbnailDiskCacheForLibrary } from './thumbnailDb'
-import type { LiteEventOverride, LiteKnownDateRecord, LiteLibraryRecord, LiteMediaRecord, LitePersonRecord } from './types'
+import type { LiteEventOverride, LiteKnownDateRecord, LiteLibraryRecord, LiteMediaRecord, LitePersonRecord, LiteSmartCategorySettings } from './types'
 
 const DB_NAME = 'photofind-lite'
 const DB_VERSION = 4
@@ -160,6 +160,38 @@ export async function saveLibraryKnownDates(libraryId: string, knownDates: LiteK
           return
         }
         next = { ...current, knownDates }
+        store.put(next)
+      }
+    })
+  } finally {
+    db.close()
+  }
+}
+
+export async function saveLibrarySmartCategories(libraryId: string, smartCategories: LiteSmartCategorySettings): Promise<LiteLibraryRecord> {
+  const db = await openDb()
+  try {
+    return await new Promise<LiteLibraryRecord>((resolve, reject) => {
+      const transaction = db.transaction(LIBRARIES_STORE, 'readwrite')
+      const store = transaction.objectStore(LIBRARIES_STORE)
+      let next: LiteLibraryRecord | null = null
+
+      transaction.oncomplete = () => {
+        if (next) resolve(next)
+        else reject(new Error('The local PhotoFind library no longer exists.'))
+      }
+      transaction.onerror = () => reject(transaction.error ?? new Error('Smart category settings could not be saved.'))
+      transaction.onabort = () => reject(transaction.error ?? new Error('Smart category update was aborted.'))
+
+      const request = store.get(libraryId)
+      request.onerror = () => transaction.abort()
+      request.onsuccess = () => {
+        const current = request.result as LiteLibraryRecord | undefined
+        if (!current) {
+          transaction.abort()
+          return
+        }
+        next = { ...current, smartCategories }
         store.put(next)
       }
     })

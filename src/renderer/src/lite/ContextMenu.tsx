@@ -21,6 +21,7 @@ export interface PhotoContextDescriptor {
   name: string
   starred: boolean
   screenshot: boolean
+  productPhotoOverride?: boolean
 }
 
 export interface PhotoContextEventDescriptor {
@@ -34,6 +35,7 @@ export interface PhotoContextActions {
   resolvePhoto(id: string): PhotoContextDescriptor | null
   setStarred(id: string, starred: boolean): void | Promise<void>
   setScreenshot(id: string, screenshot: boolean): void | Promise<void>
+  setProductPhoto?(photoIds: string[], productPhoto: boolean | null): void | Promise<void>
   listKnownEvents?(photoIds: string[]): PhotoContextEventDescriptor[]
   resolveEvent?(eventId: string, photoIds: string[]): PhotoContextEventDescriptor | null
   createEvent?(photoIds: string[]): void | Promise<void>
@@ -143,6 +145,23 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
               label: targetPhotoIds.length > 1 ? `Remove ${targetPhotoIds.length.toLocaleString()} photos from “${currentEvent.title}”` : `Remove from “${currentEvent.title}”`,
               onSelect: () => photoActions.removeFromEvent?.(targetPhotoIds, currentEvent.id)
             }] : []),
+            ...(photoActions.setProductPhoto ? [{
+              id: 'mark-product-photo',
+              label: targetPhotoIds.length > 1 ? 'Mark selected as product photos' : 'Mark as product photo',
+              separatorBefore: true,
+              disabled: targetPhotoIds.length === 1 && photo.productPhotoOverride === true,
+              onSelect: () => photoActions.setProductPhoto?.(targetPhotoIds, true)
+            }, {
+              id: 'not-product-photo',
+              label: targetPhotoIds.length > 1 ? 'Selected are not product photos' : 'Not a product photo',
+              disabled: targetPhotoIds.length === 1 && photo.productPhotoOverride === false,
+              onSelect: () => photoActions.setProductPhoto?.(targetPhotoIds, false)
+            }, {
+              id: 'automatic-product-photo',
+              label: 'Use automatic product detection',
+              disabled: targetPhotoIds.length === 1 && photo.productPhotoOverride === undefined,
+              onSelect: () => photoActions.setProductPhoto?.(targetPhotoIds, null)
+            }] satisfies PhotoFindContextMenuAction[] : []),
             {
               id: 'mark-screenshot',
               label: 'Mark screenshot',
