@@ -43,7 +43,7 @@ describe('smart categories', () => {
   it('uses people as an optional negative signal after semantic matching', () => {
     const item = image('person-with-item', 1_000, {
       productAnalysisStatus: 'ready',
-      productSemanticScore: 0.62,
+      productSemanticScore: 0.7,
       faceAnalysisStatus: 'ready',
       faces: [{ id: 'face', box: [0.1, 0.1, 0.2, 0.2], confidence: 0.9, embedding: [0.1] }]
     })
@@ -53,7 +53,7 @@ describe('smart categories', () => {
       ...DEFAULT_SMART_CATEGORY_SETTINGS.productPhotos,
       preferNoPeople: false
     })
-    expect(withoutPeoplePenalty).toHaveLength(0)
+    expect(withoutPeoplePenalty).toHaveLength(1)
   })
 
   it('allows an explicit sale folder without semantic analysis', () => {
