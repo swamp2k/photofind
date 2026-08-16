@@ -1,0 +1,234 @@
+.smart-categories-workspace {
+  min-width: 0;
+}
+
+.smart-category-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 18px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  width: fit-content;
+  max-width: 100%;
+}
+
+.smart-category-tab {
+  min-width: 180px;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 9px;
+  text-align: left;
+  background: transparent;
+  border-color: transparent;
+}
+
+.smart-category-tab > span {
+  grid-row: 1 / span 2;
+  align-self: center;
+  color: var(--muted);
+  font-size: 20px;
+}
+
+.smart-category-tab strong,
+.smart-category-tab small {
+  min-width: 0;
+}
+
+.smart-category-tab small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.smart-category-tab.active {
+  border-color: var(--border);
+  background: var(--panel-2);
+}
+
+.smart-category-tab.active > span,
+.smart-category-tab.active strong {
+  color: var(--accent);
+}
+
+.smart-category-settings {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.smart-category-settings-copy h3 {
+  margin: 4px 0 6px;
+  font-size: 20px;
+}
+
+.smart-category-settings-copy p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.smart-sensitivity {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.smart-sensitivity-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-height: 74px;
+  text-align: left;
+  background: var(--panel-2);
+}
+
+.smart-sensitivity-option span {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.smart-sensitivity-option.active {
+  border-color: var(--accent);
+}
+
+.smart-sensitivity-option.active strong {
+  color: var(--accent);
+}
+
+.smart-category-toggles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.smart-category-toggles label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel-2);
+  cursor: pointer;
+}
+
+.smart-category-toggles input {
+  margin-top: 3px;
+}
+
+.smart-category-toggles label > span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.smart-category-toggles small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+.smart-category-details {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.smart-category-details summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.smart-category-details summary strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.smart-category-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.smart-category-detail-grid > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+
+.smart-category-detail-grid span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.smart-result-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  margin: 20px 0 4px;
+}
+
+.smart-result-toolbar > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.smart-result-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.smart-result-filters button {
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+.smart-result-filters button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.photo-card-extra-action {
+  width: calc(100% - 12px);
+  margin: 0 6px 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+}
+
+@media (max-width: 760px) {
+  .smart-category-tabs {
+    width: 100%;
+  }
+
+  .smart-category-tab {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .smart-sensitivity,
+  .smart-category-toggles,
+  .smart-category-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .smart-result-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
