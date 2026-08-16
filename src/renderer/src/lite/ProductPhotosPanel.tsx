@@ -2,26 +2,27 @@ import { useEffect, useMemo, useState } from 'react'
 import { putMediaRecords } from './libraryDb'
 import { PhotoResults } from './PhotoResults'
 import { DEFAULT_SMART_CATEGORY_SETTINGS, findLikelyProductPhotos, normalizeSmartCategorySettings, productPhotoThreshold, setProductPhotoOverride } from './smartCategories'
-import type { LiteMediaRecord, LiteProductPhotoSettings, LiteReviewState, LiteSimilarityGroup, LiteSmartCategorySensitivity } from './types'
+import { buildSimilarityGroups } from './similarity'
+import type { LiteMediaRecord, LiteProductPhotoSettings, LiteReviewState, LiteSmartCategorySensitivity } from './types'
 
 type MatchFilter = 'all' | 'strong' | 'manual' | 'excluded'
 
 interface ProductPhotosPanelProps {
   items: LiteMediaRecord[]
-  groups: LiteSimilarityGroup[]
   sessionFiles: Map<string, File>
   onReview(item: LiteMediaRecord, state: LiteReviewState): void
 }
 
 const BATCH_SIZE = 250
 const STORAGE_PREFIX = 'photofind-smart-categories:'
+const SESSION_OVERRIDES = new Map<string, boolean | null>()
 const SENSITIVITY_OPTIONS: Array<{ value: LiteSmartCategorySensitivity; label: string; description: string }> = [
   { value: 'conservative', label: 'Conservative', description: 'Only show the clearest matches.' },
   { value: 'balanced', label: 'Balanced', description: 'A practical default for mixed family libraries.' },
   { value: 'broad', label: 'Broad', description: 'Include weaker candidates for manual review.' }
 ]
 
-export function ProductPhotosPanel({ items, groups, sessionFiles, onReview }: ProductPhotosPanelProps): JSX.Element {
+export function ProductPhotosPanel({ items, sessionFiles, onReview }: ProductPhotosPanelProps): JSX.Element {
   const libraryId = items[0]?.libraryId ?? ''
   const [settings, setSettings] = useState<LiteProductPhotoSettings>(DEFAULT_SMART_CATEGORY_SETTINGS.productPhotos)
   const [filter, setFilter] = useState<MatchFilter>('all')
@@ -31,7 +32,7 @@ export function ProductPhotosPanel({ items, groups, sessionFiles, onReview }: Pr
 
   useEffect(() => {
     setSettings(loadProductSettings(libraryId))
-    setLocalOverrides(new Map())
+    setLocalOverrides(sessionOverridesForLibrary(libraryId))
     setFilter('all')
     setVisibleCount(BATCH_SIZE)
     setSaveError(null)
@@ -42,6 +43,7 @@ export function ProductPhotosPanel({ items, groups, sessionFiles, onReview }: Pr
     const override = localOverrides.get(item.id)
     return { ...item, productPhotoOverride: override === null ? undefined : override }
   }), [items, localOverrides])
+  const groups = useMemo(() => buildSimilarityGroups(effectiveItems), [effectiveItems])
   const matches = useMemo(() => findLikelyProductPhotos(effectiveItems, groups, settings), [effectiveItems, groups, settings])
   const threshold = productPhotoThreshold(settings.sensitivity)
   const strongThreshold = Math.max(0.78, threshold + 0.14)
@@ -73,15 +75,17 @@ export function ProductPhotosPanel({ items, groups, sessionFiles, onReview }: Pr
     setSaveError(null)
     const result = setProductPhotoOverride(effectiveItems, item.id, override)
     if (!result.changed) return
+    const sessionKey = overrideSessionKey(libraryId, item.id)
+    const hadSessionValue = SESSION_OVERRIDES.has(sessionKey)
+    const priorSessionValue = SESSION_OVERRIDES.get(sessionKey)
+    SESSION_OVERRIDES.set(sessionKey, override)
     setLocalOverrides((current) => new Map(current).set(item.id, override))
     try {
       await putMediaRecords([result.changed])
     } catch (cause) {
-      setLocalOverrides((current) => {
-        const next = new Map(current)
-        next.delete(item.id)
-        return next
-      })
+      if (hadSessionValue) SESSION_OVERRIDES.set(sessionKey, priorSessionValue ?? null)
+      else SESSION_OVERRIDES.delete(sessionKey)
+      setLocalOverrides(sessionOverridesForLibrary(libraryId))
       setSaveError(`The correction could not be saved: ${messageOf(cause)}`)
     }
   }
@@ -140,7 +144,7 @@ export function ProductPhotosPanel({ items, groups, sessionFiles, onReview }: Pr
         <div className="smart-result-filters" role="group" aria-label="Product photo result filter">
           <button type="button" className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>All {matches.length.toLocaleString()}</button>
           <button type="button" className={filter === 'strong' ? 'active' : ''} onClick={() => setFilter('strong')}>Strong {strongCount.toLocaleString()}</button>
-          <button type="button" className={filter === 'manual' ? 'active' : ''} onClick={() => setFilter('manual')}>Added by you {manualCount.toLocaleString()}</button>
+          {manualCount > 0 && <button type="button" className={filter === 'manual' ? 'active' : ''} onClick={() => setFilter('manual')}>Added by you {manualCount.toLocaleString()}</button>}
           <button type="button" className={filter === 'excluded' ? 'active' : ''} onClick={() => setFilter('excluded')}>Excluded {excludedItems.length.toLocaleString()}</button>
         </div>
       </div>
@@ -176,10 +180,22 @@ function loadProductSettings(libraryId: string): LiteProductPhotoSettings {
   try {
     const raw = window.localStorage.getItem(`${STORAGE_PREFIX}${libraryId}`)
     if (!raw) return DEFAULT_SMART_CATEGORY_SETTINGS.productPhotos
-    return normalizeSmartCategorySettings(JSON.parse(raw) as { productPhotos?: LiteProductPhotoSettings } as never).productPhotos
+    return normalizeSmartCategorySettings(JSON.parse(raw) as never).productPhotos
   } catch {
     return DEFAULT_SMART_CATEGORY_SETTINGS.productPhotos
   }
+}
+
+function sessionOverridesForLibrary(libraryId: string): Map<string, boolean | null> {
+  const output = new Map<string, boolean | null>()
+  if (!libraryId) return output
+  const prefix = `${libraryId}:`
+  for (const [key, value] of SESSION_OVERRIDES) if (key.startsWith(prefix)) output.set(key.slice(prefix.length), value)
+  return output
+}
+
+function overrideSessionKey(libraryId: string, itemId: string): string {
+  return `${libraryId}:${itemId}`
 }
 
 function messageOf(cause: unknown): string {
