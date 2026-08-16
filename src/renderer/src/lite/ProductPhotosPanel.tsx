@@ -5,7 +5,7 @@ import { analyzeProductPhotos, PRODUCT_MODEL_ID, PRODUCT_NEGATIVE_PROMPTS, PRODU
 import { DEFAULT_SMART_CATEGORY_SETTINGS, findLikelyProductPhotos, normalizeSmartCategorySettings, productPhotoThreshold, productSemanticFloor, setProductPhotoOverride } from './smartCategories'
 import { buildSimilarityGroups } from './similarity'
 import type { LiteMediaRecord, LiteProductPhotoSettings, LiteReviewState, LiteSmartCategorySensitivity } from './types'
-import { registerUndo } from './undoHistory'
+import { clearUndoHistory, notifyLibraryStateChanged, registerUndo } from './undoHistory'
 
 type MatchFilter = 'all' | 'strong' | 'manual' | 'excluded'
 
@@ -100,6 +100,7 @@ export function ProductPhotosPanel({ items, sessionFiles, onReview }: ProductPho
 
   async function runSemanticAnalysis(): Promise<void> {
     if (!libraryId || analysisBusy || !hasLocalFileAccess) return
+    clearUndoHistory()
     const controller = new AbortController()
     analysisAbortRef.current = controller
     setSaveError(null)
@@ -117,6 +118,7 @@ export function ProductPhotosPanel({ items, sessionFiles, onReview }: ProductPho
     } finally {
       if (analysisAbortRef.current === controller) analysisAbortRef.current = null
       await reloadProductAnalysis()
+      notifyLibraryStateChanged()
       setAnalysisBusy(false)
       setAnalysisProgress(null)
     }
@@ -161,6 +163,7 @@ export function ProductPhotosPanel({ items, sessionFiles, onReview }: ProductPho
     setLocalOverrides((current) => new Map(current).set(item.id, override))
     try {
       await putMediaRecords([result.changed])
+      notifyLibraryStateChanged()
       registerUndo(productOverrideUndoLabel(override), async () => {
         await putMediaRecords([priorItem])
         if (hadSessionValue) SESSION_OVERRIDES.set(sessionKey, priorSessionValue ?? null)
