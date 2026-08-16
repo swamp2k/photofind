@@ -18,7 +18,7 @@ describe('smart categories', () => {
       reason: 'fixture'
     }]
     const matches = findLikelyProductPhotos(items, groups, DEFAULT_SMART_CATEGORY_SETTINGS.productPhotos)
-    expect(matches.map((match) => match.item.id)).toEqual(items.map((item) => item.id))
+    expect(matches.map((match) => match.item.id)).toEqual([...items].reverse().map((item) => item.id))
     expect(matches.every((match) => match.score >= productPhotoThreshold('balanced'))).toBe(true)
   })
 
@@ -39,12 +39,16 @@ describe('smart categories', () => {
     expect(matches[0].manuallyIncluded).toBe(true)
   })
 
-  it('persists a manual correction on only the requested image', () => {
+  it('persists and clears a manual correction on only the requested image', () => {
     const items = [image('one', 1_000), image('two', 2_000)]
-    const result = setProductPhotoOverride(items, 'two', false, 123)
-    expect(result.changed?.productPhotoOverride).toBe(false)
-    expect(result.changed?.productPhotoOverrideUpdatedAt).toBe(123)
-    expect(result.items[0]).toBe(items[0])
+    const excluded = setProductPhotoOverride(items, 'two', false, 123)
+    expect(excluded.changed?.productPhotoOverride).toBe(false)
+    expect(excluded.changed?.productPhotoOverrideUpdatedAt).toBe(123)
+    expect(excluded.items[0]).toBe(items[0])
+
+    const automatic = setProductPhotoOverride(excluded.items, 'two', null, 456)
+    expect(automatic.changed?.productPhotoOverride).toBeUndefined()
+    expect(automatic.changed?.productPhotoOverrideUpdatedAt).toBe(456)
   })
 })
 
