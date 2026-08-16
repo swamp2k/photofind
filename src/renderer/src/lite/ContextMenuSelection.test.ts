@@ -9,4 +9,8 @@ describe('context photo targets', () => {
   it('uses only the clicked photo when it is outside the current selection', () => {
     expect(contextPhotoTargets('z', ['a', 'b', 'c'])).toEqual(['z'])
   })
+
+  it('uses the clicked photo when there is no active selection', () => {
+    expect(contextPhotoTargets('photo-1', [])).toEqual(['photo-1'])
+  })
 })
