@@ -22,9 +22,10 @@ interface SimilarityGroupsProps {
   onAnalyze(): void
   onAbort(): void
   onReview(item: LiteMediaRecord, state: LiteReviewState): void
+  onApprove(items: LiteMediaRecord[]): void
 }
 
-export function SimilarityGroups({ items, groups, reviewFilter, sessionFiles, progress, busy, reconnectRequired, onAnalyze, onAbort, onReview }: SimilarityGroupsProps): JSX.Element {
+export function SimilarityGroups({ items, groups, reviewFilter, sessionFiles, progress, busy, reconnectRequired, onAnalyze, onAbort, onReview, onApprove }: SimilarityGroupsProps): JSX.Element {
   const [kind, setKind] = useState<'all' | 'exact' | 'burst' | 'similar'>('all')
   const [openGroupId, setOpenGroupId] = useState<string | null>(null)
   const [openIndex, setOpenIndex] = useState(0)
@@ -109,6 +110,7 @@ export function SimilarityGroups({ items, groups, reviewFilter, sessionFiles, pr
               const sourceFolders = summarizeSourceFolders(groupItems)
               const best = bestTechnicalCandidate(groupItems)
               const bestIndex = best ? groupItems.findIndex((item) => item.id === best.id) : 0
+              const approved = groupItems.length > 0 && groupItems.every((item) => reviewStateOf(item) === 'keep')
               return (
                 <article className="similarity-group" key={group.id}>
                   <div className="similarity-group-head">
@@ -121,7 +123,10 @@ export function SimilarityGroups({ items, groups, reviewFilter, sessionFiles, pr
                       </div>
                       {best?.qualityTier && <p className="group-best">Best technical candidate: <strong>{best.name}</strong> · {best.qualityScore}/100 {qualityTierLabel(best.qualityTier).toLowerCase()}</p>}
                     </div>
-                    <button type="button" onClick={() => { setOpenGroupId(group.id); setOpenIndex(Math.max(0, bestIndex)) }}>Compare</button>
+                    <div className="similarity-group-actions">
+                      <button type="button" disabled={approved} onClick={() => onApprove(groupItems)}>Approve</button>
+                      <button type="button" onClick={() => { setOpenGroupId(group.id); setOpenIndex(Math.max(0, bestIndex)) }}>Compare</button>
+                    </div>
                   </div>
                   <div className="compare-strip">
                     {groupItems.slice(0, 10).map((item, index) => {
