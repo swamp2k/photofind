@@ -115,16 +115,17 @@ export function findLikelyProductPhotos(
 export function setProductPhotoOverride(
   items: LiteMediaRecord[],
   itemId: string,
-  productPhoto: boolean,
+  productPhoto: boolean | null,
   updatedAt = Date.now()
 ): { items: LiteMediaRecord[]; changed: LiteMediaRecord | null } {
   let changed: LiteMediaRecord | null = null
   const next = items.map((item) => {
     if (item.id !== itemId || item.kind !== 'image') return item
-    if (item.productPhotoOverride === productPhoto) return item
+    const nextValue = productPhoto === null ? undefined : productPhoto
+    if (item.productPhotoOverride === nextValue) return item
     changed = {
       ...item,
-      productPhotoOverride: productPhoto,
+      productPhotoOverride: nextValue,
       productPhotoOverrideUpdatedAt: updatedAt
     }
     return changed
