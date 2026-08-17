@@ -4,6 +4,11 @@ import type { LiteEventRecord, LiteMediaRecord } from './types'
 
 export type ExportSelectionScope = 'keep' | 'maybe' | 'known'
 
+export interface ExportEventFolderInfo {
+  name: string
+  startTime: number
+}
+
 export function buildExportSelection(
   items: LiteMediaRecord[],
   scopes: ReadonlySet<ExportSelectionScope>,
@@ -35,12 +40,13 @@ export function exportEventName(event: LiteEventRecord): string | undefined {
   return title || undefined
 }
 
-export function buildExportEventNameMap(events: LiteEventRecord[]): Map<string, string> {
-  const map = new Map<string, string>()
+export function buildExportEventNameMap(events: LiteEventRecord[]): Map<string, ExportEventFolderInfo> {
+  const map = new Map<string, ExportEventFolderInfo>()
   for (const event of events) {
     const title = exportEventName(event)
     if (!title) continue
-    for (const itemId of event.itemIds) map.set(itemId, title)
+    const info: ExportEventFolderInfo = { name: title, startTime: event.startTime }
+    for (const itemId of event.itemIds) map.set(itemId, info)
   }
   return map
 }
