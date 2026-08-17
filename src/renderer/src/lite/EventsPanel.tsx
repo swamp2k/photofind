@@ -34,7 +34,7 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
   const [selectedEventIds, setSelectedEventIds] = useState<Set<string>>(() => new Set())
   const [eventAnchorId, setEventAnchorId] = useState<string | null>(null)
   const [personFilter, setPersonFilter] = useState('')
-  const [scope, setScope] = useState<EventScope>('meaningful')
+  const [scope, setScope] = useState<EventScope>('known')
   const [sortBy, setSortBy] = useState<EventSort>('captured')
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc')
   const [openIndex, setOpenIndex] = useState<number | null>(null)
