@@ -94,6 +94,7 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
         const knownEvents = photoActions.listKnownEvents?.(targetPhotoIds) ?? []
         const currentEventId = eventIdFromTarget(target)
         const currentEvent = currentEventId ? photoActions.resolveEvent?.(currentEventId, targetPhotoIds) ?? null : null
+        const copyImage = imageElementFromTarget(target)
         const addChildren: PhotoFindContextMenuAction[] = []
         if (photoActions.createEvent) {
           addChildren.push({
@@ -125,6 +126,12 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
         setMenu(positionMenu(event.clientX, event.clientY, {
           title: targetPhotoIds.length > 1 ? `${targetPhotoIds.length.toLocaleString()} selected photos` : photo.name,
           actions: [
+            {
+              id: 'copy-image',
+              label: 'Copy image',
+              disabled: !copyImage || typeof navigator.clipboard?.write !== 'function' || typeof ClipboardItem === 'undefined',
+              onSelect: () => copyImage ? copyRenderedImageToClipboard(copyImage) : undefined
+            },
             {
               id: 'toggle-starred',
               label: photo.starred ? 'Remove star' : 'Star photo',
@@ -317,6 +324,13 @@ function photoIdFromTarget(target: EventTarget | null): string | null {
   return owner?.dataset.photofindPhotoId ?? null
 }
 
+function imageElementFromTarget(target: EventTarget | null): HTMLImageElement | null {
+  if (!(target instanceof Element)) return null
+  if (target instanceof HTMLImageElement) return target
+  const owner = target.closest<HTMLElement>('[data-photofind-photo-id]')
+  return owner?.querySelector<HTMLImageElement>('img') ?? null
+}
+
 function eventIdFromTarget(target: EventTarget | null): string | null {
   if (!(target instanceof Element)) return null
   return target.closest<HTMLElement>('[data-photofind-event-id]')?.dataset.photofindEventId ?? null
@@ -399,4 +413,21 @@ function replaceTextSelection(target: HTMLInputElement | HTMLTextAreaElement, te
   target.setRangeText(text, start, end, 'end')
   target.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text }))
   target.focus()
+}
+
+function copyRenderedImageToClipboard(image: HTMLImageElement): Promise<void> {
+  if (typeof navigator.clipboard?.write !== 'function' || typeof ClipboardItem === 'undefined') return Promise.resolve()
+  if (!image.complete || image.naturalWidth < 1 || image.naturalHeight < 1) return Promise.reject(new Error('Image is not ready to copy.'))
+
+  const canvas = document.createElement('canvas')
+  canvas.width = image.naturalWidth
+  canvas.height = image.naturalHeight
+  const context = canvas.getContext('2d')
+  if (!context) return Promise.reject(new Error('Image clipboard conversion is unavailable.'))
+  context.drawImage(image, 0, 0)
+
+  const png = new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('Could not prepare image for clipboard.')), 'image/png')
+  })
+  return navigator.clipboard.write([new ClipboardItem({ 'image/png': png })])
 }
