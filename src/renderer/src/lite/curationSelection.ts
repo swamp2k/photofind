@@ -9,6 +9,8 @@ export interface ExportEventFolderInfo {
   startTime: number
 }
 
+const SAME_NAMED_EVENT_FRAGMENT_GAP_MS = 14 * 24 * 60 * 60 * 1000
+
 export function buildExportSelection(
   items: LiteMediaRecord[],
   scopes: ReadonlySet<ExportSelectionScope>,
@@ -42,12 +44,36 @@ export function exportEventName(event: LiteEventRecord): string | undefined {
 
 export function buildExportEventNameMap(events: LiteEventRecord[]): Map<string, ExportEventFolderInfo> {
   const map = new Map<string, ExportEventFolderInfo>()
-  for (const event of events) {
-    const title = exportEventName(event)
-    if (!title) continue
-    const info: ExportEventFolderInfo = { name: title, startTime: event.startTime }
-    for (const itemId of event.itemIds) map.set(itemId, info)
+  const named = events
+    .map((event) => ({ event, title: exportEventName(event) }))
+    .filter((entry): entry is { event: LiteEventRecord; title: string } => Boolean(entry.title))
+    .sort((left, right) => left.title.localeCompare(right.title) || left.event.startTime - right.event.startTime || left.event.endTime - right.event.endTime)
+
+  let index = 0
+  while (index < named.length) {
+    const first = named[index]
+    const cluster = [first]
+    let clusterEnd = first.event.endTime
+    let nextIndex = index + 1
+
+    while (nextIndex < named.length) {
+      const next = named[nextIndex]
+      if (next.title !== first.title) break
+      if (next.event.startTime - clusterEnd > SAME_NAMED_EVENT_FRAGMENT_GAP_MS) break
+      cluster.push(next)
+      clusterEnd = Math.max(clusterEnd, next.event.endTime)
+      nextIndex += 1
+    }
+
+    const startTime = Math.min(...cluster.map((entry) => entry.event.startTime))
+    const info: ExportEventFolderInfo = { name: first.title, startTime }
+    for (const entry of cluster) {
+      for (const itemId of entry.event.itemIds) map.set(itemId, info)
+    }
+
+    index = nextIndex
   }
+
   return map
 }
 
