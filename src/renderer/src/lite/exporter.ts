@@ -4,6 +4,11 @@ import { buildTimestampArtifacts, type LiteTimestampEntry } from './exportTimest
 import { reviewStateOf } from './review'
 import type { LiteExportFailure, LiteExportLayout, LiteExportProgress, LiteExportResult, LiteMediaRecord } from './types'
 
+interface ExportEventFolderInfo {
+  name: string
+  startTime: number
+}
+
 interface ExportOptions {
   items: LiteMediaRecord[]
   destination: FileSystemDirectoryHandle
@@ -13,7 +18,7 @@ interface ExportOptions {
   includeReports?: boolean
   embedMetadata?: boolean
   includeEventName?: boolean
-  eventNameForItem?(item: LiteMediaRecord): string | undefined
+  eventNameForItem?(item: LiteMediaRecord): string | ExportEventFolderInfo | undefined
   preserveModifiedDates?: boolean
 }
 
@@ -59,14 +64,20 @@ export async function exportLocalPhotos(options: ExportOptions): Promise<LiteExp
     let metadataMode: LiteExportMetadataMode | undefined
     let metadataNotes: string[] | undefined
     let sidecarPath: string | undefined
-    const eventName = needsEventName ? options.eventNameForItem?.(item)?.trim() || undefined : undefined
+    const rawEventInfo = needsEventName ? options.eventNameForItem?.(item) : undefined
+    const eventName = typeof rawEventInfo === 'string'
+      ? rawEventInfo.trim() || undefined
+      : rawEventInfo?.name.trim() || undefined
+    const eventStartTime = typeof rawEventInfo === 'object' && Number.isFinite(rawEventInfo.startTime)
+      ? rawEventInfo.startTime
+      : undefined
     try {
       const source = await options.resolveFile(item)
       if (!source) throw new Error('Local file access is unavailable. Reconnect the source folder and retry.')
       const prepared = await prepareMetadataAwareExport(item, source, options.embedMetadata !== false)
       metadataMode = prepared.metadataMode
       metadataNotes = prepared.notes
-      const plan = exportPathParts(item, options.layout, eventName)
+      const plan = exportPathParts(item, options.layout, eventName, eventStartTime)
       const directory = await ensureDirectories(root, plan.directories)
       const unique = await allocateUniqueName(directory, plan.fileName)
       if (unique.renamed) renamed += 1
@@ -183,14 +194,17 @@ export function exportModifiedTime(item: LiteMediaRecord): number | undefined {
   return undefined
 }
 
-export function exportPathParts(item: LiteMediaRecord, layout: LiteExportLayout, eventName?: string): { directories: string[]; fileName: string } {
+export function exportPathParts(item: LiteMediaRecord, layout: LiteExportLayout, eventName?: string, eventStartTime?: number): { directories: string[]; fileName: string } {
   const fileName = sanitizeFileName(item.name)
   const rawLayout = String(layout)
+  const pathItem = typeof eventStartTime === 'number' && Number.isFinite(eventStartTime)
+    ? { ...item, effectiveCaptureTime: eventStartTime }
+    : item
   if (rawLayout.startsWith(TEMPLATE_PREFIX)) {
-    return { directories: renderExportFolderTemplate(item, rawLayout.slice(TEMPLATE_PREFIX.length), eventName), fileName }
+    return { directories: renderExportFolderTemplate(pathItem, rawLayout.slice(TEMPLATE_PREFIX.length), eventName), fileName }
   }
   if (!LEGACY_LAYOUTS.has(rawLayout)) {
-    return { directories: renderExportFolderTemplate(item, rawLayout, eventName), fileName }
+    return { directories: renderExportFolderTemplate(pathItem, rawLayout, eventName), fileName }
   }
   if (rawLayout === 'flat') return { directories: [], fileName }
   if (rawLayout === 'source-folders') {
@@ -198,7 +212,7 @@ export function exportPathParts(item: LiteMediaRecord, layout: LiteExportLayout,
     return { directories: parts.slice(0, -1).map(sanitizeSegment), fileName }
   }
 
-  const date = typeof item.effectiveCaptureTime === 'number' ? new Date(item.effectiveCaptureTime) : null
+  const date = typeof pathItem.effectiveCaptureTime === 'number' ? new Date(pathItem.effectiveCaptureTime) : null
   if (!date || Number.isNaN(date.getTime())) return { directories: ['Undated'], fileName }
   const year = String(date.getFullYear()).padStart(4, '0')
   const month = String(date.getMonth() + 1).padStart(2, '0')
