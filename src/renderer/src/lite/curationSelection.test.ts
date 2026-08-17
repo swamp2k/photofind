@@ -52,11 +52,11 @@ describe('curation export selection', () => {
     expect(selected.map((item) => item.id)).toEqual(['b', 'c'])
   })
 
-  it('uses only explicit or known event names for export folders', () => {
+  it('uses only explicit or known event names for export folders and carries the event start time', () => {
     const generated = event('generated', ['a'], { title: 'Jan 5, 2019 – Jan 7, 2019 · Library root', significance: 'moment' })
-    const named = event('named', ['b'], { title: 'Motorcycle trip', customTitle: 'Motorcycle trip', significance: 'moment' })
-    const holiday = event('holiday', ['c'], { title: 'Nytårsdag', knownDateTitle: 'Nytårsdag', significance: 'known-date' })
-    const promoted = { ...event('promoted', ['d'], { title: 'Family day' }), promotedToKnown: true } as LiteEventRecord
+    const named = event('named', ['b'], { title: 'Motorcycle trip', customTitle: 'Motorcycle trip', significance: 'moment', startTime: 20 })
+    const holiday = event('holiday', ['c'], { title: 'Nytårsdag', knownDateTitle: 'Nytårsdag', significance: 'known-date', startTime: 30 })
+    const promoted = { ...event('promoted', ['d'], { title: 'Family day', startTime: 40 }), promotedToKnown: true } as LiteEventRecord
 
     expect(exportEventName(generated)).toBeUndefined()
     expect(exportEventName(named)).toBe('Motorcycle trip')
@@ -65,9 +65,9 @@ describe('curation export selection', () => {
 
     const names = buildExportEventNameMap([generated, named, holiday, promoted])
     expect(names.has('a')).toBe(false)
-    expect(names.get('b')).toBe('Motorcycle trip')
-    expect(names.get('c')).toBe('Nytårsdag')
-    expect(names.get('d')).toBe('Family day')
+    expect(names.get('b')).toEqual({ name: 'Motorcycle trip', startTime: 20 })
+    expect(names.get('c')).toEqual({ name: 'Nytårsdag', startTime: 30 })
+    expect(names.get('d')).toEqual({ name: 'Family day', startTime: 40 })
   })
 
   it('orders known events before detected events for the filter menu', () => {
