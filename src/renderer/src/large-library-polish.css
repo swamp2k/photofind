@@ -121,6 +121,71 @@
   .collection-header h1 { font-size: clamp(25px, 2.4vw, 34px); }
   .events-workspace { gap: 10px; }
   .event-detail { padding: 12px; }
+
+  /* Events is a viewport workspace, not an infinitely growing document. */
+  .pf-layout:has(.events-section) {
+    height: calc(100vh - 64px);
+    min-height: 0;
+    overflow: hidden;
+  }
+  .pf-main:has(.events-section) {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    padding-bottom: 20px;
+  }
+  .pf-main:has(.events-section) > .collection-header,
+  .pf-main:has(.events-section) > .inline-notice,
+  .pf-main:has(.events-section) > .source-filter-banner {
+    flex: 0 0 auto;
+  }
+  .pf-main:has(.events-section) > .events-section {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .pf-main:has(.events-section) > .diagnostics-section {
+    display: none;
+  }
+  .events-section > .compact-view-toolbar,
+  .events-section > .inline-notice,
+  .events-section > .compact-empty-state {
+    flex: 0 0 auto;
+  }
+  .events-section > .events-workspace {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    align-items: stretch;
+  }
+  .events-workspace .event-list,
+  .events-workspace .event-detail {
+    min-height: 0;
+    max-height: none;
+    height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+}
+
+/* When the event panes stack horizontally-constrained, keep the scroll inside Events. */
+@media (min-width: 1100px) and (max-width: 1180px) {
+  .events-section > .events-workspace {
+    overflow-y: auto;
+  }
+  .events-workspace .event-list {
+    height: auto;
+    max-height: min(38vh, 420px);
+  }
+  .events-workspace .event-detail {
+    height: auto;
+    overflow: visible;
+  }
 }
 
 @media (max-width: 820px) {
