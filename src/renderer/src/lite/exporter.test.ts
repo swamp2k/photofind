@@ -38,6 +38,14 @@ describe('export path planning', () => {
       .toEqual(['2016', '2016.04.25 - MC kørsel til Bakken'])
   })
 
+  it('anchors every photo in a named multi-month event to the event start month', () => {
+    const eventStart = new Date(2020, 7, 28, 12, 0, 0).getTime()
+    const septemberPhoto = new Date(2020, 8, 1, 12, 0, 0).getTime()
+    const template = 'template:{YYYY}/{YYYY}.{MM} - {EVENT}' as LiteExportLayout
+    expect(exportPathParts(photo('IMG.JPG', septemberPhoto), template, 'Sommerferie Bøsøre med Maria og Morten', eventStart).directories)
+      .toEqual(['2020', '2020.08 - Sommerferie Bøsøre med Maria og Morten'])
+  })
+
   it('removes empty event decoration when a dynamic template has no named event', () => {
     const captured = new Date(2016, 3, 25, 12, 0, 0).getTime()
     const template = 'template:{YYYY}/{MM} - {EVENT}' as LiteExportLayout
