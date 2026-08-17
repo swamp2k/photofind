@@ -70,6 +70,37 @@ describe('curation export selection', () => {
     expect(names.get('d')).toEqual({ name: 'Family day', startTime: 40 })
   })
 
+  it('anchors nearby same-named event fragments to the earliest fragment', () => {
+    const day = 24 * 60 * 60 * 1000
+    const augustStart = new Date(2020, 7, 28, 12, 0, 0).getTime()
+    const main = event('summer-main', ['august-photo'], {
+      title: 'Sommerferie Bøsøre med Maria og Morten',
+      customTitle: 'Sommerferie Bøsøre med Maria og Morten',
+      startTime: augustStart,
+      endTime: augustStart + 3 * day
+    })
+    const stray = event('summer-stray', ['september-photo'], {
+      title: 'Sommerferie Bøsøre med Maria og Morten',
+      customTitle: 'Sommerferie Bøsøre med Maria og Morten',
+      startTime: augustStart + 4 * day,
+      endTime: augustStart + 4 * day
+    })
+
+    const names = buildExportEventNameMap([main, stray])
+    expect(names.get('august-photo')).toEqual({ name: 'Sommerferie Bøsøre med Maria og Morten', startTime: augustStart })
+    expect(names.get('september-photo')).toEqual({ name: 'Sommerferie Bøsøre med Maria og Morten', startTime: augustStart })
+  })
+
+  it('keeps distant recurring events with the same title separate', () => {
+    const year = 365 * 24 * 60 * 60 * 1000
+    const first = event('new-year-2020', ['a'], { title: 'Nytårsdag', knownDateTitle: 'Nytårsdag', significance: 'known-date', startTime: 100, endTime: 200 })
+    const second = event('new-year-2021', ['b'], { title: 'Nytårsdag', knownDateTitle: 'Nytårsdag', significance: 'known-date', startTime: 100 + year, endTime: 200 + year })
+    const names = buildExportEventNameMap([first, second])
+
+    expect(names.get('a')?.startTime).toBe(100)
+    expect(names.get('b')?.startTime).toBe(100 + year)
+  })
+
   it('orders known events before detected events for the filter menu', () => {
     const known = event('known', ['a'], { significance: 'known-date', startTime: 2 })
     const promoted = { ...event('promoted', ['b'], { startTime: 1 }), promotedToKnown: true } as LiteEventRecord
