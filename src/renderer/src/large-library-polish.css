@@ -111,28 +111,58 @@
 .known-date-list article span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .known-date-list article span { color: var(--muted); font-size: 10px; }
 
-/* Large libraries should spend vertical space on photos, not repeated framing. */
+/* Desktop PhotoFind behaves like an app viewport: chrome stays fixed and content scrolls inside it. */
 @media (min-width: 1100px) {
-  .pf-topbar { height: 64px; }
-  .pf-layout { min-height: calc(100vh - 64px); }
-  .pf-sidebar { top: 64px; height: calc(100vh - 64px); padding-top: 12px; padding-bottom: 12px; gap: 16px; }
+  html,
+  body,
+  #root,
+  .pf-app { height: 100%; min-height: 0; }
+  body { overflow: hidden; }
+  .pf-app {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    overflow: hidden;
+  }
+  .pf-topbar {
+    flex: 0 0 64px;
+    height: 64px;
+  }
+  .pf-app > .notice,
+  .pf-app > .progress { flex: 0 0 auto; }
+  .pf-layout {
+    flex: 1 1 auto;
+    height: auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .pf-sidebar {
+    position: relative;
+    top: auto;
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    padding-top: 12px;
+    padding-bottom: 12px;
+    gap: 16px;
+  }
   .mode-button { padding-top: 7px; padding-bottom: 7px; }
-  .pf-main { padding-top: 20px; }
+  .pf-main {
+    height: 100%;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    padding-top: 20px;
+  }
   .collection-header h1 { font-size: clamp(25px, 2.4vw, 34px); }
   .events-workspace { gap: 10px; }
   .event-detail { padding: 12px; }
 
-  /* Events is a viewport workspace, not an infinitely growing document. */
-  .pf-layout:has(.events-section) {
-    height: calc(100vh - 64px);
-    min-height: 0;
-    overflow: hidden;
-  }
+  /* Events keeps two independent scroll panes inside the same fixed viewport. */
   .pf-main:has(.events-section) {
     display: flex;
     flex-direction: column;
-    height: 100%;
-    min-height: 0;
     overflow: hidden;
     padding-bottom: 20px;
   }
