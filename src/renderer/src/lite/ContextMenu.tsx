@@ -202,19 +202,23 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') setMenu(null)
     }
-    const closeOnViewportChange = (): void => setMenu(null)
+    const closeOnResize = (): void => setMenu(null)
+    const closeOnScroll = (event: Event): void => {
+      if (event.target instanceof Node && menuRef.current?.contains(event.target)) return
+      setMenu(null)
+    }
 
     document.addEventListener('contextmenu', onContextMenu, true)
     document.addEventListener('pointerdown', close, true)
     window.addEventListener('keydown', onKeyDown)
-    window.addEventListener('resize', closeOnViewportChange)
-    window.addEventListener('scroll', closeOnViewportChange, true)
+    window.addEventListener('resize', closeOnResize)
+    window.addEventListener('scroll', closeOnScroll, true)
     return () => {
       document.removeEventListener('contextmenu', onContextMenu, true)
       document.removeEventListener('pointerdown', close, true)
       window.removeEventListener('keydown', onKeyDown)
-      window.removeEventListener('resize', closeOnViewportChange)
-      window.removeEventListener('scroll', closeOnViewportChange, true)
+      window.removeEventListener('resize', closeOnResize)
+      window.removeEventListener('scroll', closeOnScroll, true)
     }
   }, [])
 
