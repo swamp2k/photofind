@@ -32,6 +32,7 @@ import { SimilarityGroups } from './SimilarityGroups'
 import { isInExactSourceFolder, sourceFolderLabel } from './sourcePath'
 import { SourceNavigationProvider } from './SourceNavigation'
 import { isStarred, setPhotoStarred } from './starred'
+import { useGlobalStarredPhotos } from './globalStarred'
 import type { LiteDateMetadataFilter, LiteEventOverride, LiteEventRecord, LiteExportLayout, LiteExportProgress, LiteExportResult, LiteGeoBounds, LiteKnownDateRecord, LiteLibraryAccessMode, LiteLibraryRecord, LiteLocationFilter, LiteMediaRecord, LitePeopleProgress, LitePersonRecord, LitePhotoFilters, LiteQualityProgress, LiteReviewFilter, LiteReviewState, LiteScanProgress, LiteSimilarityProgress } from './types'
 import { clearUndoHistory, LIBRARY_STATE_CHANGED_EVENT, registerUndo, UndoControl } from './undoHistory'
 
@@ -86,6 +87,7 @@ export function LiteApp(): JSX.Element {
   const [reviewFilter, setReviewFilter] = useState<LiteReviewFilter>('all')
   const [mapBounds, setMapBounds] = useState<LiteGeoBounds | null>(null)
   const [selectedMapId, setSelectedMapId] = useState<string | null>(null)
+  const [showGlobalStarred, setShowGlobalStarred] = useState(false)
   const filterToViewport = view === 'map'
   const folderMode = localFolderAccessMode()
   const supported = folderMode !== 'unsupported'
@@ -162,6 +164,7 @@ export function LiteApp(): JSX.Element {
   const images = useMemo(() => media.filter((item) => item.kind === 'image'), [media])
   const activeImages = useMemo(() => images.filter((item) => !isRejected(item)), [images])
   const starredImages = useMemo(() => activeImages.filter(isStarred), [activeImages])
+  const globalStarred = useGlobalStarredPhotos(view === 'starred' && showGlobalStarred)
   const personNamesById = useMemo(() => new Map(people.map((person) => [person.id, person.name?.trim() ?? ''])), [people])
   const folderScopedImages = useMemo(() => sourceFolderFilter === null ? images : images.filter((item) => isInExactSourceFolder(item, sourceFolderFilter)), [images, sourceFolderFilter])
   const searchedImages = useMemo(() => {
@@ -211,9 +214,19 @@ export function LiteApp(): JSX.Element {
   }, [mapBounds, mapItems])
   const contextFilteredImages = useMemo(() => filterPhotos(searchedImages, { ...baseFilters, mapBounds: filterToViewport ? mapBounds : null }), [searchedImages, baseFilters, filterToViewport, mapBounds])
   const filteredImages = useMemo(() => filterByReview(contextFilteredImages, reviewFilter), [contextFilteredImages, reviewFilter])
-  const starredFilteredImages = useMemo(() => filteredImages.filter(isStarred), [filteredImages])
+  const globalStarredSearchedImages = useMemo(() => {
+    if (!showGlobalStarred) return globalStarred.items
+    const query = searchQuery.trim().toLocaleLowerCase()
+    if (!query) return globalStarred.items
+    return globalStarred.items.filter((item) => [item.name, item.relativePath, item.cameraMake, item.cameraModel]
+      .filter(Boolean)
+      .some((value) => String(value).toLocaleLowerCase().includes(query)))
+  }, [globalStarred.items, searchQuery, showGlobalStarred])
+  const starredFilteredImages = useMemo(() => showGlobalStarred
+    ? filterByReview(filterPhotos(globalStarredSearchedImages, baseFilters), reviewFilter)
+    : filteredImages.filter(isStarred), [baseFilters, filteredImages, globalStarredSearchedImages, reviewFilter, showGlobalStarred])
   const currentBrowseImages = view === 'starred' ? starredFilteredImages : filteredImages
-  const currentBrowseTotal = view === 'starred' ? starredImages.length : reviewFilter === 'reject' ? reviewCounts.reject : activeImages.length
+  const currentBrowseTotal = view === 'starred' ? (showGlobalStarred ? globalStarred.items.length : starredImages.length) : reviewFilter === 'reject' ? reviewCounts.reject : activeImages.length
   const filteredIds = useMemo(() => new Set(filteredImages.map((item) => item.id)), [filteredImages])
   const contextualGroupSource = reviewFilter === 'reject' ? allSimilarityGroups : similarityGroups
   const contextualGroups = useMemo(() => contextualGroupSource.filter((group) => group.itemIds.some((id) => filteredIds.has(id))), [contextualGroupSource, filteredIds])
@@ -442,6 +455,26 @@ export function LiteApp(): JSX.Element {
 
   function updateReview(targets: LiteMediaRecord[], state: LiteReviewState, undoLabel?: string): void {
     applyReviewAssignments(new Map(targets.map((item) => [item.id, state])), undoLabel)
+  }
+
+  async function updateStarredReview(item: LiteMediaRecord, state: LiteReviewState): Promise<void> {
+    if (!showGlobalStarred || item.libraryId === activeLibrary?.id) {
+      updateReview([item], state)
+      return
+    }
+    const result = setReviewAssignments([item], new Map([[item.id, state]]))
+    if (result.changed.length === 0) return
+    const previous = item
+    try {
+      await putMediaRecords(result.changed)
+      window.dispatchEvent(new Event(LIBRARY_STATE_CHANGED_EVENT))
+      registerUndo('Review global starred photo', async () => {
+        await putMediaRecords([previous])
+        window.dispatchEvent(new Event(LIBRARY_STATE_CHANGED_EVENT))
+      })
+    } catch (cause) {
+      setError(`Review state could not be saved for the other photo index: ${messageOf(cause)}`)
+    }
   }
 
   function pickBest(selected: LiteMediaRecord, others: LiteMediaRecord[]): void {
@@ -954,6 +987,13 @@ export function LiteApp(): JSX.Element {
 
               {browseControls && <details className="filter-disclosure" open>
                 <summary><span>Find & filter</span><strong>{currentBrowseImages.length.toLocaleString()} matching</strong></summary>
+                {view === 'starred' && <label className="global-starred-toggle">
+                  <input type="checkbox" checked={showGlobalStarred} onChange={(event) => { setShowGlobalStarred(event.target.checked); setVisibleCount(pageSize) }} />
+                  <span><strong>Show Global</strong><small>Include starred photos from every local photo index, not only the active index.</small></span>
+                </label>}
+                {view === 'starred' && showGlobalStarred && globalStarred.loading && <div className="global-starred-status">Loading starred photos across indexes…</div>}
+                {view === 'starred' && showGlobalStarred && !globalStarred.loading && !globalStarred.error && <div className="global-starred-status">{globalStarred.items.length.toLocaleString()} starred photos across {globalStarred.libraryCount.toLocaleString()} indexes.</div>}
+                {view === 'starred' && showGlobalStarred && globalStarred.error && <div className="global-starred-status error">Global starred photos could not be loaded: {globalStarred.error}</div>}
                 <BrowseFilters years={years} year={year} fromDate={fromDate} toDate={toDate} location={locationFilter} dateMetadata={dateMetadataFilter} matchingCount={currentBrowseImages.length} totalCount={currentBrowseTotal} viewportActive={filterToViewport && mapBounds !== null}
                   onYear={(value) => { setYear(value); setVisibleCount(pageSize) }} onFromDate={(value) => { setFromDate(value); setToDate(value); setVisibleCount(pageSize) }} onToDate={(value) => { setToDate(value); setVisibleCount(pageSize) }} onLocation={(value) => { setLocationFilter(value); setVisibleCount(pageSize) }} onDateMetadata={(value) => { setDateMetadataFilter(value); setVisibleCount(pageSize) }} onClear={clearFilters} />
                 <ReviewToolbar counts={reviewCounts} filter={reviewFilter} matchingCount={currentBrowseImages.length} onFilter={(value) => { setReviewFilter(value); setVisibleCount(pageSize) }} onBulk={bulkReview} />
@@ -963,7 +1003,7 @@ export function LiteApp(): JSX.Element {
               {view === 'map' && <MapResults items={mapItems} visibleItems={mapViewportItems} viewportReady={mapBounds !== null} selected={selectedMapItem} sessionFiles={sessionFiles} onBoundsChange={handleMapBounds} onCreateEvent={createMapEvent} onSelect={setSelectedMapId} onShowSelected={() => { setView('photos'); setVisibleCount(pageSize) }} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'people' && <PeoplePanel items={activeImages} people={people} sessionFiles={sessionFiles} progress={peopleProgress} busy={peopleBusy} reconnectRequired={reconnectRequired} onRename={(personId, name) => void renamePerson(personId, name)} onIgnore={(personId, ignored) => void ignorePerson(personId, ignored)} onMerge={(sourceId, targetId) => void mergePerson(sourceId, targetId)} onSplit={(faceRef) => void splitPersonFace(faceRef)} onExclude={(faceRef, personId) => void excludePersonFace(faceRef, personId)} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'photos' && <PhotoResults items={filteredImages} visibleCount={visibleCount} batchSize={pageSize} flowLoading={settings.flowLoading} selectedId={selectedMapId} sessionFiles={sessionFiles} onShowMore={() => setVisibleCount((count) => count + pageSize)} onReview={(item, state) => updateReview([item], state)} />}
-              {view === 'starred' && <PhotoResults items={starredFilteredImages} visibleCount={visibleCount} batchSize={pageSize} flowLoading={settings.flowLoading} selectedId={null} sessionFiles={sessionFiles} onShowMore={() => setVisibleCount((count) => count + pageSize)} onReview={(item, state) => updateReview([item], state)} />}
+              {view === 'starred' && <PhotoResults items={starredFilteredImages} visibleCount={visibleCount} batchSize={pageSize} flowLoading={settings.flowLoading} selectedId={null} sessionFiles={sessionFiles} onShowMore={() => setVisibleCount((count) => count + pageSize)} onReview={(item, state) => void updateStarredReview(item, state)} />}
               {view === 'groups' && <SimilarityGroups items={contextualItems} groups={contextualGroups} reviewFilter={reviewFilter} sessionFiles={sessionFiles} progress={similarityProgress} busy={similarityBusy} reconnectRequired={reconnectRequired} onAnalyze={() => void runSimilarityAnalysis()} onAbort={stopSimilarityAnalysis} onReview={(item, state) => updateReview([item], state)} onApprove={(items) => updateReview(items, 'keep', 'Approve duplicate group')} />}
               {view === 'quality' && <QualityPanel items={filteredImages} sessionFiles={sessionFiles} progress={qualityProgress} busy={qualityBusy} reconnectRequired={reconnectRequired} onAnalyze={() => void runQualityAnalysis()} onAbort={stopQualityAnalysis} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'selection' && <CurationPanel items={activeImages} events={meaningfulEvents} sessionFiles={sessionFiles} exportSupported={exportSupported} reconnectRequired={reconnectRequired} busy={exportBusy} progress={exportProgress} result={exportResult} batchSize={pageSize} flowLoading={settings.flowLoading} onReview={(item, state) => updateReview([item], state)} onExport={(items, layout, reports, metadata, eventNames, modifiedDates) => void runExport(items, layout, reports, metadata, eventNames, modifiedDates)} />}
