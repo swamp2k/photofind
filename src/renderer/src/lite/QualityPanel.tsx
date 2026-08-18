@@ -238,7 +238,7 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
 }
 
 function Summary({ label, value, detail, suffix = '', warn = false }: { label: string; value: number | null; detail?: string; suffix?: string; warn?: boolean }): JSX.Element {
-  return <div className={warn ? 'similarity-summary warn' : 'quality-summary'}><span>{label}</span><strong>{value === null ? '–' : `${value.toLocaleString()}${suffix}`}</strong>{detail && <small>{detail}</small>}</div>
+  return <div className={warn ? 'quality-summary warn' : 'quality-summary'}><span>{label}</span><strong>{value === null ? '–' : `${value.toLocaleString()}${suffix}`}</strong>{detail && <small>{detail}</small>}</div>
 }
 
 function Metric({ label, value, invert = false }: { label: string; value?: number; invert?: boolean }): JSX.Element {
