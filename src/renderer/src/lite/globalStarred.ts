@@ -3,6 +3,7 @@ import { listLibraries, loadMedia } from './libraryDb'
 import { isRejected } from './review'
 import { isStarred } from './starred'
 import type { LiteMediaRecord } from './types'
+import { LIBRARY_STATE_CHANGED_EVENT } from './undoHistory'
 
 interface GlobalStarredState {
   items: LiteMediaRecord[]
@@ -15,6 +16,14 @@ const EMPTY_STATE: GlobalStarredState = { items: [], loading: false, error: null
 
 export function useGlobalStarredPhotos(enabled: boolean): GlobalStarredState {
   const [state, setState] = useState<GlobalStarredState>(EMPTY_STATE)
+  const [revision, setRevision] = useState(0)
+
+  useEffect(() => {
+    if (!enabled) return
+    const refresh = (): void => setRevision((value) => value + 1)
+    window.addEventListener(LIBRARY_STATE_CHANGED_EVENT, refresh)
+    return () => window.removeEventListener(LIBRARY_STATE_CHANGED_EVENT, refresh)
+  }, [enabled])
 
   useEffect(() => {
     let cancelled = false
@@ -47,7 +56,7 @@ export function useGlobalStarredPhotos(enabled: boolean): GlobalStarredState {
     })()
 
     return () => { cancelled = true }
-  }, [enabled])
+  }, [enabled, revision])
 
   return state
 }
