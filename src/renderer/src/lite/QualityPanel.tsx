@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { classifyLikelyNonPhoto } from './contentClassification'
+import { usePhotoFindContextMenu } from './ContextMenu'
 import { LocalThumbnail } from './LocalThumbnail'
 import { PhotoLightbox } from './PhotoLightbox'
 import { PhotoSelectionBar, useExplorerPhotoSelection } from './PhotoSelection'
@@ -22,9 +23,11 @@ interface QualityPanelProps {
 const PAGE_SIZE = 240
 
 export function QualityPanel({ items, sessionFiles, progress, busy, reconnectRequired, onAnalyze, onAbort, onReview }: QualityPanelProps): JSX.Element {
+  const { listKnownEvents } = usePhotoFindContextMenu()
   const [qualityFilter, setQualityFilter] = useState<LiteQualityFilter>('all')
   const [sort, setSort] = useState<LiteQualitySort>('overall')
   const [showNonPhotos, setShowNonPhotos] = useState(false)
+  const [hideKnownEvents, setHideKnownEvents] = useState(false)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [openIndex, setOpenIndex] = useState<number | null>(null)
   const photos = items.filter((item) => item.kind === 'image')
@@ -44,12 +47,21 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
     return map
   }, [items])
   const nonPhotoCount = contentById.size
+  const knownEventIds = useMemo(() => {
+    const ids = new Set<string>()
+    for (const item of analyzed) {
+      if (listKnownEvents([item.id]).some((event) => event.containsPhoto)) ids.add(item.id)
+    }
+    return ids
+  }, [analyzed, listKnownEvents])
+  const knownEventCount = knownEventIds.size
 
   const ranked = useMemo(() => {
     const filtered = filterQuality(items, qualityFilter)
     const contentFiltered = showNonPhotos ? filtered.filter((item) => contentById.has(item.id)) : filtered
-    return sortByTechnicalQuality(contentFiltered, sort)
-  }, [contentById, items, qualityFilter, showNonPhotos, sort])
+    const eventFiltered = hideKnownEvents ? contentFiltered.filter((item) => !knownEventIds.has(item.id)) : contentFiltered
+    return sortByTechnicalQuality(eventFiltered, sort)
+  }, [contentById, hideKnownEvents, items, knownEventIds, qualityFilter, showNonPhotos, sort])
   const visible = ranked.slice(0, visibleCount)
   const selection = useExplorerPhotoSelection(ranked)
 
@@ -57,7 +69,7 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
     setVisibleCount(PAGE_SIZE)
     setOpenIndex(null)
     selection.clear()
-  }, [qualityFilter, showNonPhotos, sort])
+  }, [hideKnownEvents, qualityFilter, showNonPhotos, sort])
 
   return (
     <section className="quality-section">
@@ -127,12 +139,21 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
             >
               <span aria-hidden="true">{showNonPhotos ? '☑' : '☐'}</span> Screenshots / docs <b>{nonPhotoCount.toLocaleString()}</b>
             </button>
+            <button
+              type="button"
+              className={hideKnownEvents ? 'quality-content-toggle active' : 'quality-content-toggle'}
+              aria-pressed={hideKnownEvents}
+              title="Hide photos that are already included in one or more Known events."
+              onClick={() => setHideKnownEvents((value) => !value)}
+            >
+              <span aria-hidden="true">{hideKnownEvents ? '☑' : '☐'}</span> Hide known events <b>{knownEventCount.toLocaleString()}</b>
+            </button>
             <span className="muted">{ranked.length.toLocaleString()} matching analyzed photos</span>
           </div>
 
           <PhotoSelectionBar items={selection.selectedItems} onReview={(targets, state) => targets.forEach((item) => onReview(item, state))} onClear={selection.clear} />
 
-          {ranked.length === 0 ? <p className="muted">{showNonPhotos ? 'No likely screenshots or documents match the current quality tier.' : 'No analyzed photos match that quality tier.'}</p> : (
+          {ranked.length === 0 ? <p className="muted">{showNonPhotos ? 'No likely screenshots or documents match the current filters.' : hideKnownEvents ? 'No analyzed photos outside Known events match the current quality tier.' : 'No analyzed photos match that quality tier.'}</p> : (
             <div className="quality-grid">
               {visible.map((item, index) => {
                 const content = contentById.get(item.id)
