@@ -1,3 +1,4 @@
+import { startGlobalProcess } from './globalProcesses'
 import { scoreQuality } from './quality'
 import type { LiteMediaRecord, LiteQualityMeasurements, LiteQualityProgress } from './types'
 
@@ -27,6 +28,11 @@ export async function analyzeQuality(
   let complete = 0
   let reused = 0
   const worker = new Worker(new URL('./quality.worker.ts', import.meta.url), { type: 'module' })
+  const process = startGlobalProcess('Analyzing technical quality', { complete: 0, total: targets.length })
+  const report = (progress: LiteQualityProgress): void => {
+    options.onProgress?.(progress)
+    process.update({ complete: progress.complete, total: progress.total, detail: progress.currentPath })
+  }
 
   try {
     for (const item of targets) {
@@ -36,7 +42,7 @@ export async function analyzeQuality(
         updates.set(item.id, item)
         complete += 1
         reused += 1
-        options.onProgress?.({ complete, total: targets.length, reused, currentPath: item.relativePath })
+        report({ complete, total: targets.length, reused, currentPath: item.relativePath })
         continue
       }
 
@@ -53,7 +59,7 @@ export async function analyzeQuality(
       updates.set(item.id, updated)
       pendingPersist.push(updated)
       complete += 1
-      options.onProgress?.({ complete, total: targets.length, reused, currentPath: item.relativePath })
+      report({ complete, total: targets.length, reused, currentPath: item.relativePath })
 
       if (pendingPersist.length >= PERSIST_BATCH_SIZE) await flushPending(options.persistBatch, pendingPersist)
       options.signal?.throwIfAborted()
@@ -63,6 +69,7 @@ export async function analyzeQuality(
     options.signal?.throwIfAborted()
   } finally {
     worker.terminate()
+    process.finish()
   }
 
   return records.map((item) => updates.get(item.id) ?? item)
