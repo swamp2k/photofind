@@ -1,0 +1,1 @@
+Quality known-event filtering is intentionally lazy: opening Quality must not scan event membership for every analyzed photo. The membership scan starts only when the user enables Hide known events and yields between small batches so the UI remains responsive.
