@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import { usePhotoFindContextMenu } from './ContextMenu'
 import { formatCapture, formatLocation } from './formatters'
 import { hasLocation } from './filters'
+import { navigateToCapturedDate, navigateToKnownEvent, navigateToMapFocus } from './lightboxNavigation'
 import { LocalPhotoImage } from './LocalPhotoImage'
 import { LocalThumbnail } from './LocalThumbnail'
 import { ReviewControls } from './ReviewControls'
@@ -21,11 +23,13 @@ const ZOOM_LEVELS = [1, 2, 4]
 
 export function PhotoLightbox({ items, index, sessionFiles, onIndex, onClose, onReview }: PhotoLightboxProps): JSX.Element | null {
   const { settings, bindings } = useReviewSettings()
+  const { listKnownEvents } = usePhotoFindContextMenu()
   const item = items[index]
   const [zoomIndex, setZoomIndex] = useState(0)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const drag = useRef<{ pointerId: number; x: number; y: number; originX: number; originY: number } | null>(null)
   const zoom = ZOOM_LEVELS[zoomIndex]
+  const knownEvents = item ? listKnownEvents([item.id]).filter((event) => event.containsPhoto) : []
 
   useEffect(() => {
     setZoomIndex(0)
@@ -81,10 +85,11 @@ export function PhotoLightbox({ items, index, sessionFiles, onIndex, onClose, on
 
   const filmstripStart = Math.max(0, Math.min(index - 4, items.length - 9))
   const filmstrip = items.slice(filmstripStart, filmstripStart + 9)
+  const captureTime = item.effectiveCaptureTime ?? item.lastModified
 
   return (
     <div className="lightbox-backdrop" role="presentation" onMouseDown={onClose}>
-      <div className="lightbox lightbox-polished" role="dialog" aria-modal="true" aria-label={item.name} onMouseDown={(event) => event.stopPropagation()}>
+      <div className="lightbox lightbox-polished" role="dialog" aria-modal="true" aria-label={item.name} onMouseDown={(event) => event.stopPropagation()} data-photofind-photo-id={item.id}>
         <div className="lightbox-toolbar">
           <div className="lightbox-title">
             <strong>{item.name}</strong>
@@ -126,8 +131,26 @@ export function PhotoLightbox({ items, index, sessionFiles, onIndex, onClose, on
             </div>
             <div className="inspector-section">
               <span className="inspector-label">Captured</span>
-              <strong>{formatCapture(item)}</strong>
-              <span>{hasLocation(item) ? formatLocation(item) : 'No location metadata'}</span>
+              <button type="button" className="inspector-link captured-link" onClick={() => navigateToCapturedDate(captureTime, onClose)} title="Show photos captured on this date">{formatCapture(item)}</button>
+              {hasLocation(item)
+                ? <button type="button" className="inspector-link location-link" onClick={() => navigateToMapFocus({ itemId: item.id, latitude: item.latitude!, longitude: item.longitude!, spanKm: 30 }, onClose)} title="Show this location on the map">{formatLocation(item)}</button>
+                : <span>No location metadata</span>}
+            </div>
+            <div className="inspector-section known-event-inspector">
+              <span className="inspector-label">Known event</span>
+              {knownEvents.length === 0 ? <span className="inspector-muted">Not in a known event</span> : (
+                <div className="known-event-row">
+                  <button type="button" className="inspector-link event-link" onClick={() => navigateToKnownEvent(knownEvents[0].title, onClose)}>{knownEvents[0].title}</button>
+                  {knownEvents.length > 1 && (
+                    <details className="known-event-more">
+                      <summary>+{knownEvents.length - 1}</summary>
+                      <div>
+                        {knownEvents.slice(1).map((event) => <button type="button" key={event.id} onClick={() => navigateToKnownEvent(event.title, onClose)}>{event.title}</button>)}
+                      </div>
+                    </details>
+                  )}
+                </div>
+              )}
             </div>
             {(item.width || item.cameraModel || item.cameraMake) && <div className="inspector-section">
               <span className="inspector-label">File details</span>

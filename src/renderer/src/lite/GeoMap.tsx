@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import maplibregl, { type GeoJSONSource, type LngLatBoundsLike, type Map as MapLibreMap, type StyleSpecification } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { hasLocation } from './filters'
+import { consumePendingMapFocus, type LightboxMapFocus } from './lightboxNavigation'
 import { groupMappedLocations } from './mapLocations'
 import type { LiteGeoBounds, LiteMediaRecord } from './types'
 
@@ -51,6 +52,7 @@ export function GeoMap({ items, filterToViewport, onBoundsChange, onSelectItems 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
 
+    const pendingFocus = consumePendingMapFocus()
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: OSM_STYLE,
@@ -128,7 +130,12 @@ export function GeoMap({ items, filterToViewport, onBoundsChange, onSelectItems 
       })
 
       initializedRef.current = true
-      fitMapToItems(map, latestItemsRef.current)
+      if (pendingFocus) {
+        focusMap(map, pendingFocus)
+        selectCallbackRef.current([pendingFocus.itemId])
+      } else {
+        fitMapToItems(map, latestItemsRef.current)
+      }
       emitCurrentBounds()
     })
 
@@ -177,6 +184,17 @@ export function fitMapToItems(map: MapLibreMap, items: LiteMediaRecord[]): void 
   }
   const bounds: LngLatBoundsLike = [[west, south], [east, north]]
   map.fitBounds(bounds, { padding: 42, maxZoom: 12, duration: 0 })
+}
+
+function focusMap(map: MapLibreMap, focus: LightboxMapFocus): void {
+  const radiusKm = focus.spanKm / 2
+  const latDelta = radiusKm / 111.32
+  const longitudeScale = Math.max(0.15, Math.cos(focus.latitude * Math.PI / 180))
+  const lonDelta = radiusKm / (111.32 * longitudeScale)
+  map.fitBounds([
+    [focus.longitude - lonDelta, focus.latitude - latDelta],
+    [focus.longitude + lonDelta, focus.latitude + latDelta]
+  ], { padding: 52, maxZoom: 13, duration: 0 })
 }
 
 function emitBounds(map: MapLibreMap, enabled: boolean, callback: (bounds: LiteGeoBounds | null) => void): void {
