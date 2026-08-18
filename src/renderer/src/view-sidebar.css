@@ -62,7 +62,8 @@
 .pf-main > .filter-disclosure .review-filter-tabs button { flex: 1 1 auto; }
 
 /* Header actions belong with settings, not with the title. */
-.pf-main:has(> .filter-disclosure) .compact-collection-header .collection-actions {
+.pf-main:has(> .filter-disclosure) .compact-collection-header .collection-actions,
+.pf-main:has(> .events-section) .compact-collection-header .collection-actions {
   position: absolute;
   z-index: 12;
   top: 70px;
@@ -71,7 +72,8 @@
   justify-content: flex-start;
   pointer-events: none;
 }
-.pf-main:has(> .filter-disclosure) .compact-collection-header .collection-action-buttons {
+.pf-main:has(> .filter-disclosure) .compact-collection-header .collection-action-buttons,
+.pf-main:has(> .events-section) .compact-collection-header .collection-action-buttons {
   width: 100%;
   justify-content: flex-start;
   pointer-events: auto;
@@ -102,7 +104,7 @@
 .pf-main:has(> .filter-disclosure) > .quality-section .quality-controls {
   position: absolute;
   z-index: 9;
-  top: calc(82px + var(--shared-filter-height));
+  top: calc(132px + var(--shared-filter-height));
   right: 18px;
   width: var(--view-sidebar-width);
   display: grid;
@@ -130,10 +132,10 @@
 .pf-main > .events-section .event-toolbar-controls {
   position: absolute;
   z-index: 10;
-  top: 70px;
+  top: 120px;
   right: 18px;
   width: var(--view-sidebar-width);
-  max-height: calc(100vh - 96px);
+  max-height: calc(100vh - 146px);
   overflow: auto;
   align-items: stretch;
   flex-direction: column;
@@ -189,6 +191,7 @@
     max-height: none;
     margin: 0 0 14px;
   }
-  .pf-main:has(> .filter-disclosure) .compact-collection-header .collection-actions { position: static; width: auto; pointer-events: auto; }
+  .pf-main:has(> .filter-disclosure) .compact-collection-header .collection-actions,
+  .pf-main:has(> .events-section) .compact-collection-header .collection-actions { position: static; width: auto; pointer-events: auto; }
   .view-column-resizer { display: none; }
 }
