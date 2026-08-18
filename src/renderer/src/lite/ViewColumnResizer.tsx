@@ -38,15 +38,16 @@ export function ViewColumnResizer(): JSX.Element | null {
   }, [])
 
   if (!target) return null
+  const main = target
 
   function beginResize(event: React.PointerEvent<HTMLDivElement>): void {
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
     const onMove = (moveEvent: PointerEvent): void => {
-      const rect = target.getBoundingClientRect()
+      const rect = main.getBoundingClientRect()
       const maxWidth = Math.max(MIN_WIDTH, Math.min(720, rect.width * 0.55))
       const width = Math.round(Math.max(MIN_WIDTH, Math.min(maxWidth, rect.right - moveEvent.clientX - 18)))
-      target.style.setProperty('--view-sidebar-width', `${width}px`)
+      main.style.setProperty('--view-sidebar-width', `${width}px`)
       try { window.localStorage.setItem(STORAGE_KEY, String(width)) } catch { /* best effort */ }
     }
     const stop = (): void => {
@@ -63,6 +64,6 @@ export function ViewColumnResizer(): JSX.Element | null {
 
   return createPortal(
     <div className="view-column-resizer" role="separator" aria-orientation="vertical" aria-label="Resize filter column" title="Drag to resize filter column" onPointerDown={beginResize}><span /></div>,
-    target
+    main
   )
 }
