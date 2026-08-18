@@ -195,3 +195,5 @@
   .pf-main:has(> .events-section) .compact-collection-header .collection-actions { position: static; width: auto; pointer-events: auto; }
   .view-column-resizer { display: none; }
 }
+
+/* The chosen split is a local UI preference, never part of the photo index. */
