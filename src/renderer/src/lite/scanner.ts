@@ -1,4 +1,5 @@
 import { classifyMedia } from './classify'
+import { startGlobalProcess, type GlobalProcessHandle } from './globalProcesses'
 import { copyReusableMetadata, enrichMediaMetadata, LITE_METADATA_VERSION } from './metadata'
 import { copyStarredState } from './starred'
 import { matchTakeoutSidecars, type LiteTakeoutMatch } from './takeout'
@@ -19,41 +20,47 @@ export async function scanDirectory(
   existingMedia: LiteMediaRecord[] = [],
   onProgress?: (progress: LiteScanProgress) => void
 ): Promise<LiteScanResult> {
-  const libraryId = existing?.id ?? crypto.randomUUID()
-  const createdAt = existing?.createdAt ?? Date.now()
-  const media: LiteMediaRecord[] = []
-  const filesById = new Map<string, File>()
-  let scannedFiles = 0
+  const process = startGlobalProcess(existing ? 'Rescanning photo index' : 'Indexing photos', { detail: 'Scanning files…' })
+  const report = scanReporter(onProgress, process)
+  try {
+    const libraryId = existing?.id ?? crypto.randomUUID()
+    const createdAt = existing?.createdAt ?? Date.now()
+    const media: LiteMediaRecord[] = []
+    const filesById = new Map<string, File>()
+    let scannedFiles = 0
 
-  async function walk(directory: FileSystemDirectoryHandle, parentSegments: string[]): Promise<void> {
-    const iterableDirectory = directory as DirectoryHandleWithEntries
-    for await (const [name, handle] of iterableDirectory.entries()) {
-      if (name === '.DS_Store') continue
-      const segments = [...parentSegments, name]
-      const relativePath = segments.join('/')
-      if (handle.kind === 'directory') {
-        await walk(handle as FileSystemDirectoryHandle, segments)
-        continue
-      }
+    async function walk(directory: FileSystemDirectoryHandle, parentSegments: string[]): Promise<void> {
+      const iterableDirectory = directory as DirectoryHandleWithEntries
+      for await (const [name, handle] of iterableDirectory.entries()) {
+        if (name === '.DS_Store') continue
+        const segments = [...parentSegments, name]
+        const relativePath = segments.join('/')
+        if (handle.kind === 'directory') {
+          await walk(handle as FileSystemDirectoryHandle, segments)
+          continue
+        }
 
-      const fileHandle = handle as FileSystemFileHandle
-      const file = await fileHandle.getFile()
-      const record = createMediaRecord(libraryId, relativePath, file, fileHandle)
-      media.push(record)
-      filesById.set(record.id, file)
-      scannedFiles += 1
-      if (scannedFiles === 1 || scannedFiles % 25 === 0) {
-        onProgress?.({ phase: 'files', scannedFiles, currentPath: relativePath })
-        await Promise.resolve()
+        const fileHandle = handle as FileSystemFileHandle
+        const file = await fileHandle.getFile()
+        const record = createMediaRecord(libraryId, relativePath, file, fileHandle)
+        media.push(record)
+        filesById.set(record.id, file)
+        scannedFiles += 1
+        if (scannedFiles === 1 || scannedFiles % 25 === 0) {
+          report({ phase: 'files', scannedFiles, currentPath: relativePath })
+          await Promise.resolve()
+        }
       }
     }
-  }
 
-  await walk(rootHandle, [])
-  const enriched = await enrichMedia(media, filesById, existingMedia, onProgress)
-  const library = createLibraryRecord(libraryId, rootHandle.name, createdAt, enriched, 'handle', rootHandle)
-  onProgress?.({ phase: 'metadata', scannedFiles, currentPath: '', metadataTotal: enrichableCount(enriched) })
-  return { library, media: enriched }
+    await walk(rootHandle, [])
+    const enriched = await enrichMedia(media, filesById, existingMedia, report)
+    const library = createLibraryRecord(libraryId, rootHandle.name, createdAt, enriched, 'handle', rootHandle)
+    report({ phase: 'metadata', scannedFiles, currentPath: '', metadataTotal: enrichableCount(enriched), metadataParsed: enrichableCount(enriched) })
+    return { library, media: enriched }
+  } finally {
+    process.finish()
+  }
 }
 
 export async function scanFileSelection(
@@ -63,31 +70,60 @@ export async function scanFileSelection(
   onProgress?: (progress: LiteScanProgress) => void
 ): Promise<LiteSelectionScanResult> {
   if (files.length === 0) throw new Error('The selected folder did not contain any files.')
+  const process = startGlobalProcess(existing ? 'Rescanning photo index' : 'Indexing photos', { complete: 0, total: files.length, detail: 'Reading selected files…' })
+  const report = scanReporter(onProgress, process, files.length)
+  try {
+    const libraryId = existing?.id ?? crypto.randomUUID()
+    const createdAt = existing?.createdAt ?? Date.now()
+    const rootName = inferSelectionRootName(files)
+    const media: LiteMediaRecord[] = []
+    const sessionFiles = new Map<string, File>()
 
-  const libraryId = existing?.id ?? crypto.randomUUID()
-  const createdAt = existing?.createdAt ?? Date.now()
-  const rootName = inferSelectionRootName(files)
-  const media: LiteMediaRecord[] = []
-  const sessionFiles = new Map<string, File>()
-
-  for (let index = 0; index < files.length; index += 1) {
-    const file = files[index]
-    const relativePath = normalizeSelectionPath(file, rootName)
-    if (relativePath === '.DS_Store' || relativePath.endsWith('/.DS_Store')) continue
-    const record = createMediaRecord(libraryId, relativePath, file)
-    media.push(record)
-    sessionFiles.set(record.id, file)
-    const scannedFiles = index + 1
-    if (scannedFiles === 1 || scannedFiles % 25 === 0) {
-      onProgress?.({ phase: 'files', scannedFiles, currentPath: relativePath })
-      await Promise.resolve()
+    for (let index = 0; index < files.length; index += 1) {
+      const file = files[index]
+      const relativePath = normalizeSelectionPath(file, rootName)
+      if (relativePath === '.DS_Store' || relativePath.endsWith('/.DS_Store')) continue
+      const record = createMediaRecord(libraryId, relativePath, file)
+      media.push(record)
+      sessionFiles.set(record.id, file)
+      const scannedFiles = index + 1
+      if (scannedFiles === 1 || scannedFiles % 25 === 0) {
+        report({ phase: 'files', scannedFiles, currentPath: relativePath })
+        await Promise.resolve()
+      }
     }
-  }
 
-  const enriched = await enrichMedia(media, sessionFiles, existingMedia, onProgress)
-  const library = createLibraryRecord(libraryId, rootName, createdAt, enriched, 'selection')
-  onProgress?.({ phase: 'metadata', scannedFiles: files.length, currentPath: '', metadataTotal: enrichableCount(enriched) })
-  return { library, media: enriched, sessionFiles }
+    const enriched = await enrichMedia(media, sessionFiles, existingMedia, report)
+    const library = createLibraryRecord(libraryId, rootName, createdAt, enriched, 'selection')
+    report({ phase: 'metadata', scannedFiles: files.length, currentPath: '', metadataTotal: enrichableCount(enriched), metadataParsed: enrichableCount(enriched) })
+    return { library, media: enriched, sessionFiles }
+  } finally {
+    process.finish()
+  }
+}
+
+function scanReporter(
+  onProgress: ((progress: LiteScanProgress) => void) | undefined,
+  process: GlobalProcessHandle,
+  fileTotal?: number
+): (progress: LiteScanProgress) => void {
+  return (progress) => {
+    onProgress?.(progress)
+    if (progress.phase === 'metadata') {
+      const complete = (progress.metadataParsed ?? 0) + (progress.metadataReused ?? 0)
+      process.update({
+        complete,
+        total: progress.metadataTotal,
+        detail: progress.currentPath ? `Reading metadata · ${progress.currentPath}` : 'Reading metadata…'
+      })
+      return
+    }
+    process.update({
+      complete: fileTotal === undefined ? undefined : progress.scannedFiles,
+      total: fileTotal,
+      detail: progress.currentPath || 'Scanning files…'
+    })
+  }
 }
 
 async function enrichMedia(
