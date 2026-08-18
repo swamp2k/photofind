@@ -15,6 +15,26 @@ export function ViewColumnResizer(): JSX.Element | null {
     const stored = Number(window.localStorage.getItem(STORAGE_KEY))
     const width = Number.isFinite(stored) && stored >= MIN_WIDTH ? stored : DEFAULT_WIDTH
     main.style.setProperty('--view-sidebar-width', `${width}px`)
+
+    let observedFilter: HTMLElement | null = null
+    const resizeObserver = new ResizeObserver(() => updateFilterHeight())
+    const updateFilterHeight = (): void => {
+      const filter = main.querySelector<HTMLElement>(':scope > .filter-disclosure')
+      if (filter !== observedFilter) {
+        if (observedFilter) resizeObserver.unobserve(observedFilter)
+        observedFilter = filter
+        if (observedFilter) resizeObserver.observe(observedFilter)
+      }
+      main.style.setProperty('--shared-filter-height', `${filter ? Math.ceil(filter.getBoundingClientRect().height) : 0}px`)
+    }
+    const mutationObserver = new MutationObserver(updateFilterHeight)
+    mutationObserver.observe(main, { childList: true, subtree: false })
+    updateFilterHeight()
+
+    return () => {
+      mutationObserver.disconnect()
+      resizeObserver.disconnect()
+    }
   }, [])
 
   if (!target) return null
