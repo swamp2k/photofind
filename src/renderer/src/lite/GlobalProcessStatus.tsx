@@ -1,20 +1,29 @@
-export interface GlobalProcessActivity {
-  id: string
-  label: string
-  detail?: string
-  complete?: number
-  total?: number
-  indeterminate?: boolean
-}
+import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { useGlobalProcesses } from './globalProcesses'
 
-interface GlobalProcessStatusProps {
-  activities: GlobalProcessActivity[]
-}
+export function GlobalProcessStatus(): JSX.Element | null {
+  const activities = useGlobalProcesses()
+  const [target, setTarget] = useState<HTMLElement | null>(null)
 
-export function GlobalProcessStatus({ activities }: GlobalProcessStatusProps): JSX.Element | null {
-  if (activities.length === 0) return null
+  useEffect(() => {
+    const resolveTarget = (): boolean => {
+      const sidebar = document.querySelector<HTMLElement>('.pf-sidebar')
+      if (!sidebar) return false
+      setTarget(sidebar)
+      return true
+    }
+    if (resolveTarget()) return
+    const observer = new MutationObserver(() => {
+      if (resolveTarget()) observer.disconnect()
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+    return () => observer.disconnect()
+  }, [])
 
-  return (
+  if (!target || activities.length === 0) return null
+
+  return createPortal(
     <section className="global-process-status" aria-live="polite" aria-label="PhotoFind activity">
       <div className="global-process-heading">
         <span className="global-process-pulse" aria-hidden="true" />
@@ -30,7 +39,7 @@ export function GlobalProcessStatus({ activities }: GlobalProcessStatusProps): J
                 <span>{activity.label}</span>
                 {hasProgress && <strong>{percent}%</strong>}
               </div>
-              <div className={activity.indeterminate || !hasProgress ? 'global-process-track indeterminate' : 'global-process-track'}>
+              <div className={hasProgress ? 'global-process-track' : 'global-process-track indeterminate'}>
                 <i style={hasProgress ? { width: `${percent}%` } : undefined} />
               </div>
               {(activity.detail || hasProgress) && (
@@ -43,6 +52,7 @@ export function GlobalProcessStatus({ activities }: GlobalProcessStatusProps): J
           )
         })}
       </div>
-    </section>
+    </section>,
+    target
   )
 }
