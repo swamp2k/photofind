@@ -272,7 +272,7 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
 
               <PhotoSelectionBar items={selection.selectedItems} onReview={(targets, state) => targets.forEach((item) => onReview(item, state))} onClear={selection.clear} onRemoveFromEvent={removeSelectedPhotos} />
               <div className="event-photo-grid">
-                {selectedItems.slice(0, 300).map((item, index) => {
+                {selectedItems.map((item, index) => {
                   const isSelected = selection.isSelected(item.id)
                   return <article className={isSelected ? 'explorer-selected' : ''} key={item.id} data-photofind-event-id={selected.id} data-photofind-photo-id={item.id}>
                     <button type="button" className="event-photo-open" aria-pressed={isSelected} onClick={(event) => selection.handlePhotoClick(event, item.id, () => setOpenIndex(index))}>
@@ -282,7 +282,6 @@ export function EventsPanel({ items, events, people, sessionFiles, onReview, onR
                   </article>
                 })}
               </div>
-              {selectedItems.length > 300 && <p className="muted">Showing the first 300 photos in this event.</p>}
             </>}
           </article>
         </div>
@@ -361,5 +360,5 @@ function isMediaRecord(item: LiteMediaRecord | undefined): item is LiteMediaReco
 }
 
 function messageOf(cause: unknown): string {
-  return cause instanceof Error ? cause.message : 'Something went wrong.'
+  return cause instanceof Error ? cause.message : String(cause)
 }
