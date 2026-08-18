@@ -170,6 +170,27 @@
   color: white;
 }
 
+/* Event names often carry more useful information than the compact context menu allowed.
+   Keep the date/count hint visible, but give the event title enough horizontal room first. */
+.pf-context-submenu {
+  width: 420px;
+  max-width: calc(100vw - 32px);
+}
+.pf-context-submenu .pf-context-menu-row > button {
+  gap: 14px;
+  min-width: 0;
+}
+.pf-context-submenu .pf-context-menu-row > button > span {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pf-context-submenu .pf-context-menu-row > button > kbd {
+  flex: 0 0 auto;
+}
+
 @media (max-width: 760px) {
   .photo-selection-bar {
     top: 58px;
@@ -179,5 +200,9 @@
 
   .photo-selection-actions {
     justify-content: flex-start;
+  }
+
+  .pf-context-submenu {
+    width: min(360px, calc(100vw - 24px));
   }
 }
