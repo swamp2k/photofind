@@ -457,6 +457,26 @@ export function LiteApp(): JSX.Element {
     applyReviewAssignments(new Map(targets.map((item) => [item.id, state])), undoLabel)
   }
 
+  async function updateStarredReview(item: LiteMediaRecord, state: LiteReviewState): Promise<void> {
+    if (!showGlobalStarred || item.libraryId === activeLibrary?.id) {
+      updateReview([item], state)
+      return
+    }
+    const result = setReviewAssignments([item], new Map([[item.id, state]]))
+    if (result.changed.length === 0) return
+    const previous = item
+    try {
+      await putMediaRecords(result.changed)
+      window.dispatchEvent(new Event(LIBRARY_STATE_CHANGED_EVENT))
+      registerUndo('Review global starred photo', async () => {
+        await putMediaRecords([previous])
+        window.dispatchEvent(new Event(LIBRARY_STATE_CHANGED_EVENT))
+      })
+    } catch (cause) {
+      setError(`Review state could not be saved for the other photo index: ${messageOf(cause)}`)
+    }
+  }
+
   function pickBest(selected: LiteMediaRecord, others: LiteMediaRecord[]): void {
     const assignments = new Map<string, LiteReviewState>([[selected.id, 'keep']])
     for (const item of others) assignments.set(item.id, 'reject')
@@ -983,7 +1003,7 @@ export function LiteApp(): JSX.Element {
               {view === 'map' && <MapResults items={mapItems} visibleItems={mapViewportItems} viewportReady={mapBounds !== null} selected={selectedMapItem} sessionFiles={sessionFiles} onBoundsChange={handleMapBounds} onCreateEvent={createMapEvent} onSelect={setSelectedMapId} onShowSelected={() => { setView('photos'); setVisibleCount(pageSize) }} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'people' && <PeoplePanel items={activeImages} people={people} sessionFiles={sessionFiles} progress={peopleProgress} busy={peopleBusy} reconnectRequired={reconnectRequired} onRename={(personId, name) => void renamePerson(personId, name)} onIgnore={(personId, ignored) => void ignorePerson(personId, ignored)} onMerge={(sourceId, targetId) => void mergePerson(sourceId, targetId)} onSplit={(faceRef) => void splitPersonFace(faceRef)} onExclude={(faceRef, personId) => void excludePersonFace(faceRef, personId)} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'photos' && <PhotoResults items={filteredImages} visibleCount={visibleCount} batchSize={pageSize} flowLoading={settings.flowLoading} selectedId={selectedMapId} sessionFiles={sessionFiles} onShowMore={() => setVisibleCount((count) => count + pageSize)} onReview={(item, state) => updateReview([item], state)} />}
-              {view === 'starred' && <PhotoResults items={starredFilteredImages} visibleCount={visibleCount} batchSize={pageSize} flowLoading={settings.flowLoading} selectedId={null} sessionFiles={sessionFiles} onShowMore={() => setVisibleCount((count) => count + pageSize)} onReview={(item, state) => updateReview([item], state)} />}
+              {view === 'starred' && <PhotoResults items={starredFilteredImages} visibleCount={visibleCount} batchSize={pageSize} flowLoading={settings.flowLoading} selectedId={null} sessionFiles={sessionFiles} onShowMore={() => setVisibleCount((count) => count + pageSize)} onReview={(item, state) => void updateStarredReview(item, state)} />}
               {view === 'groups' && <SimilarityGroups items={contextualItems} groups={contextualGroups} reviewFilter={reviewFilter} sessionFiles={sessionFiles} progress={similarityProgress} busy={similarityBusy} reconnectRequired={reconnectRequired} onAnalyze={() => void runSimilarityAnalysis()} onAbort={stopSimilarityAnalysis} onReview={(item, state) => updateReview([item], state)} onApprove={(items) => updateReview(items, 'keep', 'Approve duplicate group')} />}
               {view === 'quality' && <QualityPanel items={filteredImages} sessionFiles={sessionFiles} progress={qualityProgress} busy={qualityBusy} reconnectRequired={reconnectRequired} onAnalyze={() => void runQualityAnalysis()} onAbort={stopQualityAnalysis} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'selection' && <CurationPanel items={activeImages} events={meaningfulEvents} sessionFiles={sessionFiles} exportSupported={exportSupported} reconnectRequired={reconnectRequired} busy={exportBusy} progress={exportProgress} result={exportResult} batchSize={pageSize} flowLoading={settings.flowLoading} onReview={(item, state) => updateReview([item], state)} onExport={(items, layout, reports, metadata, eventNames, modifiedDates) => void runExport(items, layout, reports, metadata, eventNames, modifiedDates)} />}
