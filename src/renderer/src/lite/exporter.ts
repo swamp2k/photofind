@@ -1,6 +1,7 @@
 import { prepareMetadataAwareExport, xmpSidecarName, type LiteExportMetadataMode } from './exportMetadata'
 import { renderExportFolderTemplate } from './exportPathTemplate'
 import { buildTimestampArtifacts, type LiteTimestampEntry } from './exportTimestamps'
+import { startGlobalProcess } from './globalProcesses'
 import { reviewStateOf } from './review'
 import type { LiteExportFailure, LiteExportLayout, LiteExportProgress, LiteExportResult, LiteMediaRecord } from './types'
 
@@ -43,147 +44,159 @@ const LEGACY_LAYOUTS = new Set<string>(['flat', 'date-day', 'date-month', 'sourc
 const TEMPLATE_PREFIX = 'template:'
 
 export async function exportLocalPhotos(options: ExportOptions): Promise<LiteExportResult> {
-  const root = options.destination
-  const failures: LiteExportFailure[] = []
-  const manifest: ManifestEntry[] = []
-  const timestampEntries: LiteTimestampEntry[] = []
-  let exported = 0
-  let renamed = 0
-  let metadataEmbedded = 0
-  let sidecarsWritten = 0
-  let metadataUnchanged = 0
-  const rawLayout = String(options.layout)
-  const explicitTemplate = rawLayout.startsWith(TEMPLATE_PREFIX)
-  const folderTemplate = explicitTemplate ? rawLayout.slice(TEMPLATE_PREFIX.length) : rawLayout
-  const templateMode = explicitTemplate || !LEGACY_LAYOUTS.has(rawLayout)
-  const needsEventName = templateMode ? folderTemplate.includes('{EVENT}') : options.includeEventName === true
+  const process = startGlobalProcess('Exporting photos', { complete: 0, total: options.items.length, detail: 'Preparing export…' })
+  const report = (progress: LiteExportProgress): void => {
+    options.onProgress?.(progress)
+    process.update({ complete: progress.complete, total: progress.total, detail: progress.currentPath })
+  }
 
-  for (let index = 0; index < options.items.length; index += 1) {
-    const item = options.items[index]
-    let exportedPath: string | undefined
-    let metadataMode: LiteExportMetadataMode | undefined
-    let metadataNotes: string[] | undefined
-    let sidecarPath: string | undefined
-    const rawEventInfo = needsEventName ? options.eventNameForItem?.(item) : undefined
-    const eventName = typeof rawEventInfo === 'string'
-      ? rawEventInfo.trim() || undefined
-      : rawEventInfo?.name.trim() || undefined
-    const eventStartTime = typeof rawEventInfo === 'object' && Number.isFinite(rawEventInfo.startTime)
-      ? rawEventInfo.startTime
-      : undefined
-    try {
-      const source = await options.resolveFile(item)
-      if (!source) throw new Error('Local file access is unavailable. Reconnect the source folder and retry.')
-      const prepared = await prepareMetadataAwareExport(item, source, options.embedMetadata !== false)
-      metadataMode = prepared.metadataMode
-      metadataNotes = prepared.notes
-      const plan = exportPathParts(item, options.layout, eventName, eventStartTime)
-      const directory = await ensureDirectories(root, plan.directories)
-      const unique = await allocateUniqueName(directory, plan.fileName)
-      if (unique.renamed) renamed += 1
-      await writeBlob(directory, unique.name, prepared.blob)
-      exportedPath = [...plan.directories, unique.name].join('/')
-      exported += 1
+  try {
+    const root = options.destination
+    const failures: LiteExportFailure[] = []
+    const manifest: ManifestEntry[] = []
+    const timestampEntries: LiteTimestampEntry[] = []
+    let exported = 0
+    let renamed = 0
+    let metadataEmbedded = 0
+    let sidecarsWritten = 0
+    let metadataUnchanged = 0
+    const rawLayout = String(options.layout)
+    const explicitTemplate = rawLayout.startsWith(TEMPLATE_PREFIX)
+    const folderTemplate = explicitTemplate ? rawLayout.slice(TEMPLATE_PREFIX.length) : rawLayout
+    const templateMode = explicitTemplate || !LEGACY_LAYOUTS.has(rawLayout)
+    const needsEventName = templateMode ? folderTemplate.includes('{EVENT}') : options.includeEventName === true
 
-      const restoredModifiedTime = exportModifiedTime(item)
-      if (restoredModifiedTime !== undefined) {
-        timestampEntries.push({ path: exportedPath, lastModifiedMs: restoredModifiedTime })
-      }
+    for (let index = 0; index < options.items.length; index += 1) {
+      const item = options.items[index]
+      let exportedPath: string | undefined
+      let metadataMode: LiteExportMetadataMode | undefined
+      let metadataNotes: string[] | undefined
+      let sidecarPath: string | undefined
+      const rawEventInfo = needsEventName ? options.eventNameForItem?.(item) : undefined
+      const eventName = typeof rawEventInfo === 'string'
+        ? rawEventInfo.trim() || undefined
+        : rawEventInfo?.name.trim() || undefined
+      const eventStartTime = typeof rawEventInfo === 'object' && Number.isFinite(rawEventInfo.startTime)
+        ? rawEventInfo.startTime
+        : undefined
+      try {
+        const source = await options.resolveFile(item)
+        if (!source) throw new Error('Local file access is unavailable. Reconnect the source folder and retry.')
+        const prepared = await prepareMetadataAwareExport(item, source, options.embedMetadata !== false)
+        metadataMode = prepared.metadataMode
+        metadataNotes = prepared.notes
+        const plan = exportPathParts(item, options.layout, eventName, eventStartTime)
+        const directory = await ensureDirectories(root, plan.directories)
+        const unique = await allocateUniqueName(directory, plan.fileName)
+        if (unique.renamed) renamed += 1
+        await writeBlob(directory, unique.name, prepared.blob)
+        exportedPath = [...plan.directories, unique.name].join('/')
+        exported += 1
 
-      if (prepared.metadataMode === 'embedded') metadataEmbedded += 1
-      else if (prepared.metadataMode === 'unchanged') metadataUnchanged += 1
-
-      if (prepared.sidecar) {
-        try {
-          const sidecarName = await allocateUniqueName(directory, xmpSidecarName(unique.name))
-          await writeBlob(directory, sidecarName.name, prepared.sidecar)
-          sidecarPath = [...plan.directories, sidecarName.name].join('/')
-          sidecarsWritten += 1
-        } catch (cause) {
-          failures.push({ itemId: `${item.id}:xmp`, relativePath: `${item.relativePath} metadata sidecar`, message: messageOf(cause) })
+        const restoredModifiedTime = exportModifiedTime(item)
+        if (restoredModifiedTime !== undefined) {
+          timestampEntries.push({ path: exportedPath, lastModifiedMs: restoredModifiedTime })
         }
+
+        if (prepared.metadataMode === 'embedded') metadataEmbedded += 1
+        else if (prepared.metadataMode === 'unchanged') metadataUnchanged += 1
+
+        if (prepared.sidecar) {
+          try {
+            const sidecarName = await allocateUniqueName(directory, xmpSidecarName(unique.name))
+            await writeBlob(directory, sidecarName.name, prepared.sidecar)
+            sidecarPath = [...plan.directories, sidecarName.name].join('/')
+            sidecarsWritten += 1
+          } catch (cause) {
+            failures.push({ itemId: `${item.id}:xmp`, relativePath: `${item.relativePath} metadata sidecar`, message: messageOf(cause) })
+          }
+        }
+
+        manifest.push(manifestEntry(item, { exportedPath, metadataMode, metadataNotes, sidecarPath, eventName }))
+      } catch (cause) {
+        const message = messageOf(cause)
+        failures.push({ itemId: item.id, relativePath: item.relativePath, message })
+        manifest.push({ ...manifestEntry(item, { exportedPath, metadataMode, metadataNotes, sidecarPath, eventName }), error: message })
       }
 
-      manifest.push(manifestEntry(item, { exportedPath, metadataMode, metadataNotes, sidecarPath, eventName }))
-    } catch (cause) {
-      const message = messageOf(cause)
-      failures.push({ itemId: item.id, relativePath: item.relativePath, message })
-      manifest.push({ ...manifestEntry(item, { exportedPath, metadataMode, metadataNotes, sidecarPath, eventName }), error: message })
+      report({
+        complete: index + 1,
+        total: options.items.length,
+        exported,
+        renamed,
+        failed: failures.length,
+        metadataEmbedded,
+        sidecarsWritten,
+        currentPath: item.relativePath
+      })
+      await Promise.resolve()
     }
 
-    options.onProgress?.({
-      complete: index + 1,
-      total: options.items.length,
-      exported,
-      renamed,
-      failed: failures.length,
-      metadataEmbedded,
-      sidecarsWritten,
-      currentPath: item.relativePath
-    })
-    await Promise.resolve()
+    const timestamp = fileTimestamp(new Date())
+    const timestampRestoreFiles: string[] = []
+    let timestampRestoreCount = 0
+    if (options.preserveModifiedDates !== false && timestampEntries.length > 0) {
+      process.update({ detail: 'Writing timestamp restoration files…' })
+      const artifacts = buildTimestampArtifacts(timestampEntries, timestamp)
+      try {
+        await writeText(root, artifacts.jsonName, artifacts.json, 'application/json')
+        timestampRestoreFiles.push(artifacts.jsonName)
+        timestampRestoreCount = timestampEntries.length
+      } catch (cause) {
+        failures.push({ itemId: '__timestamp-json__', relativePath: 'Original modified-time restoration data', message: messageOf(cause) })
+      }
+      try {
+        await writeText(root, artifacts.pythonName, artifacts.python, 'text/x-python')
+        timestampRestoreFiles.push(artifacts.pythonName)
+      } catch (cause) {
+        failures.push({ itemId: '__timestamp-python__', relativePath: 'Python modified-time restoration script', message: messageOf(cause) })
+      }
+      try {
+        await writeText(root, artifacts.powershellName, artifacts.powershell, 'text/plain')
+        timestampRestoreFiles.push(artifacts.powershellName)
+      } catch (cause) {
+        failures.push({ itemId: '__timestamp-powershell__', relativePath: 'PowerShell modified-time restoration script', message: messageOf(cause) })
+      }
+    }
+
+    let manifestPath: string | undefined
+    let reportPath: string | undefined
+    if (options.includeReports !== false) {
+      process.update({ detail: 'Writing export reports…' })
+      const summary = {
+        exportedAt: new Date().toISOString(),
+        folderTemplate: templateMode ? folderTemplate : rawLayout,
+        exported,
+        renamed,
+        metadataEmbedded,
+        sidecarsWritten,
+        metadataUnchanged,
+        timestampRestoreCount,
+        timestampRestoreFiles,
+        failures,
+        items: manifest
+      }
+      try {
+        const manifestName = await allocateUniqueName(root, `photofind-selection-${timestamp}.json`)
+        await writeText(root, manifestName.name, JSON.stringify(summary, null, 2), 'application/json')
+        manifestPath = manifestName.name
+      } catch (cause) {
+        failures.push({ itemId: '__json-report__', relativePath: 'JSON selection report', message: messageOf(cause) })
+      }
+
+      try {
+        const reportName = await allocateUniqueName(root, `photofind-selection-${timestamp}.html`)
+        await writeText(root, reportName.name, buildHtmlReport(manifest, { exported, failed: failures.length, metadataEmbedded, sidecarsWritten, timestampRestoreCount }), 'text/html')
+        reportPath = reportName.name
+      } catch (cause) {
+        failures.push({ itemId: '__html-report__', relativePath: 'HTML selection report', message: messageOf(cause) })
+      }
+    }
+
+    return { exported, renamed, metadataEmbedded, sidecarsWritten, metadataUnchanged, timestampRestoreCount, timestampRestoreFiles, failures, manifestPath, reportPath }
+  } finally {
+    process.finish()
   }
-
-  const timestamp = fileTimestamp(new Date())
-  const timestampRestoreFiles: string[] = []
-  let timestampRestoreCount = 0
-  if (options.preserveModifiedDates !== false && timestampEntries.length > 0) {
-    const artifacts = buildTimestampArtifacts(timestampEntries, timestamp)
-    try {
-      await writeText(root, artifacts.jsonName, artifacts.json, 'application/json')
-      timestampRestoreFiles.push(artifacts.jsonName)
-      timestampRestoreCount = timestampEntries.length
-    } catch (cause) {
-      failures.push({ itemId: '__timestamp-json__', relativePath: 'Original modified-time restoration data', message: messageOf(cause) })
-    }
-    try {
-      await writeText(root, artifacts.pythonName, artifacts.python, 'text/x-python')
-      timestampRestoreFiles.push(artifacts.pythonName)
-    } catch (cause) {
-      failures.push({ itemId: '__timestamp-python__', relativePath: 'Python modified-time restoration script', message: messageOf(cause) })
-    }
-    try {
-      await writeText(root, artifacts.powershellName, artifacts.powershell, 'text/plain')
-      timestampRestoreFiles.push(artifacts.powershellName)
-    } catch (cause) {
-      failures.push({ itemId: '__timestamp-powershell__', relativePath: 'PowerShell modified-time restoration script', message: messageOf(cause) })
-    }
-  }
-
-  let manifestPath: string | undefined
-  let reportPath: string | undefined
-  if (options.includeReports !== false) {
-    const summary = {
-      exportedAt: new Date().toISOString(),
-      folderTemplate: templateMode ? folderTemplate : rawLayout,
-      exported,
-      renamed,
-      metadataEmbedded,
-      sidecarsWritten,
-      metadataUnchanged,
-      timestampRestoreCount,
-      timestampRestoreFiles,
-      failures,
-      items: manifest
-    }
-    try {
-      const manifestName = await allocateUniqueName(root, `photofind-selection-${timestamp}.json`)
-      await writeText(root, manifestName.name, JSON.stringify(summary, null, 2), 'application/json')
-      manifestPath = manifestName.name
-    } catch (cause) {
-      failures.push({ itemId: '__json-report__', relativePath: 'JSON selection report', message: messageOf(cause) })
-    }
-
-    try {
-      const reportName = await allocateUniqueName(root, `photofind-selection-${timestamp}.html`)
-      await writeText(root, reportName.name, buildHtmlReport(manifest, { exported, failed: failures.length, metadataEmbedded, sidecarsWritten, timestampRestoreCount }), 'text/html')
-      reportPath = reportName.name
-    } catch (cause) {
-      failures.push({ itemId: '__html-report__', relativePath: 'HTML selection report', message: messageOf(cause) })
-    }
-  }
-
-  return { exported, renamed, metadataEmbedded, sidecarsWritten, metadataUnchanged, timestampRestoreCount, timestampRestoreFiles, failures, manifestPath, reportPath }
 }
 
 export function exportModifiedTime(item: LiteMediaRecord): number | undefined {

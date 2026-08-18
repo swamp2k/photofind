@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { classifyLikelyNonPhoto } from './contentClassification'
-import { usePhotoFindContextMenu } from './ContextMenu'
+import { loadKnownEventPhotoIds } from './knownEventMembership'
 import { LocalThumbnail } from './LocalThumbnail'
 import { PhotoLightbox } from './PhotoLightbox'
 import { PhotoSelectionBar, useExplorerPhotoSelection } from './PhotoSelection'
@@ -21,18 +21,18 @@ interface QualityPanelProps {
 }
 
 const PAGE_SIZE = 240
-const KNOWN_EVENT_SCAN_BATCH = 8
+const EMPTY_IDS = new Set<string>()
 
 export function QualityPanel({ items, sessionFiles, progress, busy, reconnectRequired, onAnalyze, onAbort, onReview }: QualityPanelProps): JSX.Element {
-  const { listKnownEvents } = usePhotoFindContextMenu()
   const [qualityFilter, setQualityFilter] = useState<LiteQualityFilter>('all')
   const [sort, setSort] = useState<LiteQualitySort>('overall')
   const [showNonPhotos, setShowNonPhotos] = useState(false)
   const [hideKnownEvents, setHideKnownEvents] = useState(false)
-  const [knownEventIds, setKnownEventIds] = useState<Set<string> | null>(null)
-  const [knownEventsBusy, setKnownEventsBusy] = useState(false)
+  const [knownEventIds, setKnownEventIds] = useState<ReadonlySet<string>>(EMPTY_IDS)
+  const [knownEventsReady, setKnownEventsReady] = useState(false)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
   const [openIndex, setOpenIndex] = useState<number | null>(null)
+  const libraryId = items[0]?.libraryId ?? ''
   const photos = useMemo(() => items.filter((item) => item.kind === 'image'), [items])
   const analyzed = useMemo(() => photos.filter((item) => item.qualityStatus === 'ready'), [photos])
   const failed = useMemo(() => photos.filter((item) => item.qualityStatus === 'failed').length, [photos])
@@ -50,48 +50,33 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
     return map
   }, [analyzed])
   const nonPhotoCount = contentById.size
-  const knownEventCount = knownEventIds?.size ?? null
+  const knownEventCount = useMemo(() => analyzed.reduce((count, item) => count + (knownEventIds.has(item.id) ? 1 : 0), 0), [analyzed, knownEventIds])
 
   useEffect(() => {
-    setKnownEventIds(null)
-    setKnownEventsBusy(false)
-  }, [items, listKnownEvents])
-
-  useEffect(() => {
-    if (!hideKnownEvents || knownEventIds !== null) {
-      if (!hideKnownEvents) setKnownEventsBusy(false)
-      return
-    }
-
     let cancelled = false
-    setKnownEventsBusy(true)
-
-    void (async () => {
-      const ids = new Set<string>()
-      for (let index = 0; index < analyzed.length; index += 1) {
-        const item = analyzed[index]
-        if (listKnownEvents([item.id]).some((event) => event.containsPhoto)) ids.add(item.id)
-
-        if ((index + 1) % KNOWN_EVENT_SCAN_BATCH === 0 && index + 1 < analyzed.length) {
-          await new Promise<void>((resolve) => window.setTimeout(resolve, 0))
-          if (cancelled) return
-        }
-      }
-
-      if (cancelled) return
-      setKnownEventIds(ids)
-      setKnownEventsBusy(false)
-    })()
-
+    setKnownEventIds(EMPTY_IDS)
+    setKnownEventsReady(false)
+    if (!libraryId) return () => { cancelled = true }
+    void loadKnownEventPhotoIds(libraryId)
+      .then((ids) => {
+        if (cancelled) return
+        setKnownEventIds(ids)
+        setKnownEventsReady(true)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setKnownEventIds(EMPTY_IDS)
+        setKnownEventsReady(true)
+      })
     return () => { cancelled = true }
-  }, [analyzed, hideKnownEvents, knownEventIds, listKnownEvents])
+  }, [libraryId])
 
   const ranked = useMemo(() => {
     const filtered = filterQuality(items, qualityFilter)
     const contentFiltered = showNonPhotos ? filtered.filter((item) => contentById.has(item.id)) : filtered
-    const eventFiltered = hideKnownEvents && knownEventIds !== null ? contentFiltered.filter((item) => !knownEventIds.has(item.id)) : contentFiltered
+    const eventFiltered = hideKnownEvents && knownEventsReady ? contentFiltered.filter((item) => !knownEventIds.has(item.id)) : contentFiltered
     return sortByTechnicalQuality(eventFiltered, sort)
-  }, [contentById, hideKnownEvents, items, knownEventIds, qualityFilter, showNonPhotos, sort])
+  }, [contentById, hideKnownEvents, items, knownEventIds, knownEventsReady, qualityFilter, showNonPhotos, sort])
   const visible = ranked.slice(0, visibleCount)
   const selection = useExplorerPhotoSelection(ranked)
 
@@ -173,12 +158,12 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
               type="button"
               className={hideKnownEvents ? 'quality-content-toggle active' : 'quality-content-toggle'}
               aria-pressed={hideKnownEvents}
+              disabled={!knownEventsReady}
               title="Hide photos that are already included in one or more Known events."
               onClick={() => setHideKnownEvents((value) => !value)}
             >
-              <span aria-hidden="true">{hideKnownEvents ? '☑' : '☐'}</span> Hide known events {knownEventsBusy ? <b>…</b> : knownEventCount !== null ? <b>{knownEventCount.toLocaleString()}</b> : null}
+              <span aria-hidden="true">{hideKnownEvents ? '☑' : '☐'}</span> Hide known events {knownEventsReady ? <b>{knownEventCount.toLocaleString()}</b> : <b>…</b>}
             </button>
-            {knownEventsBusy && <span className="muted">Finding photos already assigned to Known events…</span>}
             <span className="muted">{ranked.length.toLocaleString()} matching analyzed photos</span>
           </div>
 

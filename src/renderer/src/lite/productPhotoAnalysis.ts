@@ -1,3 +1,4 @@
+import { startGlobalProcess } from './globalProcesses'
 import { decodeBitmapForAnalysis } from './imageDecode'
 import type { LiteMediaRecord } from './types'
 
@@ -64,46 +65,56 @@ let classifierPromise: Promise<ProductClassifier> | null = null
 
 export async function analyzeProductPhotos(items: LiteMediaRecord[], options: ProductAnalysisOptions): Promise<LiteMediaRecord[]> {
   const photos = items.filter((item) => item.kind === 'image')
-  options.signal?.throwIfAborted()
-  options.onProgress?.({ phase: 'model', complete: 0, total: photos.length, reused: 0, failed: 0, currentPath: 'Loading semantic image model…' })
-  const classifier = await loadClassifier()
-  options.signal?.throwIfAborted()
-
-  const updatedById = new Map<string, LiteMediaRecord>()
-  const pending: LiteMediaRecord[] = []
-  let complete = 0
-  let reused = 0
-  let failed = 0
-
-  for (const item of photos) {
-    options.signal?.throwIfAborted()
-    const fingerprint = analysisFingerprint(item)
-    let next: LiteMediaRecord
-    if (
-      item.productAnalysisVersion === PRODUCT_ANALYSIS_VERSION
-      && item.productAnalysisFingerprint === fingerprint
-      && item.productAnalysisStatus === 'ready'
-    ) {
-      next = item
-      reused += 1
-    } else {
-      next = await analyzeOne(item, fingerprint, classifier, options.resolveFile, options.signal)
-      if (next.productAnalysisStatus === 'failed') failed += 1
-      pending.push(next)
-      if (pending.length >= PERSIST_BATCH_SIZE) {
-        await options.persistBatch([...pending])
-        pending.length = 0
-      }
-    }
-
-    updatedById.set(item.id, next)
-    complete += 1
-    options.onProgress?.({ phase: 'photos', complete, total: photos.length, reused, failed, currentPath: item.relativePath })
-    await yieldToBrowser(options.signal)
+  const process = startGlobalProcess('Analyzing product photos', { complete: 0, total: photos.length, detail: 'Loading semantic image model…' })
+  const report = (progress: LiteProductAnalysisProgress): void => {
+    options.onProgress?.(progress)
+    process.update({ complete: progress.complete, total: progress.total, detail: progress.currentPath })
   }
 
-  if (pending.length > 0) await options.persistBatch(pending)
-  return items.map((item) => updatedById.get(item.id) ?? item)
+  try {
+    options.signal?.throwIfAborted()
+    report({ phase: 'model', complete: 0, total: photos.length, reused: 0, failed: 0, currentPath: 'Loading semantic image model…' })
+    const classifier = await loadClassifier()
+    options.signal?.throwIfAborted()
+
+    const updatedById = new Map<string, LiteMediaRecord>()
+    const pending: LiteMediaRecord[] = []
+    let complete = 0
+    let reused = 0
+    let failed = 0
+
+    for (const item of photos) {
+      options.signal?.throwIfAborted()
+      const fingerprint = analysisFingerprint(item)
+      let next: LiteMediaRecord
+      if (
+        item.productAnalysisVersion === PRODUCT_ANALYSIS_VERSION
+        && item.productAnalysisFingerprint === fingerprint
+        && item.productAnalysisStatus === 'ready'
+      ) {
+        next = item
+        reused += 1
+      } else {
+        next = await analyzeOne(item, fingerprint, classifier, options.resolveFile, options.signal)
+        if (next.productAnalysisStatus === 'failed') failed += 1
+        pending.push(next)
+        if (pending.length >= PERSIST_BATCH_SIZE) {
+          await options.persistBatch([...pending])
+          pending.length = 0
+        }
+      }
+
+      updatedById.set(item.id, next)
+      complete += 1
+      report({ phase: 'photos', complete, total: photos.length, reused, failed, currentPath: item.relativePath })
+      await yieldToBrowser(options.signal)
+    }
+
+    if (pending.length > 0) await options.persistBatch(pending)
+    return items.map((item) => updatedById.get(item.id) ?? item)
+  } finally {
+    process.finish()
+  }
 }
 
 async function analyzeOne(

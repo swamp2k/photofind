@@ -1,3 +1,4 @@
+import { startGlobalProcess } from './globalProcesses'
 import { clearThumbnailDiskCacheForLibrary } from './thumbnailDb'
 import type { LiteEventOverride, LiteKnownDateRecord, LiteLibraryRecord, LiteMediaRecord, LitePersonRecord, LiteSmartCategorySettings } from './types'
 
@@ -8,6 +9,7 @@ const MEDIA_STORE = 'media'
 const PEOPLE_STORE = 'people'
 const EVENT_OVERRIDES_STORE = 'eventOverrides'
 const GLOBAL_KNOWN_DATES_STORE = 'globalKnownDates'
+const SHORT_PROCESS_DELAY = 220
 
 function requestResult<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -57,13 +59,16 @@ export async function listLibraries(): Promise<LiteLibraryRecord[]> {
 }
 
 export async function loadMedia(libraryId: string): Promise<LiteMediaRecord[]> {
+  const process = startGlobalProcess('Loading photo index', { detail: 'Reading local photo records…' }, { delayMs: SHORT_PROCESS_DELAY })
   const db = await openDb()
   try {
     const transaction = db.transaction(MEDIA_STORE, 'readonly')
     const rows = await requestResult(transaction.objectStore(MEDIA_STORE).index('libraryId').getAll(libraryId)) as LiteMediaRecord[]
+    process.update({ detail: `Sorting ${rows.length.toLocaleString()} local records…` })
     return rows.sort((a, b) => a.relativePath.localeCompare(b.relativePath))
   } finally {
     db.close()
+    process.finish()
   }
 }
 
@@ -101,16 +106,19 @@ export async function loadGlobalKnownDates(): Promise<LiteKnownDateRecord[]> {
 }
 
 export async function saveEventOverride(override: LiteEventOverride): Promise<void> {
+  const process = startGlobalProcess('Saving event changes', { detail: override.title || 'Updating event…' }, { delayMs: SHORT_PROCESS_DELAY })
   const db = await openDb()
   try {
     await requestResult(db.transaction(EVENT_OVERRIDES_STORE, 'readwrite').objectStore(EVENT_OVERRIDES_STORE).put(override))
   } finally {
     db.close()
+    process.finish()
   }
 }
 
 export async function saveEventOverrideBatch(overrides: LiteEventOverride[], deleteIds: string[] = []): Promise<void> {
   if (overrides.length === 0 && deleteIds.length === 0) return
+  const process = startGlobalProcess('Saving event changes', { detail: `${overrides.length + deleteIds.length} event change${overrides.length + deleteIds.length === 1 ? '' : 's'}…` }, { delayMs: SHORT_PROCESS_DELAY })
   const db = await openDb()
   try {
     await new Promise<void>((resolve, reject) => {
@@ -124,19 +132,23 @@ export async function saveEventOverrideBatch(overrides: LiteEventOverride[], del
     })
   } finally {
     db.close()
+    process.finish()
   }
 }
 
 export async function deleteEventOverride(id: string): Promise<void> {
+  const process = startGlobalProcess('Saving event changes', { detail: 'Removing event override…' }, { delayMs: SHORT_PROCESS_DELAY })
   const db = await openDb()
   try {
     await requestResult(db.transaction(EVENT_OVERRIDES_STORE, 'readwrite').objectStore(EVENT_OVERRIDES_STORE).delete(id))
   } finally {
     db.close()
+    process.finish()
   }
 }
 
 export async function saveLibraryKnownDates(libraryId: string, knownDates: LiteKnownDateRecord[]): Promise<LiteLibraryRecord> {
+  const process = startGlobalProcess('Saving Known dates', { detail: `${knownDates.length.toLocaleString()} date records…` }, { delayMs: SHORT_PROCESS_DELAY })
   const db = await openDb()
   try {
     return await new Promise<LiteLibraryRecord>((resolve, reject) => {
@@ -165,10 +177,12 @@ export async function saveLibraryKnownDates(libraryId: string, knownDates: LiteK
     })
   } finally {
     db.close()
+    process.finish()
   }
 }
 
 export async function saveLibrarySmartCategories(libraryId: string, smartCategories: LiteSmartCategorySettings): Promise<LiteLibraryRecord> {
+  const process = startGlobalProcess('Saving AI filter settings', {}, { delayMs: SHORT_PROCESS_DELAY })
   const db = await openDb()
   try {
     return await new Promise<LiteLibraryRecord>((resolve, reject) => {
@@ -197,6 +211,7 @@ export async function saveLibrarySmartCategories(libraryId: string, smartCategor
     })
   } finally {
     db.close()
+    process.finish()
   }
 }
 
@@ -205,6 +220,7 @@ export async function saveKnownDateState(
   localKnownDates: LiteKnownDateRecord[],
   globalKnownDates: LiteKnownDateRecord[]
 ): Promise<LiteLibraryRecord> {
+  const process = startGlobalProcess('Saving Known dates', { detail: 'Updating local and global dates…' }, { delayMs: SHORT_PROCESS_DELAY })
   const db = await openDb()
   try {
     return await new Promise<LiteLibraryRecord>((resolve, reject) => {
@@ -236,10 +252,12 @@ export async function saveKnownDateState(
     })
   } finally {
     db.close()
+    process.finish()
   }
 }
 
 export async function replaceLibrary(library: LiteLibraryRecord, media: LiteMediaRecord[]): Promise<void> {
+  const process = startGlobalProcess('Saving photo index', { detail: `${media.length.toLocaleString()} local records…` }, { delayMs: SHORT_PROCESS_DELAY })
   const db = await openDb()
   try {
     await new Promise<void>((resolve, reject) => {
@@ -264,11 +282,13 @@ export async function replaceLibrary(library: LiteLibraryRecord, media: LiteMedi
     })
   } finally {
     db.close()
+    process.finish()
   }
 }
 
 export async function putMediaRecords(media: LiteMediaRecord[]): Promise<void> {
   if (media.length === 0) return
+  const process = startGlobalProcess('Saving photo changes', { detail: `${media.length.toLocaleString()} photo${media.length === 1 ? '' : 's'}…` }, { delayMs: SHORT_PROCESS_DELAY })
   const db = await openDb()
   try {
     await new Promise<void>((resolve, reject) => {
@@ -281,10 +301,12 @@ export async function putMediaRecords(media: LiteMediaRecord[]): Promise<void> {
     })
   } finally {
     db.close()
+    process.finish()
   }
 }
 
 export async function savePeopleState(libraryId: string, people: LitePersonRecord[], media: LiteMediaRecord[]): Promise<void> {
+  const process = startGlobalProcess('Saving people data', { detail: `${people.length.toLocaleString()} people · ${media.length.toLocaleString()} photo changes` }, { delayMs: SHORT_PROCESS_DELAY })
   const db = await openDb()
   try {
     await new Promise<void>((resolve, reject) => {
@@ -311,10 +333,12 @@ export async function savePeopleState(libraryId: string, people: LitePersonRecor
     })
   } finally {
     db.close()
+    process.finish()
   }
 }
 
 export async function deleteLibrary(libraryId: string): Promise<void> {
+  const process = startGlobalProcess('Removing photo index', {}, { delayMs: SHORT_PROCESS_DELAY })
   const db = await openDb()
   try {
     await new Promise<void>((resolve, reject) => {
@@ -330,6 +354,7 @@ export async function deleteLibrary(libraryId: string): Promise<void> {
     })
   } finally {
     db.close()
+    process.finish()
   }
 
   try {
