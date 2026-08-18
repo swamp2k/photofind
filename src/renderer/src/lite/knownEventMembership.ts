@@ -101,9 +101,10 @@ function buildKnownDaySet(records: LiteKnownDateRecord[], years: number[]): Set<
 function addDateRange(target: Set<string>, start: Date, end: Date): void {
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return
   const cursor = new Date(start)
+  const final = new Date(end)
   cursor.setHours(12, 0, 0, 0)
-  const endTime = end.getTime()
-  while (cursor.getTime() <= endTime) {
+  final.setHours(12, 0, 0, 0)
+  while (cursor.getTime() <= final.getTime()) {
     target.add(localDayKey(cursor.getTime()))
     cursor.setDate(cursor.getDate() + 1)
   }
