@@ -15,6 +15,7 @@ import './selection-known-events.css'
 import './large-library-polish.css'
 import './smart-categories.css'
 import './view-sidebar.css'
+import './global-processes.css'
 import './lite/performance.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
