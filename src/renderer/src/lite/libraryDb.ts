@@ -106,7 +106,7 @@ export async function loadGlobalKnownDates(): Promise<LiteKnownDateRecord[]> {
 }
 
 export async function saveEventOverride(override: LiteEventOverride): Promise<void> {
-  const process = startGlobalProcess('Saving event changes', { detail: override.titleOverride || 'Updating event…' }, { delayMs: SHORT_PROCESS_DELAY })
+  const process = startGlobalProcess('Saving event changes', { detail: override.title || 'Updating event…' }, { delayMs: SHORT_PROCESS_DELAY })
   const db = await openDb()
   try {
     await requestResult(db.transaction(EVENT_OVERRIDES_STORE, 'readwrite').objectStore(EVENT_OVERRIDES_STORE).put(override))
