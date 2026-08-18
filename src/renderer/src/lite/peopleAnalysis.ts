@@ -1,3 +1,4 @@
+import { startGlobalProcess } from './globalProcesses'
 import { decodeBitmapForAnalysis } from './imageDecode'
 import { clusterPeople, type LitePeopleStateResult } from './people'
 import type { LiteFaceObservation, LiteMediaRecord, LitePeopleProgress, LitePersonRecord } from './types'
@@ -21,49 +22,59 @@ interface PeopleAnalysisOptions {
 
 export async function analyzePeople(items: LiteMediaRecord[], options: PeopleAnalysisOptions): Promise<LitePeopleStateResult> {
   const photos = items.filter((item) => item.kind === 'image')
-  options.signal?.throwIfAborted()
-  options.onProgress?.({ phase: 'models', complete: 0, total: photos.length, reused: 0, facesFound: 0, currentPath: 'Loading local face models · GPU/WebGL…' })
-  const human = await loadHuman()
-  options.signal?.throwIfAborted()
-
-  const updatedById = new Map<string, LiteMediaRecord>()
-  const pending: LiteMediaRecord[] = []
-  let complete = 0
-  let reused = 0
-  let facesFound = 0
-
-  for (const item of photos) {
-    options.signal?.throwIfAborted()
-    const fingerprint = `${PEOPLE_ANALYSIS_VERSION}|${item.sizeBytes}|${item.lastModified}`
-    let next: LiteMediaRecord
-    if (item.faceAnalysisVersion === PEOPLE_ANALYSIS_VERSION && item.faceFingerprint === fingerprint && item.faceAnalysisStatus === 'ready') {
-      next = item
-      reused += 1
-      facesFound += item.faces?.length ?? 0
-    } else {
-      next = await analyzeOne(item, fingerprint, human, options.resolveFile, options.signal)
-      facesFound += next.faces?.length ?? 0
-      pending.push(next)
-      if (pending.length >= PERSIST_BATCH_SIZE) {
-        await options.persistBatch([...pending])
-        pending.length = 0
-      }
-    }
-
-    updatedById.set(item.id, next)
-    complete += 1
-    options.onProgress?.({ phase: 'faces', complete, total: photos.length, reused, facesFound, currentPath: item.relativePath })
-    await yieldToBrowser(options.signal)
+  const process = startGlobalProcess('Analyzing people', { complete: 0, total: photos.length, detail: 'Loading local face models…' })
+  const report = (progress: LitePeopleProgress): void => {
+    options.onProgress?.(progress)
+    process.update({ complete: progress.complete, total: progress.total, detail: progress.currentPath })
   }
 
-  if (pending.length > 0) await options.persistBatch(pending)
-  options.signal?.throwIfAborted()
-  const analyzedItems = items.map((item) => updatedById.get(item.id) ?? item)
-  options.onProgress?.({ phase: 'clustering', complete: photos.length, total: photos.length, reused, facesFound, currentPath: 'Grouping similar faces locally…' })
-  const clustered = clusterPeople(analyzedItems, options.existingPeople)
-  options.signal?.throwIfAborted()
-  if (clustered.changed.length > 0) await options.persistBatch(clustered.changed)
-  return clustered
+  try {
+    options.signal?.throwIfAborted()
+    report({ phase: 'models', complete: 0, total: photos.length, reused: 0, facesFound: 0, currentPath: 'Loading local face models · GPU/WebGL…' })
+    const human = await loadHuman()
+    options.signal?.throwIfAborted()
+
+    const updatedById = new Map<string, LiteMediaRecord>()
+    const pending: LiteMediaRecord[] = []
+    let complete = 0
+    let reused = 0
+    let facesFound = 0
+
+    for (const item of photos) {
+      options.signal?.throwIfAborted()
+      const fingerprint = `${PEOPLE_ANALYSIS_VERSION}|${item.sizeBytes}|${item.lastModified}`
+      let next: LiteMediaRecord
+      if (item.faceAnalysisVersion === PEOPLE_ANALYSIS_VERSION && item.faceFingerprint === fingerprint && item.faceAnalysisStatus === 'ready') {
+        next = item
+        reused += 1
+        facesFound += item.faces?.length ?? 0
+      } else {
+        next = await analyzeOne(item, fingerprint, human, options.resolveFile, options.signal)
+        facesFound += next.faces?.length ?? 0
+        pending.push(next)
+        if (pending.length >= PERSIST_BATCH_SIZE) {
+          await options.persistBatch([...pending])
+          pending.length = 0
+        }
+      }
+
+      updatedById.set(item.id, next)
+      complete += 1
+      report({ phase: 'faces', complete, total: photos.length, reused, facesFound, currentPath: item.relativePath })
+      await yieldToBrowser(options.signal)
+    }
+
+    if (pending.length > 0) await options.persistBatch(pending)
+    options.signal?.throwIfAborted()
+    const analyzedItems = items.map((item) => updatedById.get(item.id) ?? item)
+    report({ phase: 'clustering', complete: photos.length, total: photos.length, reused, facesFound, currentPath: 'Grouping similar faces locally…' })
+    const clustered = clusterPeople(analyzedItems, options.existingPeople)
+    options.signal?.throwIfAborted()
+    if (clustered.changed.length > 0) await options.persistBatch(clustered.changed)
+    return clustered
+  } finally {
+    process.finish()
+  }
 }
 
 async function analyzeOne(
