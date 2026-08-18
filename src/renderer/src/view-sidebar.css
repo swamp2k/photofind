@@ -1,0 +1,194 @@
+:root { --view-sidebar-width: 390px; --shared-filter-height: 0px; }
+
+.pf-main:has(> .collection-header) {
+  position: relative;
+}
+
+/* The page title becomes deliberately quiet and view-centric. */
+.compact-collection-header {
+  min-height: 54px;
+  margin-bottom: 14px;
+  align-items: center;
+}
+.compact-collection-header > div:first-child h1,
+.compact-collection-header > div:first-child p { display: none; }
+.compact-collection-header .mode-kicker {
+  display: block;
+  color: var(--text);
+  font-size: clamp(25px, 2.5vw, 34px);
+  font-weight: 680;
+  letter-spacing: -.035em;
+  text-transform: none;
+}
+.compact-collection-header .collection-totals { display: none; }
+
+/* Views using the common Find & filter block reserve a real inspector column. */
+.pf-main:has(> .filter-disclosure) {
+  padding-right: calc(var(--view-sidebar-width) + 42px);
+}
+.pf-main > .filter-disclosure {
+  position: absolute;
+  z-index: 10;
+  top: 70px;
+  right: 18px;
+  width: var(--view-sidebar-width);
+  max-height: calc(100vh - 96px);
+  margin: 0;
+  overflow: auto;
+  border-radius: 13px;
+  background: rgba(15, 21, 31, .96);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, .2);
+  backdrop-filter: blur(14px);
+}
+.pf-main > .filter-disclosure > summary {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: rgba(15, 21, 31, .98);
+}
+.pf-main > .filter-disclosure .modern-filters .filter-grid {
+  grid-template-columns: 1fr;
+}
+.pf-main > .filter-disclosure .modern-filters .date-filter-control {
+  grid-template-columns: minmax(0, 1fr) 86px;
+}
+.pf-main > .filter-disclosure .filter-context,
+.pf-main > .filter-disclosure .review-toolbar {
+  align-items: stretch;
+  flex-direction: column;
+}
+.pf-main > .filter-disclosure .review-filter-tabs,
+.pf-main > .filter-disclosure .review-bulk { width: 100%; }
+.pf-main > .filter-disclosure .review-filter-tabs button { flex: 1 1 auto; }
+
+/* Header actions belong with settings, not with the title. */
+.pf-main:has(> .filter-disclosure) .compact-collection-header .collection-actions {
+  position: absolute;
+  z-index: 12;
+  top: 70px;
+  right: 18px;
+  width: var(--view-sidebar-width);
+  justify-content: flex-start;
+  pointer-events: none;
+}
+.pf-main:has(> .filter-disclosure) .compact-collection-header .collection-action-buttons {
+  width: 100%;
+  justify-content: flex-start;
+  pointer-events: auto;
+}
+.pf-main:has(> .filter-disclosure):has(.collection-action-buttons > button) > .filter-disclosure {
+  top: 120px;
+  max-height: calc(100vh - 146px);
+}
+
+.global-starred-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0 14px 12px;
+  padding: 11px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(25, 32, 44, .72);
+  cursor: pointer;
+}
+.global-starred-toggle input { margin-top: 2px; accent-color: var(--accent-strong); }
+.global-starred-toggle > span { display: grid; gap: 2px; }
+.global-starred-toggle small { color: var(--muted); font-size: 10px; line-height: 1.35; }
+.global-starred-status { margin: -5px 14px 12px; color: var(--muted); font-size: 10px; }
+.global-starred-status.error { color: var(--danger); }
+
+/* Quality keeps the common filter at the top and moves its secondary filter controls below it. */
+.pf-main:has(> .filter-disclosure) > .quality-section .quality-controls {
+  position: absolute;
+  z-index: 9;
+  top: calc(82px + var(--shared-filter-height));
+  right: 18px;
+  width: var(--view-sidebar-width);
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: rgba(15, 21, 31, .96);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, .18);
+}
+.pf-main:has(> .quality-section) {
+  padding-right: calc(var(--view-sidebar-width) + 42px);
+}
+.pf-main:has(> .quality-section) > .filter-disclosure {
+  max-height: min(48vh, 520px);
+}
+.pf-main:has(> .quality-section) > .quality-section .quality-controls label,
+.pf-main:has(> .quality-section) > .quality-section .quality-content-toggle { width: 100%; }
+
+/* Events have their own filters, so their toolbar itself becomes the right inspector. */
+.pf-main:has(> .events-section) {
+  padding-right: calc(var(--view-sidebar-width) + 42px);
+}
+.pf-main > .events-section .event-toolbar-controls {
+  position: absolute;
+  z-index: 10;
+  top: 70px;
+  right: 18px;
+  width: var(--view-sidebar-width);
+  max-height: calc(100vh - 96px);
+  overflow: auto;
+  align-items: stretch;
+  flex-direction: column;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  background: rgba(15, 21, 31, .96);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, .2);
+}
+.pf-main > .events-section .event-person-filter { width: 100%; min-width: 0; }
+.pf-main > .events-section .event-sort-direction { width: 100%; }
+.pf-main > .events-section .compact-toolbar-note { line-height: 1.45; }
+.pf-main > .events-section .events-workspace { grid-template-columns: minmax(245px, .32fr) minmax(0, 1fr); }
+
+/* AI filters already use the Product Photos two-column pattern: let it keep the whole available width. */
+.pf-main > .smart-categories-workspace { min-width: 0; }
+
+.view-column-resizer {
+  position: absolute;
+  z-index: 25;
+  top: 70px;
+  right: calc(var(--view-sidebar-width) + 27px);
+  bottom: 22px;
+  width: 10px;
+  cursor: col-resize;
+  touch-action: none;
+  display: flex;
+  justify-content: center;
+}
+.view-column-resizer > span {
+  width: 2px;
+  height: 100%;
+  border-radius: 999px;
+  background: rgba(105, 120, 145, .28);
+  transition: width 120ms ease, background 120ms ease;
+}
+.view-column-resizer:hover > span,
+.resizing-view-sidebar .view-column-resizer > span {
+  width: 4px;
+  background: rgba(156, 140, 255, .7);
+}
+.resizing-view-sidebar { cursor: col-resize !important; user-select: none !important; }
+
+@media (max-width: 1120px) {
+  .pf-main:has(> .filter-disclosure),
+  .pf-main:has(> .events-section),
+  .pf-main:has(> .quality-section) { padding-right: clamp(18px, 3vw, 44px); }
+  .pf-main > .filter-disclosure,
+  .pf-main > .events-section .event-toolbar-controls,
+  .pf-main:has(> .filter-disclosure) > .quality-section .quality-controls {
+    position: static;
+    width: auto;
+    max-height: none;
+    margin: 0 0 14px;
+  }
+  .pf-main:has(> .filter-disclosure) .compact-collection-header .collection-actions { position: static; width: auto; pointer-events: auto; }
+  .view-column-resizer { display: none; }
+}
