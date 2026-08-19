@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { classifyLikelyNonPhoto } from './contentClassification'
 import { loadKnownEventPhotoIds } from './knownEventMembership'
 import { LocalThumbnail } from './LocalThumbnail'
@@ -7,6 +7,7 @@ import { PhotoSelectionBar, useExplorerPhotoSelection } from './PhotoSelection'
 import { qualityTierLabel } from './quality'
 import { filterQuality, sortByTechnicalQuality, type LiteQualityFilter, type LiteQualitySort } from './qualityRanking'
 import { ReviewControls } from './ReviewControls'
+import { useReviewSettings } from './ReviewSettings'
 import type { LiteMediaRecord, LiteQualityProgress, LiteReviewState } from './types'
 
 interface QualityPanelProps {
@@ -20,18 +21,20 @@ interface QualityPanelProps {
   onReview(item: LiteMediaRecord, state: LiteReviewState): void
 }
 
-const PAGE_SIZE = 240
 const EMPTY_IDS = new Set<string>()
 
 export function QualityPanel({ items, sessionFiles, progress, busy, reconnectRequired, onAnalyze, onAbort, onReview }: QualityPanelProps): JSX.Element {
+  const { settings } = useReviewSettings()
+  const pageSize = settings.photoBatchSize
   const [qualityFilter, setQualityFilter] = useState<LiteQualityFilter>('all')
   const [sort, setSort] = useState<LiteQualitySort>('overall')
   const [showNonPhotos, setShowNonPhotos] = useState(false)
   const [hideKnownEvents, setHideKnownEvents] = useState(false)
   const [knownEventIds, setKnownEventIds] = useState<ReadonlySet<string>>(EMPTY_IDS)
   const [knownEventsReady, setKnownEventsReady] = useState(false)
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
+  const [visibleCount, setVisibleCount] = useState(pageSize)
   const [openIndex, setOpenIndex] = useState<number | null>(null)
+  const flowSentinelRef = useRef<HTMLDivElement | null>(null)
   const libraryId = items[0]?.libraryId ?? ''
   const photos = useMemo(() => items.filter((item) => item.kind === 'image'), [items])
   const analyzed = useMemo(() => photos.filter((item) => item.qualityStatus === 'ready'), [photos])
@@ -79,12 +82,27 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
   }, [contentById, hideKnownEvents, items, knownEventIds, knownEventsReady, qualityFilter, showNonPhotos, sort])
   const visible = ranked.slice(0, visibleCount)
   const selection = useExplorerPhotoSelection(ranked)
+  const automaticFlow = settings.flowLoading && typeof IntersectionObserver !== 'undefined'
+  const hasMore = visibleCount < ranked.length
 
   useEffect(() => {
-    setVisibleCount(PAGE_SIZE)
+    setVisibleCount(pageSize)
     setOpenIndex(null)
     selection.clear()
-  }, [hideKnownEvents, qualityFilter, showNonPhotos, sort])
+  }, [hideKnownEvents, pageSize, qualityFilter, showNonPhotos, sort])
+
+  useEffect(() => {
+    if (!automaticFlow || !hasMore) return
+    const target = flowSentinelRef.current
+    if (!target) return
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setVisibleCount((count) => Math.min(ranked.length, count + pageSize))
+      }
+    }, { rootMargin: '600px 0px' })
+    observer.observe(target)
+    return () => observer.disconnect()
+  }, [automaticFlow, hasMore, pageSize, ranked.length, visibleCount])
 
   return (
     <section className="quality-section">
@@ -164,7 +182,7 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
             >
               <span aria-hidden="true">{hideKnownEvents ? '☑' : '☐'}</span> Hide known events {knownEventsReady ? <b>{knownEventCount.toLocaleString()}</b> : <b>…</b>}
             </button>
-            <span className="muted">{ranked.length.toLocaleString()} matching analyzed photos</span>
+            <span className="muted">{ranked.length.toLocaleString()} matching analyzed photos{automaticFlow ? ' · Flow on' : ''}</span>
           </div>
 
           <PhotoSelectionBar items={selection.selectedItems} onReview={(targets, state) => targets.forEach((item) => onReview(item, state))} onClear={selection.clear} />
@@ -205,13 +223,14 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
             </div>
           )}
 
-          {visibleCount < ranked.length && (
+          {hasMore && !automaticFlow && (
             <div className="progressive-results-actions">
-              <button type="button" onClick={() => setVisibleCount((count) => Math.min(ranked.length, count + PAGE_SIZE))}>Show next {Math.min(PAGE_SIZE, ranked.length - visibleCount).toLocaleString()}</button>
+              <button type="button" onClick={() => setVisibleCount((count) => Math.min(ranked.length, count + pageSize))}>Show next {Math.min(pageSize, ranked.length - visibleCount).toLocaleString()}</button>
               <button type="button" className="quiet-button" onClick={() => setVisibleCount(ranked.length)}>Show all {ranked.length.toLocaleString()}</button>
               <span>Showing {visible.length.toLocaleString()} of {ranked.length.toLocaleString()} — progressively loaded to avoid decoding thousands of thumbnails at once.</span>
             </div>
           )}
+          {hasMore && automaticFlow && <div ref={flowSentinelRef} className="quality-flow-sentinel" aria-hidden="true" />}
         </>
       )}
 
