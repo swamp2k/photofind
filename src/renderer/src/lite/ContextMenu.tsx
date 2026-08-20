@@ -54,6 +54,7 @@ interface ContextMenuApi {
   closeContextMenu(): void
   registerPhotoActions(actions: PhotoContextActions | null): void
   listKnownEvents(photoIds: string[]): PhotoContextEventDescriptor[]
+  addToKnownEvent(photoIds: string[], eventId: string): void | Promise<void>
 }
 
 const ContextMenuContext = createContext<ContextMenuApi | null>(null)
@@ -79,6 +80,9 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
     },
     listKnownEvents(photoIds) {
       return photoActionsRef.current?.listKnownEvents?.(photoIds) ?? []
+    },
+    addToKnownEvent(photoIds, eventId) {
+      return photoActionsRef.current?.addToEvent?.(photoIds, eventId)
     }
   }), [])
 
