@@ -27,10 +27,10 @@ interface MapResultsProps {
 }
 
 const EMPTY_IDS = new Set<string>()
+const MAP_PHOTO_BATCH_SIZE = 100
 
 export function MapResults(props: MapResultsProps): JSX.Element {
   const { settings } = useReviewSettings()
-  const pageSize = settings.photoBatchSize
   const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([])
   const [openStackIndex, setOpenStackIndex] = useState<number | null>(null)
   const [createItems, setCreateItems] = useState<LiteMediaRecord[] | null>(null)
@@ -41,14 +41,21 @@ export function MapResults(props: MapResultsProps): JSX.Element {
   const [hideKnownEvents, setHideKnownEvents] = useState(false)
   const [knownEventIds, setKnownEventIds] = useState<ReadonlySet<string>>(EMPTY_IDS)
   const [knownEventsReady, setKnownEventsReady] = useState(false)
-  const [visiblePhotoCount, setVisiblePhotoCount] = useState(pageSize)
+  const [knownEventsLoading, setKnownEventsLoading] = useState(false)
+  const [visiblePhotoCount, setVisiblePhotoCount] = useState(MAP_PHOTO_BATCH_SIZE)
   const libraryId = props.items[0]?.libraryId ?? ''
 
   useEffect(() => {
-    let cancelled = false
+    setHideKnownEvents(false)
     setKnownEventIds(EMPTY_IDS)
     setKnownEventsReady(false)
-    if (!libraryId) return () => { cancelled = true }
+    setKnownEventsLoading(false)
+  }, [libraryId])
+
+  useEffect(() => {
+    if (!hideKnownEvents || knownEventsReady || knownEventsLoading || !libraryId) return
+    let cancelled = false
+    setKnownEventsLoading(true)
     void loadKnownEventPhotoIds(libraryId)
       .then((ids) => {
         if (cancelled) return
@@ -60,8 +67,11 @@ export function MapResults(props: MapResultsProps): JSX.Element {
         setKnownEventIds(EMPTY_IDS)
         setKnownEventsReady(true)
       })
+      .finally(() => {
+        if (!cancelled) setKnownEventsLoading(false)
+      })
     return () => { cancelled = true }
-  }, [libraryId])
+  }, [hideKnownEvents, knownEventsLoading, knownEventsReady, libraryId])
 
   const mapItems = useMemo(
     () => hideKnownEvents && knownEventsReady ? props.items.filter((item) => !knownEventIds.has(item.id)) : props.items,
@@ -82,13 +92,13 @@ export function MapResults(props: MapResultsProps): JSX.Element {
   const selection = useExplorerPhotoSelection(activeItems)
   const stackedLocationCount = locations.filter((location) => location.items.length > 1).length
   const knownEventCount = useMemo(
-    () => props.items.reduce((count, item) => count + (knownEventIds.has(item.id) ? 1 : 0), 0),
-    [knownEventIds, props.items]
+    () => knownEventsReady ? props.items.reduce((count, item) => count + (knownEventIds.has(item.id) ? 1 : 0), 0) : null,
+    [knownEventIds, knownEventsReady, props.items]
   )
 
   useEffect(() => {
-    setVisiblePhotoCount(pageSize)
-  }, [hideKnownEvents, pageSize, props.visibleItems])
+    setVisiblePhotoCount(MAP_PHOTO_BATCH_SIZE)
+  }, [hideKnownEvents, props.visibleItems])
 
   function selectMapItems(itemIds: string[]): void {
     setSelectedLocationIds(itemIds)
@@ -130,11 +140,11 @@ export function MapResults(props: MapResultsProps): JSX.Element {
             type="button"
             className={hideKnownEvents ? 'map-known-events-toggle active' : 'map-known-events-toggle'}
             aria-pressed={hideKnownEvents}
-            disabled={!knownEventsReady}
-            title="Hide photos that are already included in one or more Known events from both the map markers and the visible-photo gallery."
+            disabled={!libraryId || knownEventsLoading}
+            title="Hide photos that are already included in one or more Known events from both the map markers and the visible-photo gallery. Known-event membership is only loaded when this option is used."
             onClick={() => setHideKnownEvents((value) => !value)}
           >
-            <span aria-hidden="true">{hideKnownEvents ? '☑' : '☐'}</span> Hide known events {knownEventsReady ? <b>{knownEventCount.toLocaleString()}</b> : <b>…</b>}
+            <span aria-hidden="true">{hideKnownEvents ? '☑' : '☐'}</span> {knownEventsLoading ? 'Loading known events…' : <>Hide known events {knownEventCount !== null && <b>{knownEventCount.toLocaleString()}</b>}</>}
           </button>
           <div className="map-viewport-summary">
             <span className="map-location-summary">
@@ -203,18 +213,20 @@ export function MapResults(props: MapResultsProps): JSX.Element {
         </article>
       )}
 
-      <div className="map-visible-results">
-        <PhotoResults
-          items={visibleLocated}
-          visibleCount={visiblePhotoCount}
-          batchSize={pageSize}
-          flowLoading={settings.flowLoading}
-          selectedId={selectedMapItem?.id ?? null}
-          sessionFiles={props.sessionFiles}
-          onShowMore={() => setVisiblePhotoCount((count) => Math.min(visibleLocated.length, count + pageSize))}
-          onReview={props.onReview}
-        />
-      </div>
+      {props.viewportReady && (
+        <div className="map-visible-results">
+          <PhotoResults
+            items={visibleLocated}
+            visibleCount={visiblePhotoCount}
+            batchSize={MAP_PHOTO_BATCH_SIZE}
+            flowLoading={settings.flowLoading}
+            selectedId={selectedMapItem?.id ?? null}
+            sessionFiles={props.sessionFiles}
+            onShowMore={() => setVisiblePhotoCount((count) => Math.min(visibleLocated.length, count + MAP_PHOTO_BATCH_SIZE))}
+            onReview={props.onReview}
+          />
+        </div>
+      )}
 
       {openStackIndex !== null && activeItems[openStackIndex] && (
         <PhotoLightbox
