@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { usePhotoFindContextMenu } from './ContextMenu'
 import { formatCapture, formatLocation } from './formatters'
@@ -33,7 +33,7 @@ const MAP_PHOTO_BATCH_SIZE = 100
 
 export function MapResults(props: MapResultsProps): JSX.Element {
   const { settings } = useReviewSettings()
-  const { openContextMenu, listKnownEvents, addToKnownEvent } = usePhotoFindContextMenu()
+  const { openEventPicker } = usePhotoFindContextMenu()
   const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([])
   const [openStackIndex, setOpenStackIndex] = useState<number | null>(null)
   const [createItems, setCreateItems] = useState<LiteMediaRecord[] | null>(null)
@@ -141,27 +141,10 @@ export function MapResults(props: MapResultsProps): JSX.Element {
     }
   }
 
-  function openAddToEventMenu(event: ReactMouseEvent<HTMLButtonElement>): void {
+  function openAddToEventMenu(): void {
     if (!props.viewportReady || visibleLocated.length === 0) return
     const photoIds = visibleLocated.map((item) => item.id)
-    const knownEvents = listKnownEvents(photoIds)
-    openContextMenu(event, {
-      title: `${visibleLocated.length.toLocaleString()} photos in visible map area`,
-      actions: knownEvents.length > 0
-        ? knownEvents.map((knownEvent) => ({
-          id: `map-add-event-${knownEvent.id}`,
-          label: knownEvent.title,
-          hint: knownEvent.containsPhoto ? 'Added' : knownEvent.hint,
-          disabled: knownEvent.containsPhoto,
-          onSelect: () => addToKnownEvent(photoIds, knownEvent.id)
-        }))
-        : [{
-          id: 'map-no-known-events',
-          label: 'No known events yet',
-          disabled: true,
-          onSelect: () => undefined
-        }]
-    })
+    openEventPicker(photoIds, `${visibleLocated.length.toLocaleString()} photos in visible map area`)
   }
 
   const knownEventsToggle = (
