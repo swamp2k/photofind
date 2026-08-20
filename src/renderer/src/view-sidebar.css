@@ -150,6 +150,25 @@
 .pf-main > .events-section .compact-toolbar-note { line-height: 1.45; }
 .pf-main > .events-section .events-workspace { grid-template-columns: minmax(245px, .32fr) minmax(0, 1fr); }
 
+/* Map-only actions live in the inspector rail instead of over the map canvas. */
+@media (min-width: 1121px) {
+  .pf-main:has(> .map-section) > .map-section .map-create-event-button {
+    position: absolute;
+    z-index: 13;
+    top: 70px;
+    left: calc(100% - var(--view-sidebar-width) + 66px);
+    margin: 0;
+  }
+  .pf-main:has(> .map-section) > .map-section .map-known-events-toggle {
+    position: fixed;
+    z-index: 13;
+    right: calc(18px + var(--view-sidebar-width) - 170px);
+    bottom: 22px;
+    margin: 0;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, .24);
+  }
+}
+
 /* AI filters already use the Product Photos two-column pattern: let it keep the whole available width. */
 .pf-main > .smart-categories-workspace { min-width: 0; }
 
