@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { containsCoordinate, dateInputWithYear, filterPhotos } from './filters'
+import { containsCoordinate, dateInputToEnd, dateInputToStart, dateInputWithYear, filterPhotos, monthShortcutValue, parseSmartDateInput } from './filters'
 import type { LiteMediaRecord, LitePhotoFilters } from './types'
 
 function photo(id: string, time: number, latitude?: number, longitude?: number, source: 'takeout' | 'exif' | 'file' = 'exif'): LiteMediaRecord {
@@ -56,6 +56,19 @@ describe('combined photo filtering', () => {
     expect(filterPhotos(items, { ...base, location: 'missing' }).map((item) => item.id)).toEqual(['fallback'])
     expect(filterPhotos(items, { ...base, dateMetadata: 'file-only' }).map((item) => item.id)).toEqual(['fallback'])
   })
+
+  it('filters a month shortcut across years and combines it with the Year filter', () => {
+    const items = [
+      photo('aug-2024', new Date(2024, 7, 2).getTime()),
+      photo('jan-2025', new Date(2025, 0, 2).getTime()),
+      photo('aug-2025', new Date(2025, 7, 2).getTime())
+    ]
+    const shortcut = monthShortcutValue(8)
+    const monthFilters = { ...base, fromTime: dateInputToStart(shortcut), toTime: dateInputToEnd(shortcut) }
+
+    expect(filterPhotos(items, monthFilters).map((item) => item.id)).toEqual(['aug-2024', 'aug-2025'])
+    expect(filterPhotos(items, { ...monthFilters, year: 2024 }).map((item) => item.id)).toEqual(['aug-2024'])
+  })
 })
 
 describe('date input helpers', () => {
@@ -67,5 +80,13 @@ describe('date input helpers', () => {
     expect(dateInputWithYear('2020-02-29', 2019)).toBe('2019-02-28')
     expect(dateInputWithYear('', 2019, 1, 1)).toBe('2019-01-01')
     expect(dateInputWithYear('', 2019, 12, 31)).toBe('2019-12-31')
+  })
+
+  it('understands two-digit month shorthand and normal exact dates', () => {
+    expect(parseSmartDateInput('01')).toEqual({ kind: 'month', month: 1 })
+    expect(parseSmartDateInput('08')).toEqual({ kind: 'month', month: 8 })
+    expect(parseSmartDateInput('08/14/2020')).toEqual({ kind: 'date', value: '2020-08-14' })
+    expect(parseSmartDateInput('2020-08-14')).toEqual({ kind: 'date', value: '2020-08-14' })
+    expect(parseSmartDateInput('13')).toEqual({ kind: 'invalid' })
   })
 })
