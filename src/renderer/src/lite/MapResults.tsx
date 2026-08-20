@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
+import { usePhotoFindContextMenu } from './ContextMenu'
 import { formatCapture, formatLocation } from './formatters'
 import { GeoMap } from './GeoMap'
 import { hasLocation } from './filters'
@@ -32,6 +33,7 @@ const MAP_PHOTO_BATCH_SIZE = 100
 
 export function MapResults(props: MapResultsProps): JSX.Element {
   const { settings } = useReviewSettings()
+  const { openContextMenu, listKnownEvents, addToKnownEvent } = usePhotoFindContextMenu()
   const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([])
   const [openStackIndex, setOpenStackIndex] = useState<number | null>(null)
   const [createItems, setCreateItems] = useState<LiteMediaRecord[] | null>(null)
@@ -139,6 +141,29 @@ export function MapResults(props: MapResultsProps): JSX.Element {
     }
   }
 
+  function openAddToEventMenu(event: ReactMouseEvent<HTMLButtonElement>): void {
+    if (!props.viewportReady || visibleLocated.length === 0) return
+    const photoIds = visibleLocated.map((item) => item.id)
+    const knownEvents = listKnownEvents(photoIds)
+    openContextMenu(event, {
+      title: `${visibleLocated.length.toLocaleString()} photos in visible map area`,
+      actions: knownEvents.length > 0
+        ? knownEvents.map((knownEvent) => ({
+          id: `map-add-event-${knownEvent.id}`,
+          label: knownEvent.title,
+          hint: knownEvent.containsPhoto ? 'Added' : knownEvent.hint,
+          disabled: knownEvent.containsPhoto,
+          onSelect: () => addToKnownEvent(photoIds, knownEvent.id)
+        }))
+        : [{
+          id: 'map-no-known-events',
+          label: 'No known events yet',
+          disabled: true,
+          onSelect: () => undefined
+        }]
+    })
+  }
+
   const knownEventsToggle = (
     <button
       type="button"
@@ -157,7 +182,10 @@ export function MapResults(props: MapResultsProps): JSX.Element {
       {filterActionsHost && createPortal(<div className="filter-context map-known-events-filter-row">{knownEventsToggle}</div>, filterActionsHost)}
       <div className="map-toolbar">
         <div className="map-toolbar-left">
-          <button type="button" className="primary map-create-event-button" disabled={!props.viewportReady || visibleLocated.length === 0} onClick={beginCreateEvent}>+ Create Event</button>
+          <div className="map-event-actions">
+            <button type="button" className="primary map-create-event-button" disabled={!props.viewportReady || visibleLocated.length === 0} onClick={beginCreateEvent}>+ Create Event</button>
+            <button type="button" className="map-add-event-button" disabled={!props.viewportReady || visibleLocated.length === 0} onClick={openAddToEventMenu}>+ Add to Event</button>
+          </div>
           <div className="map-viewport-summary">
             <span className="map-location-summary">
               {props.viewportReady
