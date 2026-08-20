@@ -150,13 +150,15 @@
 .pf-main > .events-section .compact-toolbar-note { line-height: 1.45; }
 .pf-main > .events-section .events-workspace { grid-template-columns: minmax(245px, .32fr) minmax(0, 1fr); }
 
-/* Map-only Create Event belongs in the inspector action row. */
+/* Map event actions belong together in the inspector action row. */
 @media (min-width: 1121px) {
-  .pf-main:has(> .map-section) > .map-section .map-create-event-button {
+  .pf-main:has(> .map-section) > .map-section .map-event-actions {
     position: absolute;
     z-index: 13;
     top: 70px;
     left: calc(100% - var(--view-sidebar-width) + 66px);
+    display: flex;
+    gap: 8px;
     margin: 0;
   }
 }
