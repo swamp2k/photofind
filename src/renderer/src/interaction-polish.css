@@ -170,8 +170,7 @@
   color: white;
 }
 
-/* Event names often carry more useful information than the compact context menu allowed.
-   Keep the date/count hint visible, but give the event title enough horizontal room first. */
+/* Keep generic submenus usable, but Add to Event now uses the dedicated centered picker below. */
 .pf-context-submenu {
   width: 420px;
   max-width: calc(100vw - 32px);
@@ -191,6 +190,185 @@
   flex: 0 0 auto;
 }
 
+.pf-event-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(4, 7, 12, .74);
+  backdrop-filter: blur(8px) saturate(115%);
+}
+
+.pf-event-picker-dialog {
+  width: min(max(840px, 64vw), 1180px, calc(100vw - 40px));
+  max-height: calc(100dvh - 48px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #3b465b;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 90% 0%, rgba(121, 103, 242, .14), transparent 28rem),
+    #111722;
+  box-shadow: 0 28px 90px rgba(0, 0, 0, .62), 0 0 0 1px rgba(255, 255, 255, .025) inset;
+}
+
+.pf-event-picker-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 20px 22px 17px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(12, 17, 26, .78);
+}
+.pf-event-picker-head > div:first-child { min-width: 0; }
+.pf-event-picker-head h3 {
+  margin: 4px 0 5px;
+  font-size: clamp(22px, 2.2vw, 30px);
+  letter-spacing: -.025em;
+}
+.pf-event-picker-head p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.pf-event-picker-head-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+.pf-event-picker-create { min-height: 38px; }
+.pf-event-picker-close {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.pf-event-picker-list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  padding: 12px 14px 16px;
+}
+
+.pf-event-picker-entry {
+  width: 100%;
+  min-width: 0;
+  min-height: 66px;
+  display: grid;
+  grid-template-rows: auto auto;
+  gap: 7px;
+  padding: 11px 13px;
+  border: 1px solid #2c3749;
+  border-radius: 12px;
+  background: rgba(14, 20, 30, .84);
+  color: var(--text);
+  text-align: left;
+}
+.pf-event-picker-entry:hover:not(:disabled) {
+  transform: none;
+  border-color: #655ca7;
+  background: rgba(121, 103, 242, .1);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .2);
+}
+.pf-event-picker-entry:focus-visible {
+  outline-offset: -2px;
+}
+.pf-event-picker-entry:disabled {
+  opacity: .56;
+  background: rgba(14, 20, 30, .52);
+}
+
+.pf-event-picker-primary-line,
+.pf-event-picker-secondary-line {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+}
+.pf-event-picker-primary-line strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 680;
+}
+.pf-event-picker-primary-line b {
+  padding: 4px 8px;
+  border: 1px solid #3a465a;
+  border-radius: 999px;
+  background: #182130;
+  color: #dbe4f2;
+  font-size: 10px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.pf-event-picker-secondary-line {
+  color: #9aa7b9;
+  font-size: 10px;
+}
+.pf-event-picker-secondary-line > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pf-event-picker-secondary-line em {
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(156, 140, 255, .11);
+  color: #c9c1ff;
+  font-style: normal;
+}
+.pf-event-picker-entry:disabled .pf-event-picker-secondary-line em {
+  background: rgba(84, 184, 122, .1);
+  color: #a9dcbc;
+}
+
+.pf-event-picker-empty {
+  display: grid;
+  gap: 5px;
+  place-items: center;
+  min-height: 190px;
+  padding: 28px;
+  color: var(--muted);
+  text-align: center;
+}
+.pf-event-picker-empty strong { color: var(--text); font-size: 16px; }
+
+@media (max-width: 900px) {
+  .pf-event-picker-backdrop { padding: 12px; }
+  .pf-event-picker-dialog {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+    border-radius: 15px;
+  }
+  .pf-event-picker-head {
+    gap: 14px;
+    padding: 16px;
+  }
+  .pf-event-picker-primary-line,
+  .pf-event-picker-secondary-line { gap: 10px; }
+}
+
 @media (max-width: 760px) {
   .photo-selection-bar {
     top: 58px;
@@ -205,4 +383,12 @@
   .pf-context-submenu {
     width: min(360px, calc(100vw - 24px));
   }
+
+  .pf-event-picker-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .pf-event-picker-head-actions { justify-content: flex-start; }
+  .pf-event-picker-entry { min-height: 62px; padding: 10px; }
+  .pf-event-picker-secondary-line em { max-width: 42vw; }
 }
