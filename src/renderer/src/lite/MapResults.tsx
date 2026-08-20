@@ -1,12 +1,15 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { formatCapture, formatLocation } from './formatters'
 import { GeoMap } from './GeoMap'
 import { hasLocation } from './filters'
+import { loadKnownEventPhotoIds } from './knownEventMembership'
 import { LocalThumbnail } from './LocalThumbnail'
 import { groupMappedLocations } from './mapLocations'
 import { PhotoLightbox } from './PhotoLightbox'
+import { PhotoResults } from './PhotoResults'
 import { PhotoSelectionBar, useExplorerPhotoSelection } from './PhotoSelection'
 import { ReviewControls } from './ReviewControls'
+import { useReviewSettings } from './ReviewSettings'
 import { SourcePath } from './SourcePathView'
 import type { LiteGeoBounds, LiteMediaRecord, LiteReviewState } from './types'
 
@@ -23,7 +26,11 @@ interface MapResultsProps {
   onReview(item: LiteMediaRecord, state: LiteReviewState): void
 }
 
+const EMPTY_IDS = new Set<string>()
+
 export function MapResults(props: MapResultsProps): JSX.Element {
+  const { settings } = useReviewSettings()
+  const pageSize = settings.photoBatchSize
   const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([])
   const [openStackIndex, setOpenStackIndex] = useState<number | null>(null)
   const [createItems, setCreateItems] = useState<LiteMediaRecord[] | null>(null)
@@ -31,15 +38,57 @@ export function MapResults(props: MapResultsProps): JSX.Element {
   const [createError, setCreateError] = useState<string | null>(null)
   const [createBusy, setCreateBusy] = useState(false)
   const [createNotice, setCreateNotice] = useState<string | null>(null)
-  const located = props.items.filter(hasLocation)
-  const visibleLocated = props.visibleItems.filter(hasLocation)
+  const [hideKnownEvents, setHideKnownEvents] = useState(false)
+  const [knownEventIds, setKnownEventIds] = useState<ReadonlySet<string>>(EMPTY_IDS)
+  const [knownEventsReady, setKnownEventsReady] = useState(false)
+  const [visiblePhotoCount, setVisiblePhotoCount] = useState(pageSize)
+  const libraryId = props.items[0]?.libraryId ?? ''
+
+  useEffect(() => {
+    let cancelled = false
+    setKnownEventIds(EMPTY_IDS)
+    setKnownEventsReady(false)
+    if (!libraryId) return () => { cancelled = true }
+    void loadKnownEventPhotoIds(libraryId)
+      .then((ids) => {
+        if (cancelled) return
+        setKnownEventIds(ids)
+        setKnownEventsReady(true)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setKnownEventIds(EMPTY_IDS)
+        setKnownEventsReady(true)
+      })
+    return () => { cancelled = true }
+  }, [libraryId])
+
+  const mapItems = useMemo(
+    () => hideKnownEvents && knownEventsReady ? props.items.filter((item) => !knownEventIds.has(item.id)) : props.items,
+    [hideKnownEvents, knownEventIds, knownEventsReady, props.items]
+  )
+  const viewportItems = useMemo(
+    () => hideKnownEvents && knownEventsReady ? props.visibleItems.filter((item) => !knownEventIds.has(item.id)) : props.visibleItems,
+    [hideKnownEvents, knownEventIds, knownEventsReady, props.visibleItems]
+  )
+  const located = useMemo(() => mapItems.filter(hasLocation), [mapItems])
+  const visibleLocated = useMemo(() => viewportItems.filter(hasLocation), [viewportItems])
   const locations = useMemo(() => groupMappedLocations(located), [located])
   const visibleLocations = useMemo(() => groupMappedLocations(visibleLocated), [visibleLocated])
   const byId = useMemo(() => new Map(located.map((item) => [item.id, item])), [located])
   const selectedLocationItems = selectedLocationIds.map((id) => byId.get(id)).filter(isMediaRecord)
-  const activeItems = selectedLocationItems.length > 0 ? selectedLocationItems : props.selected ? [props.selected] : []
+  const selectedMapItem = props.selected && byId.has(props.selected.id) ? props.selected : null
+  const activeItems = selectedLocationItems.length > 0 ? selectedLocationItems : selectedMapItem ? [selectedMapItem] : []
   const selection = useExplorerPhotoSelection(activeItems)
   const stackedLocationCount = locations.filter((location) => location.items.length > 1).length
+  const knownEventCount = useMemo(
+    () => props.items.reduce((count, item) => count + (knownEventIds.has(item.id) ? 1 : 0), 0),
+    [knownEventIds, props.items]
+  )
+
+  useEffect(() => {
+    setVisiblePhotoCount(pageSize)
+  }, [hideKnownEvents, pageSize, props.visibleItems])
 
   function selectMapItems(itemIds: string[]): void {
     setSelectedLocationIds(itemIds)
@@ -77,6 +126,16 @@ export function MapResults(props: MapResultsProps): JSX.Element {
       <div className="map-toolbar">
         <div className="map-toolbar-left">
           <button type="button" className="primary map-create-event-button" disabled={!props.viewportReady || visibleLocated.length === 0} onClick={beginCreateEvent}>+ Create Event</button>
+          <button
+            type="button"
+            className={hideKnownEvents ? 'map-known-events-toggle active' : 'map-known-events-toggle'}
+            aria-pressed={hideKnownEvents}
+            disabled={!knownEventsReady}
+            title="Hide photos that are already included in one or more Known events from both the map markers and the visible-photo gallery."
+            onClick={() => setHideKnownEvents((value) => !value)}
+          >
+            <span aria-hidden="true">{hideKnownEvents ? '☑' : '☐'}</span> Hide known events {knownEventsReady ? <b>{knownEventCount.toLocaleString()}</b> : <b>…</b>}
+          </button>
           <div className="map-viewport-summary">
             <span className="map-location-summary">
               {props.viewportReady
@@ -128,21 +187,34 @@ export function MapResults(props: MapResultsProps): JSX.Element {
         </section>
       )}
 
-      {selectedLocationItems.length <= 1 && props.selected && (
-        <article className={selection.isSelected(props.selected.id) ? 'map-selection-card explorer-selected' : 'map-selection-card'}>
-          <button type="button" className="map-selection-preview map-selection-open" aria-pressed={selection.isSelected(props.selected.id)} onClick={(event) => selection.handlePhotoClick(event, props.selected!.id, () => setOpenStackIndex(0))}>
-            <LocalThumbnail item={props.selected} sessionFile={props.sessionFiles.get(props.selected.id)} />
-            {selection.isSelected(props.selected.id) && <span className="selection-check">✓</span>}
+      {selectedLocationItems.length <= 1 && selectedMapItem && (
+        <article className={selection.isSelected(selectedMapItem.id) ? 'map-selection-card explorer-selected' : 'map-selection-card'}>
+          <button type="button" className="map-selection-preview map-selection-open" aria-pressed={selection.isSelected(selectedMapItem.id)} onClick={(event) => selection.handlePhotoClick(event, selectedMapItem.id, () => setOpenStackIndex(0))}>
+            <LocalThumbnail item={selectedMapItem} sessionFile={props.sessionFiles.get(selectedMapItem.id)} />
+            {selection.isSelected(selectedMapItem.id) && <span className="selection-check">✓</span>}
           </button>
           <div>
             <div className="eyebrow">Selected photo</div>
-            <strong>{props.selected.name}</strong>
-            <p>{formatCapture(props.selected)} · {formatLocation(props.selected)}</p>
-            <SourcePath item={props.selected} />
-            <div className="map-selection-actions"><button onClick={props.onShowSelected}>Show in photo results</button><ReviewControls item={props.selected} onReview={props.onReview} /></div>
+            <strong>{selectedMapItem.name}</strong>
+            <p>{formatCapture(selectedMapItem)} · {formatLocation(selectedMapItem)}</p>
+            <SourcePath item={selectedMapItem} />
+            <div className="map-selection-actions"><button onClick={props.onShowSelected}>Show in photo results</button><ReviewControls item={selectedMapItem} onReview={props.onReview} /></div>
           </div>
         </article>
       )}
+
+      <div className="map-visible-results">
+        <PhotoResults
+          items={visibleLocated}
+          visibleCount={visiblePhotoCount}
+          batchSize={pageSize}
+          flowLoading={settings.flowLoading}
+          selectedId={selectedMapItem?.id ?? null}
+          sessionFiles={props.sessionFiles}
+          onShowMore={() => setVisiblePhotoCount((count) => Math.min(visibleLocated.length, count + pageSize))}
+          onReview={props.onReview}
+        />
+      </div>
 
       {openStackIndex !== null && activeItems[openStackIndex] && (
         <PhotoLightbox
