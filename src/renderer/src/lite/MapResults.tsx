@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { formatCapture, formatLocation } from './formatters'
 import { GeoMap } from './GeoMap'
 import { hasLocation } from './filters'
@@ -42,8 +43,15 @@ export function MapResults(props: MapResultsProps): JSX.Element {
   const [knownEventIds, setKnownEventIds] = useState<ReadonlySet<string>>(EMPTY_IDS)
   const [knownEventsReady, setKnownEventsReady] = useState(false)
   const [knownEventsLoading, setKnownEventsLoading] = useState(false)
+  const [filterActionsHost, setFilterActionsHost] = useState<HTMLElement | null>(null)
   const [visiblePhotoCount, setVisiblePhotoCount] = useState(MAP_PHOTO_BATCH_SIZE)
   const libraryId = props.items[0]?.libraryId ?? ''
+
+  useEffect(() => {
+    const host = document.querySelector<HTMLElement>('.pf-main > .filter-disclosure .modern-filters')
+    setFilterActionsHost(host)
+    return () => setFilterActionsHost(null)
+  }, [])
 
   useEffect(() => {
     setHideKnownEvents(false)
@@ -131,21 +139,25 @@ export function MapResults(props: MapResultsProps): JSX.Element {
     }
   }
 
+  const knownEventsToggle = (
+    <button
+      type="button"
+      className={hideKnownEvents ? 'map-known-events-toggle active' : 'map-known-events-toggle'}
+      aria-pressed={hideKnownEvents}
+      disabled={!libraryId || knownEventsLoading}
+      title="Hide photos that are already included in one or more Known events from both the map markers and the visible-photo gallery. Known-event membership is only loaded when this option is used."
+      onClick={() => setHideKnownEvents((value) => !value)}
+    >
+      <span aria-hidden="true">{hideKnownEvents ? '☑' : '☐'}</span> {knownEventsLoading ? 'Loading known events…' : <>Hide known events {knownEventCount !== null && <b>{knownEventCount.toLocaleString()}</b>}</>}
+    </button>
+  )
+
   return (
     <section className="map-section">
+      {filterActionsHost && createPortal(<div className="filter-context map-known-events-filter-row">{knownEventsToggle}</div>, filterActionsHost)}
       <div className="map-toolbar">
         <div className="map-toolbar-left">
           <button type="button" className="primary map-create-event-button" disabled={!props.viewportReady || visibleLocated.length === 0} onClick={beginCreateEvent}>+ Create Event</button>
-          <button
-            type="button"
-            className={hideKnownEvents ? 'map-known-events-toggle active' : 'map-known-events-toggle'}
-            aria-pressed={hideKnownEvents}
-            disabled={!libraryId || knownEventsLoading}
-            title="Hide photos that are already included in one or more Known events from both the map markers and the visible-photo gallery. Known-event membership is only loaded when this option is used."
-            onClick={() => setHideKnownEvents((value) => !value)}
-          >
-            <span aria-hidden="true">{hideKnownEvents ? '☑' : '☐'}</span> {knownEventsLoading ? 'Loading known events…' : <>Hide known events {knownEventCount !== null && <b>{knownEventCount.toLocaleString()}</b>}</>}
-          </button>
           <div className="map-viewport-summary">
             <span className="map-location-summary">
               {props.viewportReady
