@@ -1,8 +1,10 @@
 .global-settings-button {
   position: fixed;
   z-index: 70;
-  right: 18px;
-  bottom: 18px;
+  left: 14px;
+  top: 480px;
+  right: auto;
+  bottom: auto;
   width: 42px;
   height: 42px;
   border: 1px solid var(--border);
@@ -121,7 +123,7 @@ kbd { min-width: 24px; padding: 3px 6px; border: 1px solid #49586d; border-botto
 .person-face-actions .danger-outline { font-size: 11px; }
 
 @media (max-width: 650px) {
-  .global-settings-button { right: 12px; bottom: 12px; }
+  .global-settings-button { left: 12px; top: auto; right: auto; bottom: 12px; }
   .settings-drawer { width: 100%; padding: 20px; }
   .settings-select-row, .settings-cache-row { align-items: stretch; flex-direction: column; }
   .settings-select-row select { width: 100%; }
