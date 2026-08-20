@@ -49,31 +49,60 @@ interface OpenMenuState extends PhotoFindContextMenuSpec {
   submenuLeft: boolean
 }
 
+interface OpenEventPickerState {
+  photoIds: string[]
+  sourceLabel: string
+  events: PhotoContextEventDescriptor[]
+}
+
 interface ContextMenuApi {
   openContextMenu(event: ReactMouseEvent, spec: PhotoFindContextMenuSpec): void
   closeContextMenu(): void
   registerPhotoActions(actions: PhotoContextActions | null): void
   listKnownEvents(photoIds: string[]): PhotoContextEventDescriptor[]
   addToKnownEvent(photoIds: string[], eventId: string): void | Promise<void>
+  openEventPicker(photoIds: string[], sourceLabel?: string): void
+}
+
+export interface EventPickerDetails {
+  dateLabel: string
+  photoCountLabel: string
+  statusLabel?: string
 }
 
 const ContextMenuContext = createContext<ContextMenuApi | null>(null)
 
 export function PhotoFindContextMenuProvider({ children }: { children: ReactNode }): JSX.Element {
   const [menu, setMenu] = useState<OpenMenuState | null>(null)
+  const [eventPicker, setEventPicker] = useState<OpenEventPickerState | null>(null)
   const claimed = useRef(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const eventPickerRef = useRef<HTMLElement | null>(null)
   const photoActionsRef = useRef<PhotoContextActions | null>(null)
+
+  function showEventPicker(photoIds: string[], sourceLabel?: string): void {
+    const targets = [...new Set(photoIds.filter(Boolean))]
+    if (targets.length === 0) return
+    const events = photoActionsRef.current?.listKnownEvents?.(targets) ?? []
+    setMenu(null)
+    setEventPicker({
+      photoIds: targets,
+      sourceLabel: sourceLabel ?? (targets.length === 1 ? '1 selected photo' : `${targets.length.toLocaleString()} selected photos`),
+      events
+    })
+  }
 
   const api = useMemo<ContextMenuApi>(() => ({
     openContextMenu(event, spec) {
       event.preventDefault()
       event.stopPropagation()
       claimed.current = true
+      setEventPicker(null)
       setMenu(positionMenu(event.clientX, event.clientY, spec))
     },
     closeContextMenu() {
       setMenu(null)
+      setEventPicker(null)
     },
     registerPhotoActions(actions) {
       photoActionsRef.current = actions
@@ -83,6 +112,9 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
     },
     addToKnownEvent(photoIds, eventId) {
       return photoActionsRef.current?.addToEvent?.(photoIds, eventId)
+    },
+    openEventPicker(photoIds, sourceLabel) {
+      showEventPicker(photoIds, sourceLabel)
     }
   }), [])
 
@@ -99,40 +131,13 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
         event.stopPropagation()
         claimed.current = true
         const targetPhotoIds = contextPhotoTargets(photo.id, selectedPhotoIdsForTarget(target))
-        const knownEvents = photoActions.listKnownEvents?.(targetPhotoIds) ?? []
         const currentEventId = eventIdFromTarget(target)
         const currentEvent = currentEventId ? photoActions.resolveEvent?.(currentEventId, targetPhotoIds) ?? null : null
         const copyImage = imageElementFromTarget(target)
-        const addChildren: PhotoFindContextMenuAction[] = []
-        if (photoActions.createEvent) {
-          addChildren.push({
-            id: 'create-new-event',
-            label: 'Create new event…',
-            onSelect: () => photoActions.createEvent?.(targetPhotoIds)
-          })
-        }
-        if (knownEvents.length > 0) {
-          for (const [index, knownEvent] of knownEvents.entries()) {
-            addChildren.push({
-              id: `add-event-${knownEvent.id}`,
-              label: knownEvent.title,
-              hint: knownEvent.containsPhoto ? 'Added' : knownEvent.hint,
-              disabled: knownEvent.containsPhoto || !photoActions.addToEvent,
-              separatorBefore: index === 0 && Boolean(photoActions.createEvent),
-              onSelect: () => photoActions.addToEvent?.(targetPhotoIds, knownEvent.id)
-            })
-          }
-        } else {
-          addChildren.push({
-            id: 'no-known-events',
-            label: 'No known events yet',
-            disabled: true,
-            separatorBefore: Boolean(photoActions.createEvent),
-            onSelect: () => undefined
-          })
-        }
+        const sourceLabel = targetPhotoIds.length > 1 ? `${targetPhotoIds.length.toLocaleString()} selected photos` : photo.name
+        setEventPicker(null)
         setMenu(positionMenu(event.clientX, event.clientY, {
-          title: targetPhotoIds.length > 1 ? `${targetPhotoIds.length.toLocaleString()} selected photos` : photo.name,
+          title: sourceLabel,
           actions: [
             {
               id: 'copy-image',
@@ -149,11 +154,10 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
             {
               id: 'add-to-event',
               label: 'Add to event…',
-              hint: '›',
+              hint: '↗',
               separatorBefore: true,
               disabled: !photoActions.addToEvent && !photoActions.createEvent,
-              children: addChildren,
-              onSelect: () => undefined
+              onSelect: () => showEventPicker(targetPhotoIds, sourceLabel)
             },
             ...(currentEvent && currentEvent.containsPhoto && photoActions.removeFromEvent ? [{
               id: 'remove-from-event',
@@ -198,6 +202,7 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
       if (isTextControl(target)) {
         event.stopPropagation()
         claimed.current = true
+        setEventPicker(null)
         setMenu(positionMenu(event.clientX, event.clientY, textControlMenu(target)))
         return
       }
@@ -205,6 +210,7 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
       const selectedText = window.getSelection()?.toString().trim() ?? ''
       queueMicrotask(() => {
         if (claimed.current) return
+        setEventPicker(null)
         setMenu(positionMenu(event.clientX, event.clientY, selectedText
           ? { title: 'PhotoFind', actions: [{ id: 'copy-selection', label: 'Copy selected text', onSelect: () => navigator.clipboard?.writeText(selectedText) }] }
           : { title: 'PhotoFind', actions: [{ id: 'no-actions', label: 'No actions for this area', disabled: true, onSelect: () => undefined }] }))
@@ -215,7 +221,9 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
       setMenu(null)
     }
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setMenu(null)
+      if (event.key !== 'Escape') return
+      setMenu(null)
+      setEventPicker(null)
     }
     const closeOnResize = (): void => setMenu(null)
     const closeOnScroll = (event: Event): void => {
@@ -242,6 +250,12 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
     const first = menuRef.current?.querySelector<HTMLButtonElement>(':scope > .pf-context-menu-row > button:not(:disabled)')
     first?.focus({ preventScroll: true })
   }, [menu])
+
+  useEffect(() => {
+    if (!eventPicker) return
+    const first = eventPickerRef.current?.querySelector<HTMLButtonElement>('.pf-event-picker-entry:not(:disabled), .pf-event-picker-create, .pf-event-picker-close')
+    first?.focus({ preventScroll: true })
+  }, [eventPicker])
 
   return (
     <ContextMenuContext.Provider value={api}>
@@ -299,6 +313,71 @@ export function PhotoFindContextMenuProvider({ children }: { children: ReactNode
           ))}
         </div>
       )}
+      {eventPicker && (
+        <div className="pf-event-picker-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEventPicker(null) }}>
+          <section
+            ref={eventPickerRef}
+            className="pf-event-picker-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pf-event-picker-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <header className="pf-event-picker-head">
+              <div>
+                <span className="mode-kicker">Add to event</span>
+                <h3 id="pf-event-picker-title">Choose an event</h3>
+                <p>{eventPicker.sourceLabel} · {eventPicker.events.length.toLocaleString()} known event{eventPicker.events.length === 1 ? '' : 's'}</p>
+              </div>
+              <div className="pf-event-picker-head-actions">
+                {photoActionsRef.current?.createEvent && (
+                  <button
+                    type="button"
+                    className="primary pf-event-picker-create"
+                    onClick={() => {
+                      const targets = eventPicker.photoIds
+                      setEventPicker(null)
+                      void photoActionsRef.current?.createEvent?.(targets)
+                    }}
+                  >+ Create new event</button>
+                )}
+                <button type="button" className="quiet-button pf-event-picker-close" aria-label="Close event picker" onClick={() => setEventPicker(null)}>×</button>
+              </div>
+            </header>
+            {eventPicker.events.length === 0 ? (
+              <div className="pf-event-picker-empty"><strong>No known events yet</strong><span>Create an event first, then it will appear here.</span></div>
+            ) : (
+              <div className="pf-event-picker-list" aria-label="Known events">
+                {eventPicker.events.map((knownEvent) => {
+                  const details = eventPickerDetails(knownEvent.hint, knownEvent.containsPhoto)
+                  return (
+                    <button
+                      type="button"
+                      className="pf-event-picker-entry"
+                      key={knownEvent.id}
+                      disabled={knownEvent.containsPhoto || !photoActionsRef.current?.addToEvent}
+                      onClick={() => {
+                        const targets = eventPicker.photoIds
+                        setEventPicker(null)
+                        void photoActionsRef.current?.addToEvent?.(targets, knownEvent.id)
+                      }}
+                    >
+                      <span className="pf-event-picker-primary-line">
+                        <strong title={knownEvent.title}>{knownEvent.title}</strong>
+                        {details.photoCountLabel && <b>{details.photoCountLabel}</b>}
+                      </span>
+                      <span className="pf-event-picker-secondary-line">
+                        <span>{details.dateLabel || 'Date unavailable'}</span>
+                        {details.statusLabel && <em>{details.statusLabel}</em>}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
     </ContextMenuContext.Provider>
   )
 }
@@ -312,6 +391,20 @@ export function usePhotoFindContextMenu(): ContextMenuApi {
 export function contextPhotoTargets(clickedPhotoId: string, selectedPhotoIds: readonly string[]): string[] {
   const selected = [...new Set(selectedPhotoIds.filter((id) => Boolean(id)))]
   return selected.includes(clickedPhotoId) ? selected : [clickedPhotoId]
+}
+
+export function eventPickerDetails(hint: string | undefined, containsPhoto: boolean): EventPickerDetails {
+  const parts = (hint ?? '').split(' · ').map((part) => part.trim()).filter(Boolean)
+  const count = parts.length >= 2 ? parts.pop() ?? '' : ''
+  const dateLabel = parts.length > 0 ? parts.pop() ?? '' : (hint ?? '')
+  const selectionStatus = parts.join(' · ')
+  const numericCount = Number(count.replace(/[^0-9]/g, ''))
+  const photoCountLabel = count ? `${count} ${numericCount === 1 ? 'photo' : 'photos'}` : ''
+  return {
+    dateLabel,
+    photoCountLabel,
+    statusLabel: containsPhoto ? 'Already added' : selectionStatus || undefined
+  }
 }
 
 function selectedPhotoIdsForTarget(target: EventTarget | null): string[] {
