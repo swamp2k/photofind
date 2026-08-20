@@ -160,10 +160,10 @@
     margin: 0;
   }
   .pf-main:has(> .map-section) > .map-section .map-known-events-toggle {
-    position: fixed;
+    position: absolute;
     z-index: 13;
-    right: calc(18px + var(--view-sidebar-width) - 170px);
-    bottom: 22px;
+    top: 475px;
+    right: 18px;
     margin: 0;
     box-shadow: 0 12px 30px rgba(0, 0, 0, .24);
   }
