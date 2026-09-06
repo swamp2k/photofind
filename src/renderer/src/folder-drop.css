@@ -1,0 +1,47 @@
+/* Adding one or several folders: topbar hint, batch notice and the drag-and-drop overlay. */
+
+.add-folder-action { display: flex; flex-direction: column; align-items: stretch; gap: 4px; }
+.add-folder-action > small { color: var(--muted); font-size: 11px; text-align: center; white-space: nowrap; }
+
+.folder-batch-notice { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.folder-batch-notice > span { min-width: 0; }
+
+.pf-app.folder-drop-active { position: relative; }
+
+.folder-drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(9, 13, 20, .72);
+  pointer-events: none;
+}
+
+.folder-drop-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  max-width: 420px;
+  padding: 32px 40px;
+  text-align: center;
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .45);
+}
+
+.folder-drop-mark { font-size: 28px; color: var(--accent); line-height: 1; }
+.folder-drop-card > strong { font-size: 17px; font-weight: 600; }
+.folder-drop-card > small { color: var(--muted); font-size: 13px; line-height: 1.5; }
+
+.empty-drop-hint { margin: 8px 0 0; color: var(--muted); font-size: 13px; }
+
+@media (max-width: 720px) {
+  .add-folder-action > small { display: none; }
+  .folder-drop-card { padding: 24px; }
+  .folder-batch-notice { flex-direction: column; align-items: flex-start; gap: 8px; }
+}

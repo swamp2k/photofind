@@ -11,6 +11,7 @@ import { EventsPanel } from './EventsPanel'
 import { exportLocalPhotos } from './exporter'
 import { ensureReadPermission, ensureWritePermission, localFolderAccessMode, pickExportDirectory, pickLocalDirectory, pickLocalDirectoryFiles, supportsWritableExport } from './fileAccess'
 import { availableYears, containsCoordinate, dateInputToEnd, dateInputToStart, filterPhotos, hasLocation } from './filters'
+import { describeFolderFailures, dragEventCarriesFiles, readDroppedFolders, summarizeFolderBatch, type LiteFolderBatchOutcome, type LiteFolderSource } from './folderDrop'
 import { KnownDatesDialog } from './KnownDatesDialog'
 import { mergeKnownDates } from './knownDates'
 import { deleteEventOverride, deleteLibrary, listLibraries, loadEventOverrides, loadGlobalKnownDates, loadMedia, loadPeople, putMediaRecords, replaceLibrary, saveEventOverride, saveEventOverrideBatch, saveKnownDateState, savePeopleState } from './libraryDb'
@@ -33,7 +34,7 @@ import { isInExactSourceFolder, sourceFolderLabel } from './sourcePath'
 import { SourceNavigationProvider } from './SourceNavigation'
 import { isStarred, setPhotoStarred } from './starred'
 import { useGlobalStarredPhotos } from './globalStarred'
-import type { LiteDateMetadataFilter, LiteEventOverride, LiteEventRecord, LiteExportLayout, LiteExportProgress, LiteExportResult, LiteGeoBounds, LiteKnownDateRecord, LiteLibraryAccessMode, LiteLibraryRecord, LiteLocationFilter, LiteMediaRecord, LitePeopleProgress, LitePersonRecord, LitePhotoFilters, LiteQualityProgress, LiteReviewFilter, LiteReviewState, LiteScanProgress, LiteSimilarityProgress } from './types'
+import type { LiteDateMetadataFilter, LiteEventOverride, LiteEventRecord, LiteExportLayout, LiteExportProgress, LiteExportResult, LiteGeoBounds, LiteKnownDateRecord, LiteLibraryAccessMode, LiteLibraryRecord, LiteLocationFilter, LiteMediaRecord, LitePeopleProgress, LitePersonRecord, LitePhotoFilters, LiteQualityProgress, LiteReviewFilter, LiteReviewState, LiteScanProgress, LiteSelectionFile, LiteSimilarityProgress } from './types'
 import { clearUndoHistory, LIBRARY_STATE_CHANGED_EVENT, registerUndo, UndoControl } from './undoHistory'
 
 type BrowseView = 'photos' | 'starred' | 'events' | 'map' | 'people' | 'groups' | 'quality' | 'review' | 'compare' | 'selection'
@@ -75,6 +76,10 @@ export function LiteApp(): JSX.Element {
   const [contextCreateBusy, setContextCreateBusy] = useState(false)
   const [contextCreateError, setContextCreateError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [folderBatch, setFolderBatch] = useState<{ current: number; total: number; name: string } | null>(null)
+  const [folderNotice, setFolderNotice] = useState<string | null>(null)
+  const [dragActive, setDragActive] = useState(false)
+  const dragDepth = useRef(0)
   const [visibleCount, setVisibleCount] = useState(pageSize)
   const [view, setView] = useState<BrowseView>('photos')
   const [searchQuery, setSearchQuery] = useState('')
@@ -100,6 +105,19 @@ export function LiteApp(): JSX.Element {
     void refreshGlobalKnownDates()
   }, [])
   useEffect(() => { setVisibleCount(pageSize) }, [pageSize])
+  useEffect(() => {
+    // Without this the browser navigates away from PhotoFind when a folder is dropped outside the drop target.
+    const preventFileDrop = (event: DragEvent): void => { if (dragEventCarriesFiles(event.dataTransfer)) event.preventDefault() }
+    const endDrag = (event: DragEvent): void => { preventFileDrop(event); dragDepth.current = 0; setDragActive(false) }
+    window.addEventListener('dragover', preventFileDrop)
+    window.addEventListener('drop', endDrag)
+    window.addEventListener('dragend', endDrag)
+    return () => {
+      window.removeEventListener('dragover', preventFileDrop)
+      window.removeEventListener('drop', endDrag)
+      window.removeEventListener('dragend', endDrag)
+    }
+  }, [])
   useEffect(() => { clearUndoHistory() }, [activeLibrary?.id])
   useEffect(() => {
     const libraryId = activeLibrary?.id
@@ -319,13 +337,86 @@ export function LiteApp(): JSX.Element {
 
   async function addFolder(): Promise<void> {
     setError(null)
+    setFolderNotice(null)
     try {
-      if (folderMode === 'handle') return await indexHandle(await pickLocalDirectory(), null)
-      if (folderMode === 'selection') return await indexFiles(await pickLocalDirectoryFiles(), null)
+      if (folderMode === 'handle') {
+        const handle = await pickLocalDirectory()
+        return await indexFolderSources([{ kind: 'handle', name: handle.name, handle }])
+      }
+      if (folderMode === 'selection') {
+        const files = await pickLocalDirectoryFiles()
+        return await indexFolderSources([{ kind: 'selection', name: selectionRootName(files), files }])
+      }
       setError('This browser does not expose a usable local-folder selection API.')
     } catch (cause) {
       if (!isAbort(cause)) setError(messageOf(cause))
     }
+  }
+
+  /** Indexes one or many chosen folders in sequence, each as its own local index. */
+  async function indexFolderSources(sources: LiteFolderSource[], ignored: string[] = []): Promise<void> {
+    if (sources.length === 0) {
+      if (ignored.length > 0) setError(`Nothing was indexed. ${ignored.length === 1 ? 'The dropped item is not a folder' : `None of the ${ignored.length} dropped items are folders`}: ${ignored.slice(0, 5).join(', ')}`)
+      return
+    }
+    setError(null)
+    setFolderNotice(null)
+    const known = await listLibraries().catch(() => [] as LiteLibraryRecord[])
+    const outcome: LiteFolderBatchOutcome = { added: [], rescanned: [], failed: [], ignored }
+    try {
+      for (let index = 0; index < sources.length; index += 1) {
+        const source = sources[index]
+        setFolderBatch({ current: index + 1, total: sources.length, name: source.name })
+        try {
+          if (source.kind === 'handle') {
+            const existing = await indexedLibraryForHandle(known, source.handle)
+            await indexHandle(source.handle, existing)
+            if (existing) outcome.rescanned.push(source.name)
+            else outcome.added.push(source.name)
+          } else {
+            await indexFiles(source.files, null)
+            outcome.added.push(source.name)
+          }
+        } catch (cause) {
+          if (isAbort(cause)) continue
+          outcome.failed.push({ name: source.name, message: messageOf(cause) })
+        }
+      }
+    } finally { setFolderBatch(null) }
+
+    setError(describeFolderFailures(outcome.failed))
+    if (sources.length > 1 || outcome.rescanned.length > 0 || outcome.ignored.length > 0) setFolderNotice(summarizeFolderBatch(outcome))
+  }
+
+  /** Dropping an already indexed folder should rescan that index instead of creating a duplicate. */
+  async function indexedLibraryForHandle(known: LiteLibraryRecord[], handle: FileSystemDirectoryHandle): Promise<LiteLibraryRecord | null> {
+    for (const library of known) {
+      if (!library.rootHandle) continue
+      try {
+        if (await library.rootHandle.isSameEntry(handle)) return library
+      } catch (cause) {
+        // A stored handle that can no longer be compared is treated as a different folder.
+        console.warn('Stored folder handle could not be compared with the dropped folder.', cause)
+      }
+    }
+    return null
+  }
+
+  function handleFolderDrop(transfer: DataTransfer | null): void {
+    if (!transfer) return
+    if (!supported) {
+      setError('This browser does not expose a usable local-folder selection API.')
+      return
+    }
+    if (working) {
+      setError('PhotoFind is still working. Wait for the current job to finish before adding more folders.')
+      return
+    }
+    // The dropped items must be read before this event loop turn ends, so start reading immediately.
+    const dropped = readDroppedFolders(transfer)
+    void dropped
+      .then(({ sources, ignored }) => indexFolderSources(sources, ignored))
+      .catch((cause) => { if (!isAbort(cause)) setError(`The dropped folders could not be read: ${messageOf(cause)}`) })
   }
 
   async function openLibrary(library: LiteLibraryRecord): Promise<void> {
@@ -831,7 +922,8 @@ export function LiteApp(): JSX.Element {
   }
 
   async function applyScanResult(library: LiteLibraryRecord, scannedMedia: LiteMediaRecord[], nextSessionFiles: Map<string, File>, existingLibrary: LiteLibraryRecord | null): Promise<void> {
-    const reconciled = clusterPeople(scannedMedia, existingLibrary ? people : [])
+    // Read people from storage rather than component state: a folder batch can rescan an index that is not the active one.
+    const reconciled = clusterPeople(scannedMedia, existingLibrary ? await loadPeople(existingLibrary.id) : [])
     const persistedLibrary = existingLibrary?.knownDates !== undefined ? { ...library, knownDates: existingLibrary.knownDates } : library
     await replaceLibrary(persistedLibrary, reconciled.items)
     await savePeopleState(persistedLibrary.id, reconciled.people, reconciled.changed)
@@ -858,13 +950,13 @@ export function LiteApp(): JSX.Element {
     } finally { setBusy(false); setProgress(null) }
   }
 
-  async function indexFiles(files: File[], existing: LiteLibraryRecord | null): Promise<void> {
+  async function indexFiles(selection: LiteSelectionFile[], existing: LiteLibraryRecord | null): Promise<void> {
     clearUndoHistory()
     setBusy(true)
     setProgress({ phase: 'files', scannedFiles: 0, currentPath: '' })
     try {
       const previous = existing ? await loadMedia(existing.id) : []
-      const result = await scanFileSelection(files, existing ? { id: existing.id, createdAt: existing.createdAt } : null, previous, setProgress)
+      const result = await scanFileSelection(selection, existing ? { id: existing.id, createdAt: existing.createdAt } : null, previous, setProgress)
       if (existing && result.library.name !== existing.name) throw new Error(`Selected “${result.library.name}”, but this index belongs to “${existing.name}”. Choose the original folder.`)
       await applyScanResult(result.library, result.media, result.sessionFiles, existing)
     } finally { setBusy(false); setProgress(null) }
@@ -918,16 +1010,41 @@ export function LiteApp(): JSX.Element {
 
   return (
     <SourceNavigationProvider showFolder={showSourceFolder}>
-      <div className="pf-app">
+      <div
+        className={dragActive ? 'pf-app folder-drop-active' : 'pf-app'}
+        onDragEnter={(event) => {
+          if (!dragEventCarriesFiles(event.dataTransfer)) return
+          dragDepth.current += 1
+          setDragActive(true)
+        }}
+        onDragOver={(event) => {
+          if (!dragEventCarriesFiles(event.dataTransfer)) return
+          event.preventDefault()
+          event.dataTransfer.dropEffect = 'copy'
+        }}
+        onDragLeave={() => {
+          dragDepth.current = Math.max(0, dragDepth.current - 1)
+          if (dragDepth.current === 0) setDragActive(false)
+        }}
+        onDrop={(event) => {
+          if (!dragEventCarriesFiles(event.dataTransfer)) return
+          event.preventDefault()
+          dragDepth.current = 0
+          setDragActive(false)
+          handleFolderDrop(event.dataTransfer)
+        }}
+      >
         <header className="pf-topbar">
           <div className="pf-brand"><span className="pf-logo" aria-hidden="true">P</span><div><strong>photofind</strong><span>Find the photos that matter.</span></div></div>
           <label className="global-search"><span aria-hidden="true">⌕</span><input type="search" value={searchQuery} disabled={globalSearchDisabled} onChange={(event) => { setSearchQuery(event.target.value); setVisibleCount(pageSize) }} placeholder="Search filenames, folders, cameras or named people…" aria-label="Search local photo index" /></label>
-          <div className="topbar-actions"><span className="local-only-pill">▣ 100% local</span><UndoControl onError={setError} /><button className="primary" disabled={!supported || working} onClick={() => void addFolder()}>{working ? 'Working…' : '+ Add folder'}</button></div>
+          <div className="topbar-actions"><span className="local-only-pill">▣ 100% local</span><UndoControl onError={setError} /><div className="add-folder-action"><button className="primary" disabled={!supported || working} onClick={() => void addFolder()}>{working ? 'Working…' : '+ Add folder'}</button>{supported && <small>or drop folders anywhere</small>}</div></div>
         </header>
 
         {!supported && <div className="notice warning">Local folder access is not available in this browser.</div>}
         {folderMode === 'selection' && <div className="notice">This browser uses reconnect mode. The local index and review decisions persist, but reselect the folder after refresh to restore previews, analysis and export access.</div>}
         {error && <div className="notice error">{error}</div>}
+        {folderNotice && <div className="notice folder-batch-notice"><span>{folderNotice}</span><button type="button" className="quiet-button" onClick={() => setFolderNotice(null)}>Dismiss</button></div>}
+        {folderBatch && folderBatch.total > 1 && <div className="notice progress">Indexing folder {folderBatch.current} of {folderBatch.total} — {folderBatch.name}</div>}
         {progress && <ProgressNotice progress={progress} />}
 
         <div className="pf-layout">
@@ -1013,6 +1130,14 @@ export function LiteApp(): JSX.Element {
           </main>
         </div>
 
+        {dragActive && <div className="folder-drop-overlay" role="status" aria-live="polite">
+          <div className="folder-drop-card">
+            <span className="folder-drop-mark" aria-hidden="true">▤</span>
+            <strong>Drop folders to index</strong>
+            <small>{working ? 'PhotoFind is busy — wait for the current job to finish.' : 'One folder or several at once. Each becomes its own local index, and nothing is uploaded.'}</small>
+          </div>
+        </div>}
+
         {knownDatesOpen && activeLibrary && <KnownDatesDialog libraryId={activeLibrary.id} localRecords={activeLibrary.knownDates ?? []} globalRecords={globalKnownDates} years={years} onReplace={replaceKnownDates} onClose={() => setKnownDatesOpen(false)} />}
         {contextCreateItemIds && (
           <div className="pf-dialog-backdrop" role="presentation" onMouseDown={() => { if (!contextCreateBusy) setContextCreateItemIds(null) }}>
@@ -1037,7 +1162,7 @@ function ModeButton({ icon, label, count, active, disabled, onClick }: { icon: s
 }
 
 function EmptyState({ onChoose, disabled }: { onChoose(): void; disabled: boolean }): JSX.Element {
-  return <section className="empty-state modern-empty"><span className="empty-mark">P</span><h1>Your photos stay yours.</h1><p>Choose a local photo folder or extracted Google Photos Takeout. PhotoFind builds a private index in this browser, then helps you find, compare, review and export the moments worth keeping.</p><button type="button" className="primary" disabled={disabled} onClick={onChoose}>Choose local folder</button><div className="privacy-grid"><div><strong>100% local</strong><span>No photo bytes, metadata, hashes, face embeddings or decisions are uploaded.</span></div><div><strong>Smart and fast</strong><span>Timeline, map, people, events, similarity and quality analysis run on this device.</span></div><div><strong>Safe by default</strong><span>Source media stays read-only. Only explicit exports write new copies.</span></div></div></section>
+  return <section className="empty-state modern-empty"><span className="empty-mark">P</span><h1>Your photos stay yours.</h1><p>Choose a local photo folder or extracted Google Photos Takeout. PhotoFind builds a private index in this browser, then helps you find, compare, review and export the moments worth keeping.</p><button type="button" className="primary" disabled={disabled} onClick={onChoose}>Choose local folder</button><p className="empty-drop-hint">You can also drag one or more folders straight onto this window. Each folder becomes its own local index.</p><div className="privacy-grid"><div><strong>100% local</strong><span>No photo bytes, metadata, hashes, face embeddings or decisions are uploaded.</span></div><div><strong>Smart and fast</strong><span>Timeline, map, people, events, similarity and quality analysis run on this device.</span></div><div><strong>Safe by default</strong><span>Source media stays read-only. Only explicit exports write new copies.</span></div></div></section>
 }
 
 function ProgressNotice({ progress }: { progress: LiteScanProgress }): JSX.Element {
@@ -1117,4 +1242,8 @@ function viewDescription(view: Exclude<BrowseView, 'review' | 'compare'>): strin
 
 function libraryMode(library: LiteLibraryRecord): LiteLibraryAccessMode { return library.accessMode ?? (library.rootHandle ? 'handle' : 'selection') }
 function messageOf(cause: unknown): string { return cause instanceof Error ? cause.message : 'Something went wrong.' }
+function selectionRootName(selection: LiteSelectionFile[]): string {
+  const [root] = (selection.find((entry) => entry.relativePath.includes('/'))?.relativePath ?? '').split('/')
+  return root || 'Selected folder'
+}
 function isAbort(cause: unknown): boolean { return cause instanceof DOMException && cause.name === 'AbortError' }

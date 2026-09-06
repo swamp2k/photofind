@@ -1,3 +1,5 @@
+import type { LiteSelectionFile } from './types'
+
 type DirectoryPicker = (options?: { id?: string; mode?: 'read' | 'readwrite' }) => Promise<FileSystemDirectoryHandle>
 
 type PermissionCapableDirectoryHandle = FileSystemDirectoryHandle & {
@@ -37,7 +39,7 @@ export async function pickExportDirectory(): Promise<FileSystemDirectoryHandle> 
   return candidate.showDirectoryPicker({ id: 'photofind-export', mode: 'readwrite' })
 }
 
-export function pickLocalDirectoryFiles(): Promise<File[]> {
+export function pickLocalDirectoryFiles(): Promise<LiteSelectionFile[]> {
   return new Promise((resolve, reject) => {
     const input = document.createElement('input')
     input.type = 'file'
@@ -64,7 +66,7 @@ export function pickLocalDirectoryFiles(): Promise<File[]> {
       }
       settled = true
       cleanup()
-      resolve(files)
+      resolve(files.map((file) => ({ file, relativePath: file.webkitRelativePath || file.name })))
     }, { once: true })
     input.addEventListener('cancel', abort, { once: true })
 

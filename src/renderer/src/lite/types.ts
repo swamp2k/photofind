@@ -217,6 +217,13 @@ export interface LiteSelectionScanResult extends LiteScanResult {
   sessionFiles: Map<string, File>
 }
 
+/** A file chosen through a directory input or a dropped folder, with its path inside the chosen folder. */
+export interface LiteSelectionFile {
+  file: File
+  /** Path including the selected root folder name, e.g. `Holiday/2024/img.jpg`. */
+  relativePath: string
+}
+
 export interface LiteGeoBounds {
   west: number
   south: number

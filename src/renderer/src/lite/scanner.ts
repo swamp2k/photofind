@@ -3,7 +3,7 @@ import { startGlobalProcess, type GlobalProcessHandle } from './globalProcesses'
 import { copyReusableMetadata, enrichMediaMetadata, LITE_METADATA_VERSION } from './metadata'
 import { copyStarredState } from './starred'
 import { matchTakeoutSidecars, type LiteTakeoutMatch } from './takeout'
-import type { LiteLibraryRecord, LiteMediaRecord, LiteScanProgress, LiteScanResult, LiteSelectionScanResult } from './types'
+import type { LiteLibraryRecord, LiteMediaRecord, LiteScanProgress, LiteScanResult, LiteSelectionFile, LiteSelectionScanResult } from './types'
 
 interface DirectoryHandleWithEntries extends FileSystemDirectoryHandle {
   entries(): AsyncIterableIterator<[string, FileSystemHandle]>
@@ -64,24 +64,24 @@ export async function scanDirectory(
 }
 
 export async function scanFileSelection(
-  files: File[],
+  selection: LiteSelectionFile[],
   existing: ExistingLibraryIdentity | null = null,
   existingMedia: LiteMediaRecord[] = [],
   onProgress?: (progress: LiteScanProgress) => void
 ): Promise<LiteSelectionScanResult> {
-  if (files.length === 0) throw new Error('The selected folder did not contain any files.')
-  const process = startGlobalProcess(existing ? 'Rescanning photo index' : 'Indexing photos', { complete: 0, total: files.length, detail: 'Reading selected files…' })
-  const report = scanReporter(onProgress, process, files.length)
+  if (selection.length === 0) throw new Error('The selected folder did not contain any files.')
+  const process = startGlobalProcess(existing ? 'Rescanning photo index' : 'Indexing photos', { complete: 0, total: selection.length, detail: 'Reading selected files…' })
+  const report = scanReporter(onProgress, process, selection.length)
   try {
     const libraryId = existing?.id ?? crypto.randomUUID()
     const createdAt = existing?.createdAt ?? Date.now()
-    const rootName = inferSelectionRootName(files)
+    const rootName = inferSelectionRootName(selection)
     const media: LiteMediaRecord[] = []
     const sessionFiles = new Map<string, File>()
 
-    for (let index = 0; index < files.length; index += 1) {
-      const file = files[index]
-      const relativePath = normalizeSelectionPath(file, rootName)
+    for (let index = 0; index < selection.length; index += 1) {
+      const { file } = selection[index]
+      const relativePath = normalizeSelectionPath(selection[index], rootName)
       if (relativePath === '.DS_Store' || relativePath.endsWith('/.DS_Store')) continue
       const record = createMediaRecord(libraryId, relativePath, file)
       media.push(record)
@@ -95,7 +95,7 @@ export async function scanFileSelection(
 
     const enriched = await enrichMedia(media, sessionFiles, existingMedia, report)
     const library = createLibraryRecord(libraryId, rootName, createdAt, enriched, 'selection')
-    report({ phase: 'metadata', scannedFiles: files.length, currentPath: '', metadataTotal: enrichableCount(enriched), metadataParsed: enrichableCount(enriched) })
+    report({ phase: 'metadata', scannedFiles: selection.length, currentPath: '', metadataTotal: enrichableCount(enriched), metadataParsed: enrichableCount(enriched) })
     return { library, media: enriched, sessionFiles }
   } finally {
     process.finish()
@@ -313,14 +313,14 @@ function enrichableCount(records: LiteMediaRecord[]): number {
   return records.filter((record) => record.kind !== 'sidecar' && record.kind !== 'unknown').length
 }
 
-function inferSelectionRootName(files: File[]): string {
-  const path = files.find((file) => file.webkitRelativePath)?.webkitRelativePath ?? ''
+function inferSelectionRootName(selection: LiteSelectionFile[]): string {
+  const path = selection.find((entry) => entry.relativePath.includes('/'))?.relativePath ?? ''
   const [root] = path.split('/').filter(Boolean)
   return root || 'Selected folder'
 }
 
-function normalizeSelectionPath(file: File, rootName: string): string {
-  const raw = file.webkitRelativePath || file.name
+function normalizeSelectionPath(entry: LiteSelectionFile, rootName: string): string {
+  const raw = entry.relativePath || entry.file.name
   const normalized = raw.replaceAll('\\', '/').replace(/^\/+/, '')
   const prefix = `${rootName}/`
   return normalized.startsWith(prefix) ? normalized.slice(prefix.length) : normalized
