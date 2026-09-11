@@ -2,7 +2,7 @@ import { startGlobalProcess } from './globalProcesses'
 import { decodeBitmapForAnalysis } from './imageDecode'
 import type { LiteMediaRecord } from './types'
 
-export const PRODUCT_ANALYSIS_VERSION = 1
+export const PRODUCT_ANALYSIS_VERSION = 2
 export const PRODUCT_MODEL_ID = 'Xenova/siglip-base-patch16-224'
 const PRODUCT_MODEL_REVISION = 'main'
 const PROMPT_SET_VERSION = 1
@@ -53,12 +53,6 @@ interface SemanticPrediction {
 
 interface ProductClassifier {
   (image: unknown, candidateLabels: readonly string[]): Promise<SemanticPrediction[]>
-}
-
-interface NavigatorWithWebGpu extends Navigator {
-  gpu?: {
-    requestAdapter(): Promise<unknown | null>
-  }
 }
 
 let classifierPromise: Promise<ProductClassifier> | null = null
@@ -144,6 +138,7 @@ async function analyzeOne(
       signal?.throwIfAborted()
       const predictions = await classifier(image, CANDIDATE_PROMPTS)
       signal?.throwIfAborted()
+      assertUsablePredictions(predictions)
 
       const positives = predictions
         .filter((prediction) => POSITIVE_PROMPTS.has(prediction.label))
@@ -215,37 +210,31 @@ async function createClassifier(): Promise<ProductClassifier> {
     module.env.remotePathTemplate = '{model}/resolve/{revision}/'
   }
 
-  const webGpuAvailable = await hasUsableWebGpu()
-  if (!webGpuAvailable) {
-    try {
-      const classifier = await module.pipeline('zero-shot-image-classification', PRODUCT_MODEL_ID, {
-        revision: PRODUCT_MODEL_REVISION,
-        dtype: 'q8'
-      })
-      return classifier as unknown as ProductClassifier
-    } catch (cause) {
-      throw new Error(`Semantic model failed to load with local CPU/WASM runtime: ${messageOf(cause)}`)
-    }
-  }
-
   try {
-    const classifier = await module.pipeline('zero-shot-image-classification', PRODUCT_MODEL_ID, {
-      revision: PRODUCT_MODEL_REVISION,
-      device: 'webgpu',
-      dtype: 'q8'
-    })
-    return classifier as unknown as ProductClassifier
+    return await createCpuClassifier(module)
   } catch (cause) {
-    try {
-      const classifier = await module.pipeline('zero-shot-image-classification', PRODUCT_MODEL_ID, {
-        revision: PRODUCT_MODEL_REVISION,
-        dtype: 'q8'
-      })
-      return classifier as unknown as ProductClassifier
-    } catch (fallbackCause) {
-      throw new Error(`Semantic model failed on WebGPU and CPU/WASM fallback. WebGPU: ${messageOf(cause)} CPU/WASM: ${messageOf(fallbackCause)}`)
-    }
+    throw new Error(`Semantic model failed to load with local CPU/WASM runtime: ${messageOf(cause)}`)
   }
+}
+
+async function createCpuClassifier(module: typeof import('@huggingface/transformers')): Promise<ProductClassifier> {
+  const classifier = await module.pipeline('zero-shot-image-classification', PRODUCT_MODEL_ID, {
+    revision: PRODUCT_MODEL_REVISION,
+    dtype: 'q8'
+  })
+  return classifier as unknown as ProductClassifier
+}
+
+function assertUsablePredictions(predictions: SemanticPrediction[]): void {
+  if (!predictionsAreUsable(predictions)) {
+    throw new Error('Semantic model returned no usable product evidence. Retry analysis to use the local CPU fallback.')
+  }
+}
+
+function predictionsAreUsable(predictions: SemanticPrediction[]): boolean {
+  if (predictions.length !== CANDIDATE_PROMPTS.length) return false
+  return predictions.every((prediction) => Number.isFinite(prediction.score) && prediction.score >= 0)
+    && predictions.some((prediction) => prediction.score > 0)
 }
 
 async function verifyModelGateway(): Promise<void> {
@@ -283,16 +272,6 @@ function preferredWasmThreadCount(): number {
   if (!globalThis.crossOriginIsolated) return 1
   const logicalCpus = Math.max(1, navigator.hardwareConcurrency || 1)
   return Math.max(1, Math.min(8, Math.floor(logicalCpus / 2)))
-}
-
-async function hasUsableWebGpu(): Promise<boolean> {
-  const gpu = (navigator as NavigatorWithWebGpu).gpu
-  if (!gpu || typeof gpu.requestAdapter !== 'function') return false
-  try {
-    return Boolean(await gpu.requestAdapter())
-  } catch {
-    return false
-  }
 }
 
 function isLocalDevelopment(): boolean {

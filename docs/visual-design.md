@@ -41,6 +41,8 @@ The primary product modes are:
 
 Operational and diagnostic views are advanced tools and must not visually dominate these modes.
 
+**Batch jobs** is a secondary task view for running selected People, Products, Quality and Duplicates analyses across local indexes. Present index and analysis checkboxes, one start action, and a readable ordered job list. Show progress, interruption and failures in plain language. People remains unchecked until explicitly selected, with its local biometric processing explained. Resolve folder access before unattended processing, and clearly state that the browser must remain open and the computer awake.
+
 ### 3. Progressive disclosure
 
 - Show common actions first.

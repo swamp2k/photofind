@@ -9,6 +9,13 @@ import { clearUndoHistory, notifyLibraryStateChanged, registerUndo } from './und
 
 type MatchFilter = 'all' | 'strong' | 'manual' | 'excluded'
 
+interface ProductAnalysisSummary {
+  processed: number
+  reused: number
+  failed: number
+  stopped?: boolean
+}
+
 type ProductAnalysisSnapshot = Pick<LiteMediaRecord,
   | 'productAnalysisVersion'
   | 'productAnalysisStatus'
@@ -39,6 +46,7 @@ const SENSITIVITY_OPTIONS: Array<{ value: LiteSmartCategorySensitivity; label: s
 export function ProductPhotosPanel({ items, sessionFiles, onReview }: ProductPhotosPanelProps): JSX.Element {
   const libraryId = items[0]?.libraryId ?? ''
   const analysisAbortRef = useRef<AbortController | null>(null)
+  const analysisRunRef = useRef(0)
   const [settings, setSettings] = useState<LiteProductPhotoSettings>(DEFAULT_SMART_CATEGORY_SETTINGS.productPhotos)
   const [filter, setFilter] = useState<MatchFilter>('all')
   const [visibleCount, setVisibleCount] = useState(BATCH_SIZE)
@@ -46,6 +54,7 @@ export function ProductPhotosPanel({ items, sessionFiles, onReview }: ProductPho
   const [localAnalysis, setLocalAnalysis] = useState<Map<string, ProductAnalysisSnapshot>>(new Map())
   const [analysisBusy, setAnalysisBusy] = useState(false)
   const [analysisProgress, setAnalysisProgress] = useState<LiteProductAnalysisProgress | null>(null)
+  const [analysisSummary, setAnalysisSummary] = useState<ProductAnalysisSummary | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -56,7 +65,12 @@ export function ProductPhotosPanel({ items, sessionFiles, onReview }: ProductPho
     setVisibleCount(BATCH_SIZE)
     setSaveError(null)
     setAnalysisProgress(null)
-    return () => analysisAbortRef.current?.abort()
+    setAnalysisSummary(null)
+    setAnalysisBusy(false)
+    return () => {
+      analysisRunRef.current += 1
+      analysisAbortRef.current?.abort()
+    }
   }, [libraryId])
 
   const effectiveItems = useMemo(() => items.map((item) => {
@@ -78,6 +92,15 @@ export function ProductPhotosPanel({ items, sessionFiles, onReview }: ProductPho
   const peopleAnalyzed = effectiveItems.filter((item) => item.kind === 'image' && item.faceAnalysisStatus === 'ready').length
   const semanticAnalyzed = effectiveItems.filter((item) => item.kind === 'image' && item.productAnalysisStatus === 'ready' && typeof item.productSemanticScore === 'number').length
   const semanticFailed = effectiveItems.filter((item) => item.kind === 'image' && item.productAnalysisStatus === 'failed').length
+  const semanticScores = effectiveItems
+    .filter((item) => item.kind === 'image' && item.productAnalysisStatus === 'ready' && typeof item.productSemanticScore === 'number')
+    .map((item) => item.productSemanticScore!)
+    .sort((left, right) => left - right)
+  const semanticMedian = percentile(semanticScores, 0.5)
+  const semanticHigh = percentile(semanticScores, 0.9)
+  const semanticMaximum = semanticScores.at(-1)
+  const semanticAboveFloor = semanticScores.filter((score) => score >= semanticFloor).length
+  const productFailures = effectiveItems.filter((item) => item.kind === 'image' && item.productAnalysisStatus === 'failed' && item.productAnalysisError).slice(0, 20)
   const hasLocalFileAccess = effectiveItems.some((item) => item.kind === 'image' && (sessionFiles.has(item.id) || Boolean(item.fileHandle)))
   const visibleItems = useMemo(() => {
     if (filter === 'excluded') return excludedItems
@@ -102,29 +125,64 @@ export function ProductPhotosPanel({ items, sessionFiles, onReview }: ProductPho
     if (!libraryId || analysisBusy || !hasLocalFileAccess) return
     clearUndoHistory()
     const controller = new AbortController()
+    const runToken = analysisRunRef.current + 1
+    analysisRunRef.current = runToken
     analysisAbortRef.current = controller
     setSaveError(null)
+    setAnalysisSummary(null)
     setAnalysisBusy(true)
     setAnalysisProgress({ phase: 'model', complete: 0, total: effectiveItems.length, reused: 0, failed: 0, currentPath: 'Loading semantic image model…' })
+    let latestProgress: LiteProductAnalysisProgress = { phase: 'model', complete: 0, total: effectiveItems.length, reused: 0, failed: 0, currentPath: '' }
+    const isCurrentRun = (): boolean => analysisRunRef.current === runToken
     try {
-      await analyzeProductPhotos(effectiveItems, {
+      const result = await analyzeProductPhotos(effectiveItems, {
         resolveFile: resolveLocalFile,
-        persistBatch: putMediaRecords,
-        onProgress: setAnalysisProgress,
+        persistBatch: async (records) => {
+          await putMediaRecords(records)
+          if (!isCurrentRun()) return
+          setLocalAnalysis((current) => {
+            const next = new Map(current)
+            for (const item of records) {
+              if (item.kind === 'image' && item.productAnalysisVersion !== undefined) next.set(item.id, productAnalysisSnapshot(item))
+            }
+            return next
+          })
+          for (const item of records) {
+            if (item.kind === 'image' && item.productAnalysisVersion !== undefined) SESSION_ANALYSIS.set(analysisSessionKey(libraryId, item.id), productAnalysisSnapshot(item))
+          }
+        },
+        onProgress: (progress) => {
+          latestProgress = progress
+          if (isCurrentRun()) setAnalysisProgress(progress)
+        },
         signal: controller.signal
       })
+      if (isCurrentRun()) {
+        const photos = result.filter((item) => item.kind === 'image')
+        setAnalysisSummary({
+          processed: Math.max(0, photos.length - latestProgress.reused),
+          reused: latestProgress.reused,
+          failed: photos.filter((item) => item.productAnalysisStatus === 'failed').length
+        })
+      }
     } catch (cause) {
-      if (!isAbort(cause)) setSaveError(`Semantic product analysis stopped: ${messageOf(cause)}`)
+      if (isCurrentRun()) {
+        if (isAbort(cause)) {
+          setAnalysisSummary({ processed: Math.max(0, latestProgress.complete - latestProgress.reused), reused: latestProgress.reused, failed: latestProgress.failed, stopped: true })
+        } else setSaveError(`Semantic product analysis stopped: ${messageOf(cause)}`)
+      }
     } finally {
       if (analysisAbortRef.current === controller) analysisAbortRef.current = null
-      await reloadProductAnalysis()
-      notifyLibraryStateChanged()
-      setAnalysisBusy(false)
-      setAnalysisProgress(null)
+      await reloadProductAnalysis(runToken)
+      if (isCurrentRun()) {
+        notifyLibraryStateChanged()
+        setAnalysisBusy(false)
+        setAnalysisProgress(null)
+      }
     }
   }
 
-  async function reloadProductAnalysis(): Promise<void> {
+  async function reloadProductAnalysis(expectedRun = analysisRunRef.current): Promise<void> {
     if (!libraryId) return
     try {
       const stored = await loadMedia(libraryId)
@@ -135,9 +193,9 @@ export function ProductPhotosPanel({ items, sessionFiles, onReview }: ProductPho
         next.set(item.id, snapshot)
         SESSION_ANALYSIS.set(analysisSessionKey(libraryId, item.id), snapshot)
       }
-      setLocalAnalysis(next)
+      if (analysisRunRef.current === expectedRun) setLocalAnalysis(next)
     } catch (cause) {
-      setSaveError(`Product analysis was saved, but the local results could not be reloaded: ${messageOf(cause)}`)
+      if (analysisRunRef.current === expectedRun) setSaveError(`Product analysis was saved, but the local results could not be reloaded: ${messageOf(cause)}`)
     }
   }
 
@@ -193,8 +251,8 @@ export function ProductPhotosPanel({ items, sessionFiles, onReview }: ProductPho
 
           {matches.length === 0 && filter !== 'excluded' && (
             <div className="compact-empty-state">
-              <strong>{semanticAnalyzed === 0 ? 'Run semantic product analysis to get reliable matches.' : 'No likely product photos at this sensitivity.'}</strong>
-              <span>{semanticAnalyzed === 0 ? 'Similarity and photo-series data deliberately cannot classify ordinary family bursts as product photos anymore.' : 'Try Broad sensitivity to review weaker semantic candidates, or manually mark a known product photo.'}</span>
+              <strong>{analysisBusy ? 'Product analysis is running.' : semanticFailed > 0 ? 'Some photos could not be analyzed.' : semanticAnalyzed === 0 ? 'Run semantic product analysis to get reliable matches.' : 'No likely product photos at this sensitivity.'}</strong>
+              <span>{semanticFailed > 0 ? 'Review the failure details below and retry analysis.' : semanticAnalyzed === 0 ? 'Similarity and photo-series data deliberately cannot classify ordinary family bursts as product photos anymore.' : 'Try Broad sensitivity to review weaker semantic candidates, or manually mark a known product photo.'}</span>
             </div>
           )}
 
@@ -231,6 +289,8 @@ export function ProductPhotosPanel({ items, sessionFiles, onReview }: ProductPho
               </button>
               <span className="muted">{semanticAnalyzed.toLocaleString()} / {effectiveItems.length.toLocaleString()} semantically analyzed{semanticFailed ? ` · ${semanticFailed.toLocaleString()} failed` : ''}</span>
             </div>
+            {analysisSummary && <p className="muted">{analysisSummary.stopped ? 'Stopped' : 'Completed'}: {analysisSummary.processed.toLocaleString()} processed · {analysisSummary.reused.toLocaleString()} reused · {analysisSummary.failed.toLocaleString()} failed</p>}
+            {productFailures.length > 0 && <div className="notice error inline-notice"><strong>Product analysis failures</strong><ul>{productFailures.map((item) => <li key={item.id}>{item.relativePath}: {item.productAnalysisError}</li>)}</ul>{semanticFailed > productFailures.length && <span>Showing the first {productFailures.length.toLocaleString()} failures.</span>}</div>}
             {!hasLocalFileAccess && <p className="muted">Reconnect the source folder before running semantic analysis. Existing cached results remain usable.</p>}
           </div>
 
@@ -285,7 +345,8 @@ export function ProductPhotosPanel({ items, sessionFiles, onReview }: ProductPho
           <details className="smart-category-details">
             <summary><span>Fine tune & explain</span><strong>{Math.round(threshold * 100)}% final threshold</strong></summary>
             <div className="smart-category-detail-grid">
-              <div><strong>Semantic signal</strong><span>{semanticAnalyzed.toLocaleString()} of {effectiveItems.length.toLocaleString()} photos analyzed. Balanced requires at least {Math.round(semanticFloor * 100)}% semantic product evidence before boosters count.</span></div>
+              <div><strong>Semantic signal</strong><span>{semanticAnalyzed.toLocaleString()} of {effectiveItems.length.toLocaleString()} photos analyzed. This sensitivity requires at least {Math.round(semanticFloor * 100)}% semantic product evidence before boosters count.</span></div>
+              {semanticScores.length > 0 && <div><strong>Stored score distribution</strong><span>Median {formatPercent(semanticMedian)} · 90th percentile {formatPercent(semanticHigh)} · highest {formatPercent(semanticMaximum)} · {semanticAboveFloor.toLocaleString()} at or above the semantic floor.</span></div>}
               <div><strong>Series signal</strong><span>{similarityAnalyzed.toLocaleString()} photos have visual similarity data. Series can strengthen a match but can no longer create one by itself.</span></div>
               <div><strong>People signal</strong><span>{peopleAnalyzed.toLocaleString()} photos have face-analysis data. Missing People data is neutral; detected people reduce product confidence.</span></div>
               <div><strong>Model</strong><span>{PRODUCT_MODEL_ID}. The model is downloaded on first use and cached by the browser; photo bytes are processed locally and are not uploaded.</span></div>
@@ -367,4 +428,13 @@ function isAbort(cause: unknown): boolean {
 
 function messageOf(cause: unknown): string {
   return cause instanceof Error ? cause.message : 'Something went wrong.'
+}
+
+function percentile(sortedValues: number[], fraction: number): number | undefined {
+  if (sortedValues.length === 0) return undefined
+  return sortedValues[Math.min(sortedValues.length - 1, Math.floor((sortedValues.length - 1) * fraction))]
+}
+
+function formatPercent(value: number | undefined): string {
+  return value === undefined ? 'n/a' : `${Math.round(value * 100)}%`
 }

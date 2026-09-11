@@ -79,6 +79,12 @@ export async function ensureReadPermission(handle: FileSystemDirectoryHandle): P
   return ensurePermission(handle, 'read')
 }
 
+export async function queryReadPermission(handle: FileSystemDirectoryHandle): Promise<boolean> {
+  const permissionHandle = handle as PermissionCapableDirectoryHandle
+  if (typeof permissionHandle.queryPermission !== 'function') return true
+  return (await permissionHandle.queryPermission({ mode: 'read' })) === 'granted'
+}
+
 export async function ensureWritePermission(handle: FileSystemDirectoryHandle): Promise<boolean> {
   return ensurePermission(handle, 'readwrite')
 }

@@ -26,6 +26,12 @@ The primary experience follows the visual and interaction rules in [PhotoFind vi
 - **Compare** — inspect related frames together, see each candidate's source folder, select a winner and optionally reject the alternatives in one reversible action.
 - **Selection** — inspect keepers and export the finished result.
 
+## Batch analysis
+
+Use **Batch jobs** to select multiple local indexes and any combination of **People**, **Product photos**, **Quality**, and **Duplicates**. The selected jobs run sequentially, saving analysis into each index and reusing current results. People analysis requires explicitly selecting its checkbox.
+
+Check folder access before leaving the batch unattended. Keep PhotoFind open and the computer awake; a hosted browser app cannot keep processing after its tab closes or guarantee that the operating system will stay awake. Job failures remain visible and do not prevent other jobs from running. Stop/resume controls allow unfinished work to continue later.
+
 ## Browser folder access
 
 PhotoFind uses progressive enhancement rather than checking browser brand:

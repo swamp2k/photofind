@@ -8,10 +8,6 @@
   border-radius: 13px;
   background: rgba(20, 25, 38, .92);
 }
-.pf-sidebar > .sidebar-privacy {
-  order: 51;
-  margin-top: 0;
-}
 .global-process-heading {
   display: flex;
   align-items: center;

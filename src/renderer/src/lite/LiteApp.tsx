@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BrowseFilters } from './BrowseFilters'
+import { BatchJobsPanel } from './BatchJobsPanel'
+import { restoreBatchJobs, runBatchJobs, type BatchJob } from './batchJobs'
+import { checkBatchLibraryAccess, executeBatchAnalysis, type BatchAnalysisProgress } from './batchAnalysis'
+import { useGlobalProcesses } from './globalProcesses'
 import { ComparePanel } from './ComparePanel'
 import { classifyLikelyNonPhoto, setScreenshotOverride } from './contentClassification'
 import { usePhotoFindContextMenu } from './ContextMenu'
@@ -37,7 +41,7 @@ import { useGlobalStarredPhotos } from './globalStarred'
 import type { LiteDateMetadataFilter, LiteEventOverride, LiteEventRecord, LiteExportLayout, LiteExportProgress, LiteExportResult, LiteGeoBounds, LiteKnownDateRecord, LiteLibraryAccessMode, LiteLibraryRecord, LiteLocationFilter, LiteMediaRecord, LitePeopleProgress, LitePersonRecord, LitePhotoFilters, LiteQualityProgress, LiteReviewFilter, LiteReviewState, LiteScanProgress, LiteSelectionFile, LiteSimilarityProgress } from './types'
 import { clearUndoHistory, LIBRARY_STATE_CHANGED_EVENT, registerUndo, UndoControl } from './undoHistory'
 
-type BrowseView = 'photos' | 'starred' | 'events' | 'map' | 'people' | 'groups' | 'quality' | 'review' | 'compare' | 'selection'
+type BrowseView = 'photos' | 'starred' | 'events' | 'map' | 'people' | 'groups' | 'quality' | 'batch' | 'review' | 'compare' | 'selection'
 
 export function LiteApp(): JSX.Element {
   const { settings } = useReviewSettings()
@@ -52,6 +56,7 @@ export function LiteApp(): JSX.Element {
   const similarityAbortRef = useRef<AbortController | null>(null)
   const qualityAbortRef = useRef<AbortController | null>(null)
   const peopleAbortRef = useRef<AbortController | null>(null)
+  const batchAbortRef = useRef<AbortController | null>(null)
   const { registerPhotoActions } = usePhotoFindContextMenu()
   const [people, setPeople] = useState<LitePersonRecord[]>([])
   const [eventOverrides, setEventOverrides] = useState<LiteEventOverride[]>([])
@@ -68,6 +73,14 @@ export function LiteApp(): JSX.Element {
   const [similarityBusy, setSimilarityBusy] = useState(false)
   const [qualityBusy, setQualityBusy] = useState(false)
   const [peopleBusy, setPeopleBusy] = useState(false)
+  const [savedBatch] = useState(loadSavedBatchJobs)
+  const [batchJobs, setBatchJobs] = useState<BatchJob[]>(savedBatch.jobs)
+  const [batchRunning, setBatchRunning] = useState(false)
+  const batchRunningRef = useRef(false)
+  const [batchProgress, setBatchProgress] = useState<BatchAnalysisProgress | null>(null)
+  const [batchNotice, setBatchNotice] = useState<string | null>(savedBatch.error)
+  const [batchStopping, setBatchStopping] = useState(false)
+  const globalProcesses = useGlobalProcesses()
   const [reviewWrites, setReviewWrites] = useState(0)
   const [exportBusy, setExportBusy] = useState(false)
   const [knownDatesOpen, setKnownDatesOpen] = useState(false)
@@ -98,12 +111,25 @@ export function LiteApp(): JSX.Element {
   const supported = folderMode !== 'unsupported'
   const exportSupported = supportsWritableExport()
   const reviewBusy = reviewWrites > 0
-  const working = busy || similarityBusy || qualityBusy || peopleBusy || reviewBusy || exportBusy
+  const working = busy || similarityBusy || qualityBusy || peopleBusy || reviewBusy || exportBusy || batchRunning
 
   useEffect(() => {
     void refreshLibraries()
     void refreshGlobalKnownDates()
   }, [])
+  useEffect(() => {
+    try { if (batchJobs.length > 0) window.localStorage.setItem('photofind-batch-jobs', JSON.stringify(batchJobs))
+      else window.localStorage.removeItem('photofind-batch-jobs') } catch { setError('The batch queue could not be saved in this browser. The current run can continue, but resume after closing the tab will be unavailable.') }
+  }, [batchJobs])
+  useEffect(() => {
+    return () => { batchAbortRef.current?.abort() }
+  }, [])
+  useEffect(() => {
+    if (!batchRunning) return
+    const warn = (event: BeforeUnloadEvent): void => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [batchRunning])
   useEffect(() => { setVisibleCount(pageSize) }, [pageSize])
   useEffect(() => {
     // Without this the browser navigates away from PhotoFind when a folder is dropped outside the drop target.
@@ -274,6 +300,7 @@ export function LiteApp(): JSX.Element {
   }
 
   function setStarredState(itemId: string, starred: boolean): void {
+    if (batchRunningRef.current) return
     const previous = mediaRef.current.find((item) => item.id === itemId)
     const result = setPhotoStarred(mediaRef.current, itemId, starred)
     if (!result.changed) return
@@ -290,6 +317,7 @@ export function LiteApp(): JSX.Element {
   }
 
   function setScreenshotState(itemId: string, screenshot: boolean): void {
+    if (batchRunningRef.current) return
     const previous = mediaRef.current.find((item) => item.id === itemId)
     const result = setScreenshotOverride(mediaRef.current, itemId, screenshot)
     if (!result.changed) return
@@ -420,6 +448,7 @@ export function LiteApp(): JSX.Element {
   }
 
   async function openLibrary(library: LiteLibraryRecord): Promise<void> {
+    if (batchRunningRef.current) return
     setError(null)
     try {
       if (libraryMode(library) === 'handle') {
@@ -449,6 +478,81 @@ export function LiteApp(): JSX.Element {
     } catch (cause) {
       if (!isAbort(cause)) setError(messageOf(cause))
     }
+  }
+
+  async function runBatch(startJobs: BatchJob[] = batchJobs): Promise<void> {
+    if (batchRunningRef.current || working || globalProcesses.length > 0 || startJobs.length === 0) return
+    const controller = new AbortController()
+    batchAbortRef.current = controller
+    batchRunningRef.current = true
+    setBatchRunning(true)
+    setBatchStopping(false)
+    setBatchProgress(null)
+    setBatchNotice('Checking folder access before starting…')
+    setBatchJobs(startJobs)
+    clearUndoHistory()
+    try {
+      const preflight = await preflightBatchLibraries(startJobs)
+      setBatchJobs(preflight.jobs)
+      if (preflight.blocked) {
+        setBatchNotice('No jobs started. Reconnect the indexes shown below, then resume. You can also select only available indexes and start a new batch.')
+        return
+      }
+      controller.signal.throwIfAborted()
+      setBatchNotice(null)
+      const result = await runBatchJobs(preflight.jobs, executeBatchJob, {
+        signal: controller.signal,
+        onUpdate: ({ jobs }) => setBatchJobs(jobs)
+      })
+      setBatchJobs(result)
+      setBatchNotice(controller.signal.aborted ? 'Batch stopped. Resume to continue unfinished jobs using saved results.' : result.some(job => job.status === 'failed') ? 'Batch finished with errors. Other jobs continued; review the failures below.' : 'Batch complete. Results are saved in each local index.')
+    } catch (cause) {
+      setBatchNotice(isAbort(cause) ? 'Batch stopped. Resume to continue unfinished jobs.' : `Batch stopped: ${messageOf(cause)}`)
+    } finally {
+      if (activeLibrary) await reloadLibraryState(activeLibrary.id)
+      if (batchAbortRef.current === controller) batchAbortRef.current = null
+      batchRunningRef.current = false
+      setBatchRunning(false)
+      setBatchStopping(false)
+      setBatchProgress(null)
+    }
+  }
+
+  async function preflightBatchLibraries(jobs: BatchJob[]): Promise<{ jobs: BatchJob[]; blocked: boolean }> {
+    const next = jobs.map((job) => ({ ...job }))
+    let blocked = false
+    for (const libraryId of [...new Set(jobs.filter(job => job.status !== 'complete').map((job) => job.libraryId))]) {
+      const library = libraries.find((candidate) => candidate.id === libraryId)
+      try {
+        if (!library) throw new Error('This index no longer exists. Start a new batch using available indexes.')
+        await checkBatchLibraryAccess(library, sessionFiles)
+      } catch (cause) {
+        blocked = true
+        for (const job of next) if (job.libraryId === libraryId && job.status !== 'complete') {
+          job.status = 'failed'
+          job.error = messageOf(cause)
+        }
+      }
+    }
+    return { jobs: next, blocked }
+  }
+
+  async function executeBatchJob(job: BatchJob, signal: AbortSignal): Promise<void> {
+    const library = libraries.find((candidate) => candidate.id === job.libraryId)
+    if (!library) throw new Error('This local index no longer exists.')
+    setBatchProgress(null)
+    await executeBatchAnalysis(job, library, sessionFiles, signal, setBatchProgress)
+  }
+
+  function stopBatch(): void { setBatchStopping(true); batchAbortRef.current?.abort() }
+
+  async function reconnectBatchLibrary(library: LiteLibraryRecord): Promise<void> {
+    if (batchRunningRef.current) return
+    try {
+      if (!library.rootHandle) throw new Error('Open this index in Library and reselect its folder, then return to Batch jobs.')
+      if (!await ensureReadPermission(library.rootHandle)) throw new Error(`Read permission was not granted for ${library.name}.`)
+      setBatchNotice(`${library.name} is connected. Resume the queue when all selected folders are available.`)
+    } catch (cause) { setBatchNotice(messageOf(cause)) }
   }
 
   async function runSimilarityAnalysis(): Promise<void> {
@@ -545,6 +649,7 @@ export function LiteApp(): JSX.Element {
   }
 
   function updateReview(targets: LiteMediaRecord[], state: LiteReviewState, undoLabel?: string): void {
+    if (batchRunningRef.current) return
     applyReviewAssignments(new Map(targets.map((item) => [item.id, state])), undoLabel)
   }
 
@@ -731,6 +836,7 @@ export function LiteApp(): JSX.Element {
   }
 
   async function addPhotosToEventByIds(photoIds: string[], eventId: string): Promise<void> {
+    if (batchRunningRef.current) return
     const event = eventsRef.current.find((candidate) => candidate.id === eventId && isKnownDateEvent(candidate))
     if (!event) return
     const availableIds = new Set(mediaRef.current.filter((candidate) => candidate.kind === 'image' && !isRejected(candidate)).map((candidate) => candidate.id))
@@ -752,6 +858,7 @@ export function LiteApp(): JSX.Element {
   }
 
   async function removePhotosFromEventByIds(photoIds: string[], eventId: string): Promise<void> {
+    if (batchRunningRef.current) return
     const event = eventsRef.current.find((candidate) => candidate.id === eventId)
     if (!event) return
     const removals = [...new Set(photoIds)].filter((id) => event.itemIds.includes(id))
@@ -772,6 +879,7 @@ export function LiteApp(): JSX.Element {
   }
 
   function beginContextCreateEvent(photoIds: string[]): void {
+    if (batchRunningRef.current) return
     const availableIds = new Set(mediaRef.current.filter((candidate) => candidate.kind === 'image' && !isRejected(candidate)).map((candidate) => candidate.id))
     const targets = [...new Set(photoIds)].filter((id) => availableIds.has(id))
     if (targets.length === 0) return
@@ -963,6 +1071,7 @@ export function LiteApp(): JSX.Element {
   }
 
   async function forgetLibrary(library: LiteLibraryRecord): Promise<void> {
+    if (batchRunningRef.current) return
     if (!window.confirm(`Forget the local PhotoFind index for “${library.name}”? No photo files will be deleted.`)) return
     try {
       await deleteLibrary(library.id)
@@ -989,6 +1098,7 @@ export function LiteApp(): JSX.Element {
   }
 
   function showSourceFolder(folder: string): void {
+    if (batchRunningRef.current) return
     setSearchQuery('')
     setSourceFolderFilter(folder)
     setYear(null)
@@ -1050,33 +1160,33 @@ export function LiteApp(): JSX.Element {
         <div className="pf-layout">
           <aside className="pf-sidebar">
             <nav className="mode-nav" aria-label="PhotoFind modes">
-              <ModeButton icon="▦" label="Library" active={view === 'photos'} disabled={!activeLibrary} onClick={() => setView('photos')} />
-              <ModeButton icon="★" label="Starred" count={starredImages.length} active={view === 'starred'} disabled={!activeLibrary} onClick={() => { setView('starred'); setVisibleCount(pageSize) }} />
-              <ModeButton icon="◷" label="Events" count={meaningfulEvents.length} active={view === 'events'} disabled={!activeLibrary} onClick={() => setView('events')} />
-              <ModeButton icon="⌖" label="Map" count={locatedCount} active={view === 'map'} disabled={!activeLibrary} onClick={() => { setMapBounds(null); setView('map') }} />
-              <ModeButton icon="◎" label="AI filters" count={visiblePeopleCount} active={view === 'people'} disabled={!activeLibrary} onClick={() => setView('people')} />
-              <ModeButton icon="◫" label="Duplicates" count={similarityGroups.length} active={view === 'groups'} disabled={!activeLibrary} onClick={() => setView('groups')} />
-              <ModeButton icon="✦" label="Quality" count={qualityReadyCount} active={view === 'quality'} disabled={!activeLibrary} onClick={() => setView('quality')} />
+              <ModeButton icon="▦" label="Library" active={view === 'photos'} disabled={!activeLibrary || batchRunning} onClick={() => setView('photos')} />
+              <ModeButton icon="★" label="Starred" count={starredImages.length} active={view === 'starred'} disabled={!activeLibrary || batchRunning} onClick={() => { setView('starred'); setVisibleCount(pageSize) }} />
+              <ModeButton icon="◷" label="Events" count={meaningfulEvents.length} active={view === 'events'} disabled={!activeLibrary || batchRunning} onClick={() => setView('events')} />
+              <ModeButton icon="⌖" label="Map" count={locatedCount} active={view === 'map'} disabled={!activeLibrary || batchRunning} onClick={() => { setMapBounds(null); setView('map') }} />
+              <ModeButton icon="◎" label="AI filters" count={visiblePeopleCount} active={view === 'people'} disabled={!activeLibrary || batchRunning} onClick={() => setView('people')} />
+              <ModeButton icon="◫" label="Duplicates" count={similarityGroups.length} active={view === 'groups'} disabled={!activeLibrary || batchRunning} onClick={() => setView('groups')} />
+              <ModeButton icon="✦" label="Quality" count={qualityReadyCount} active={view === 'quality'} disabled={!activeLibrary || batchRunning} onClick={() => setView('quality')} />
+              <ModeButton icon="≡" label="Batch jobs" count={batchJobs.filter((job) => job.status !== 'complete').length || undefined} active={view === 'batch'} disabled={false} onClick={() => setView('batch')} />
               <div className="nav-divider" />
-              <ModeButton icon="▶" label="Review" count={reviewCounts.unreviewed} active={view === 'review'} disabled={!activeLibrary || filteredImages.length === 0 || reconnectRequired} onClick={() => setView('review')} />
-              <ModeButton icon="◧" label="Compare" count={contextualGroups.length} active={view === 'compare'} disabled={!activeLibrary || contextualGroups.length === 0 || reconnectRequired} onClick={() => setView('compare')} />
-              <ModeButton icon="✓" label="Selection" count={reviewCounts.keep} active={view === 'selection'} disabled={!activeLibrary} onClick={() => setView('selection')} />
+              <ModeButton icon="▶" label="Review" count={reviewCounts.unreviewed} active={view === 'review'} disabled={!activeLibrary || batchRunning || filteredImages.length === 0 || reconnectRequired} onClick={() => setView('review')} />
+              <ModeButton icon="◧" label="Compare" count={contextualGroups.length} active={view === 'compare'} disabled={!activeLibrary || batchRunning || contextualGroups.length === 0 || reconnectRequired} onClick={() => setView('compare')} />
+              <ModeButton icon="✓" label="Selection" count={reviewCounts.keep} active={view === 'selection'} disabled={!activeLibrary || batchRunning} onClick={() => setView('selection')} />
             </nav>
 
             <section className="index-section">
               <div className="sidebar-heading"><h2>Local indexes</h2><span>{libraries.length}</span></div>
               {libraries.length === 0 ? <p className="sidebar-empty">No folders indexed yet.</p> : <div className="library-list">{libraries.map((library) => (
                 <div className={activeLibrary?.id === library.id ? 'library-card active' : 'library-card'} key={library.id}>
-                  <button className="library-open" onClick={() => void openLibrary(library)}><strong>{library.name}</strong><span>{library.imageCount.toLocaleString()} photos</span></button>
-                  <button className="icon-button" title="Forget local index" aria-label={`Forget ${library.name} index`} onClick={() => void forgetLibrary(library)}>×</button>
+                  <button className="library-open" disabled={batchRunning} onClick={() => void openLibrary(library)}><strong>{library.name}</strong><span>{library.imageCount.toLocaleString()} photos</span></button>
+                  <button className="icon-button" disabled={batchRunning} title="Forget local index" aria-label={`Forget ${library.name} index`} onClick={() => void forgetLibrary(library)}>×</button>
                 </div>
               ))}</div>}
             </section>
-            <div className="sidebar-privacy"><span>▣</span><div><strong>Private by design</strong><small>Photos, face data and index stay on this device.</small></div></div>
           </aside>
 
           <main className={focusedMode ? 'pf-main focus-main' : 'pf-main'}>
-            {!activeLibrary ? <EmptyState onChoose={() => void addFolder()} disabled={!supported || working} /> : focusedMode ? (
+            {view === 'batch' ? <BatchJobsPanel libraries={libraries} running={batchRunning} stopping={batchStopping} unavailable={!batchRunning && (working || globalProcesses.length > 0)} jobs={batchJobs} progress={batchProgress} notice={batchNotice} onStart={(jobs) => void runBatch(jobs)} onResume={() => void runBatch(batchJobs)} onStop={stopBatch} onReconnect={(library) => void reconnectBatchLibrary(library)} /> : !activeLibrary ? <EmptyState onChoose={() => void addFolder()} disabled={!supported || working} /> : focusedMode ? (
               view === 'review'
                 ? <ReviewSession title={activeLibrary.name} items={filteredImages} sessionFiles={sessionFiles} onReview={updateReview} onExit={() => setView('photos')} />
                 : <ComparePanel items={contextualItems} groups={contextualGroups} sessionFiles={sessionFiles} onReview={(item, state) => updateReview([item], state)} onPickBest={pickBest} />
@@ -1185,6 +1295,7 @@ function collectDiagnostics(items: LiteMediaRecord[]): Array<{ path: string; mes
     if (item.similarityError) output.push({ path: item.relativePath, message: `Similarity analysis: ${item.similarityError}` })
     if (item.qualityError) output.push({ path: item.relativePath, message: `Quality analysis: ${item.qualityError}` })
     if (item.faceAnalysisError) output.push({ path: item.relativePath, message: `People analysis: ${item.faceAnalysisError}` })
+    if (item.productAnalysisError) output.push({ path: item.relativePath, message: `Product photo analysis: ${item.productAnalysisError}` })
   }
   return output
 }
@@ -1247,3 +1358,9 @@ function selectionRootName(selection: LiteSelectionFile[]): string {
   return root || 'Selected folder'
 }
 function isAbort(cause: unknown): boolean { return cause instanceof DOMException && cause.name === 'AbortError' }
+
+function loadSavedBatchJobs(): { jobs: BatchJob[]; error: string | null } {
+  try {
+    return { jobs: restoreBatchJobs(window.localStorage.getItem('photofind-batch-jobs')), error: null }
+  } catch { return { jobs: [], error: 'The saved batch queue could not be read. Select indexes and analyses to start a new queue.' } }
+}
