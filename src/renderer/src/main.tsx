@@ -18,7 +18,7 @@ import './view-sidebar.css'
 import './global-processes.css'
 import './folder-drop.css'
 import './lite/performance.css'
-import './slate-theme.css'
+import './theme.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

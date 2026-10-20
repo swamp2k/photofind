@@ -4,9 +4,9 @@
   gap: 9px;
   margin-top: auto;
   padding: 11px;
-  border: 1px solid rgba(110, 183, 247, .34);
+  border: 1px solid rgba(121, 103, 242, .34);
   border-radius: 13px;
-  background: rgba(71, 83, 98, .92);
+  background: rgba(20, 25, 38, .92);
 }
 .global-process-heading {
   display: flex;
@@ -16,7 +16,7 @@
 }
 .global-process-heading strong {
   overflow: hidden;
-  color: #d8edff;
+  color: #ddd8ff;
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -27,7 +27,7 @@
   flex: 0 0 auto;
   border-radius: 50%;
   background: var(--accent);
-  box-shadow: 0 0 0 0 rgba(140, 201, 255, .42);
+  box-shadow: 0 0 0 0 rgba(156, 140, 255, .42);
   animation: global-process-pulse 1.6s ease-out infinite;
 }
 .global-process-list { display: grid; gap: 10px; }
@@ -45,7 +45,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.global-process-row strong { color: #c2e3ff; font-size: 9px; font-variant-numeric: tabular-nums; }
+.global-process-row strong { color: #c9c2ff; font-size: 9px; font-variant-numeric: tabular-nums; }
 .global-process-track {
   position: relative;
   height: 4px;
@@ -78,8 +78,8 @@
   white-space: nowrap;
 }
 @keyframes global-process-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(140, 201, 255, .42); }
-  70%, 100% { box-shadow: 0 0 0 6px rgba(140, 201, 255, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(156, 140, 255, .42); }
+  70%, 100% { box-shadow: 0 0 0 6px rgba(156, 140, 255, 0); }
 }
 @keyframes global-process-indeterminate {
   0% { transform: translateX(-115%); }
