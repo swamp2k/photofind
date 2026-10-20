@@ -105,7 +105,8 @@ async function analyzeOne(
             box: normalizeBox(face.boxRaw),
             confidence: round(Math.max(0, Math.min(1, face.faceScore || face.boxScore || face.score || 0))),
             embedding: face.embedding!.map((value) => round(value)),
-            ...(previous?.excludedPersonIds?.length ? { excludedPersonIds: [...previous.excludedPersonIds] } : {})
+            ...(previous?.excludedPersonIds?.length ? { excludedPersonIds: [...previous.excludedPersonIds] } : {}),
+            ...(previous?.confirmed && previous.personId ? { personId: previous.personId, confirmed: true } : {})
           }
         })
       return {

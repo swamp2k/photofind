@@ -59,6 +59,8 @@ export function LiteApp(): JSX.Element {
   const batchAbortRef = useRef<AbortController | null>(null)
   const { registerPhotoActions } = usePhotoFindContextMenu()
   const [people, setPeople] = useState<LitePersonRecord[]>([])
+  const peopleRef = useRef<LitePersonRecord[]>([])
+  peopleRef.current = people
   const [eventOverrides, setEventOverrides] = useState<LiteEventOverride[]>([])
   eventOverridesRef.current = eventOverrides
   const [globalKnownDates, setGlobalKnownDates] = useState<LiteKnownDateRecord[]>([])
@@ -755,15 +757,23 @@ export function LiteApp(): JSX.Element {
   async function confirmPersonFace(faceRef: string, personId: string): Promise<void> {
     if (!activeLibrary) return
     const libraryId = activeLibrary.id
-    const previousPeople = people
-    const result = confirmFaceForPerson(mediaRef.current, people, faceRef, personId)
+    const previousPeople = peopleRef.current
+    const previousItems = mediaRef.current
+    const result = confirmFaceForPerson(previousItems, previousPeople, faceRef, personId)
     const previousMedia = previousMediaRecords(result.changed)
+    // Apply in memory first so quick successive clicks build on each other.
+    setMediaState(result.items)
+    peopleRef.current = result.people
+    setPeople(result.people)
     try {
       await savePeopleState(libraryId, result.people, result.changed)
-      setMediaState(result.items)
-      setPeople(result.people)
       registerUndo('Confirm person', () => savePeopleState(libraryId, previousPeople, previousMedia))
-    } catch (cause) { setError(`Face confirmation was not saved: ${messageOf(cause)}`) }
+    } catch (cause) {
+      setMediaState(previousItems)
+      peopleRef.current = previousPeople
+      setPeople(previousPeople)
+      setError(`Face confirmation was not saved: ${messageOf(cause)}`)
+    }
   }
 
   async function excludePersonFace(faceRef: string, personId: string): Promise<void> {

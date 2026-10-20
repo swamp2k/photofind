@@ -29,6 +29,17 @@ describe('baby face suggestions', () => {
     expect(result[1].percent).toBe(88)
   })
 
+  it('does not trust file dates as capture times', () => {
+    const t = 1_000_000_000
+    const items = [
+      photo('a', t, [face('f', [1, 0], { personId: 'p1', confirmed: true })]),
+      { ...photo('copied', t + 1_000, [face('f', [0.6, 0.8])]), captureTimeSource: 'file' as const }
+    ]
+    const [only] = suggestFacesForPerson(items, 'p1')
+    expect(only.burst).toBe(false)
+    expect(only.percent).toBe(60)
+  })
+
   it('returns nothing until a face is confirmed', () => {
     expect(suggestFacesForPerson([photo('a', 1, [face('f', [1, 0], { personId: 'p1' })])], 'p1')).toEqual([])
   })

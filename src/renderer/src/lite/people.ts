@@ -278,7 +278,7 @@ export function suggestFacesForPerson(items: LiteMediaRecord[], personId: string
     for (const face of item.faces ?? []) {
       if (face.personId !== personId || !face.confirmed) continue
       const embedding = normalizeEmbedding(face.embedding)
-      if (embedding.length) examples.push({ embedding, time: item.effectiveCaptureTime })
+      if (embedding.length) examples.push({ embedding, time: reliableCaptureTime(item) })
     }
   }
   if (examples.length === 0) return []
@@ -286,7 +286,7 @@ export function suggestFacesForPerson(items: LiteMediaRecord[], personId: string
 
   const suggestions: LiteFaceSuggestion[] = []
   for (const item of items) {
-    const time = item.effectiveCaptureTime
+    const time = reliableCaptureTime(item)
     if (times.length > 0 && typeof time === 'number' && !times.some((t) => Math.abs(t - time) <= SUGGESTION_SESSION_WINDOW_MS)) continue
     for (const face of item.faces ?? []) {
       if (face.confirmed || face.excludedPersonIds?.includes(personId) || !usableForSuggestion(item, face)) continue
@@ -303,6 +303,11 @@ export function suggestFacesForPerson(items: LiteMediaRecord[], personId: string
     }
   }
   return suggestions.sort((a, b) => b.percent - a.percent || a.ref.localeCompare(b.ref)).slice(0, limit)
+}
+
+// File dates often change when folders are copied, so only real capture dates count as "taken at".
+function reliableCaptureTime(item: LiteMediaRecord): number | undefined {
+  return item.captureTimeSource === 'file' ? undefined : item.effectiveCaptureTime
 }
 
 function usableForSuggestion(item: LiteMediaRecord, face: LiteFaceObservation): boolean {
