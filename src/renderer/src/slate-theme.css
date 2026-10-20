@@ -19,3 +19,11 @@ body { background: var(--bg); }
 button { border-radius: 4px; }
 button:hover:not(:disabled) { transform: none; }
 .pf-topbar { height: var(--pf-topbar-height); gap: 12px; padding: 0 12px; background: #424a57; backdrop-filter: none; }
+
+/* Phones: stop the nav row from stretching the page wider than the screen. */
+@media (max-width: 860px) {
+  .pf-layout { grid-template-columns: minmax(0, 1fr); }
+  .pf-sidebar, .pf-main { min-width: 0; }
+  .pf-topbar { height: auto; padding: 8px 12px; }
+}
+input::placeholder { color: #c9d2de; opacity: 1; }
