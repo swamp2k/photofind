@@ -1,0 +1,27 @@
+/* PCWatch theme: deep blue-black, violet accent, crisp slate text. Loaded last so it wins. */
+:root {
+  --bg: #0f1117;
+  --panel: #1a1d27;
+  --panel-2: #151822;
+  --panel-3: #1e2230;
+  --border: #334155;
+  --border-strong: #475569;
+  --muted: #94a3b8;
+  --text: #e2e8f0;
+  --accent: #8b5cf6;
+  --accent-strong: #7c3aed;
+  --accent-soft: rgba(139, 92, 246, .15);
+  --radius: 6px;
+  --radius-small: 4px;
+}
+body { background: var(--bg); }
+button { border-radius: 4px; }
+button:hover:not(:disabled) { transform: none; }
+.pf-topbar { background: #1a1d27; backdrop-filter: none; border-bottom-color: var(--border); }
+.pf-sidebar { background: #1a1d27; }
+
+/* Phones: stop the nav row from stretching the page wider than the screen. */
+@media (max-width: 860px) {
+  .pf-layout { grid-template-columns: minmax(0, 1fr); }
+  .pf-sidebar, .pf-main { min-width: 0; }
+}

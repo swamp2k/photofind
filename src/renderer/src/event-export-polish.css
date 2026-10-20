@@ -10,7 +10,7 @@
   display: inline-flex;
   width: max-content;
   margin-top: 3px;
-  color: #add9ff;
+  color: #bdadff;
   font-size: 10px;
   font-style: normal;
   text-transform: uppercase;
@@ -22,7 +22,7 @@
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 11px;
-  background: rgba(70, 81, 96, .64);
+  background: rgba(17, 23, 34, .64);
 }
 .event-holiday-group > summary {
   display: flex;
@@ -60,7 +60,7 @@
 .map-stack-photo.explorer-selected,
 .compare-candidate.explorer-selected,
 .keeper-card.explorer-selected {
-  outline: 2px solid #6eb7f7;
+  outline: 2px solid #7f77e8;
   outline-offset: 1px;
 }
 .event-photo-grid .selection-check,
@@ -119,8 +119,8 @@
   padding: 5px 8px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 11px;
-  background: rgba(110, 183, 247, .11);
-  border-color: rgba(110, 183, 247, .35);
+  background: rgba(127, 119, 232, .11);
+  border-color: rgba(127, 119, 232, .35);
 }
 .template-token-row > span,
 .export-template-editor > small {
@@ -149,7 +149,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #d1eaff;
+  color: #d6d1ff;
 }
 .template-preview.invalid code { color: #ffb6bd; }
 
@@ -160,7 +160,7 @@
   padding: 6px;
   border: 1px solid rgba(255, 255, 255, .11);
   border-radius: 10px;
-  background: #465160;
+  background: #15191f;
   box-shadow: 0 18px 55px rgba(0, 0, 0, .46), 0 2px 8px rgba(0, 0, 0, .35);
   user-select: none;
 }
@@ -195,7 +195,7 @@
 }
 .pf-context-menu-row button:hover:not(:disabled),
 .pf-context-menu-row button:focus-visible {
-  background: rgba(110, 183, 247, .16);
+  background: rgba(127, 119, 232, .16);
   transform: none;
 }
 .pf-context-menu-row button.danger { color: #ffadb5; }
@@ -217,7 +217,7 @@
   padding: 6px;
   border: 1px solid rgba(255, 255, 255, .11);
   border-radius: 10px;
-  background: #465160;
+  background: #15191f;
   box-shadow: 0 18px 55px rgba(0, 0, 0, .46), 0 2px 8px rgba(0, 0, 0, .35);
 }
 .pf-context-menu.submenu-left .pf-context-submenu {
@@ -238,11 +238,11 @@
   outline-offset: 1px;
 }
 .event-card.active {
-  box-shadow: inset 3px 0 0 #8cc9ff;
+  box-shadow: inset 3px 0 0 #9c8cff;
 }
 .event-selection-status {
   margin-left: auto;
-  color: #d2eaff;
+  color: #d9d2ff;
   font-size: 11px;
   white-space: nowrap;
 }
@@ -276,7 +276,7 @@
   padding: 20px;
   border: 1px solid rgba(255, 255, 255, .11);
   border-radius: 14px;
-  background: #465160;
+  background: #15191f;
   box-shadow: 0 24px 80px rgba(0, 0, 0, .55);
 }
 .pf-dialog h3 { margin: 4px 0; }
