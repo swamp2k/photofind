@@ -99,7 +99,7 @@ button.primary { background: var(--accent-strong); border-color: var(--accent-st
 .load-more { display: block; margin: 18px auto 0; }
 
 .diagnostic-list { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; background: #414c5a; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
-.diagnostic-list li { padding: 6px 10px; border-bottom: 1px solid #4c5868; color: #aeb7c4; }
+.diagnostic-list li { padding: 6px 10px; border-bottom: 1px solid #4c5868; color: #eeeff1; }
 .diagnostic-list li:last-child { border-bottom: 0; }
 
 @media (max-width: 850px) {

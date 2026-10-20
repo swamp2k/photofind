@@ -92,7 +92,7 @@
 .holiday-import-card input { width: 100%; }
 .known-date-range { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .holiday-import-card p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
-.known-date-status { margin-top: 10px; padding: 9px 11px; border-radius: 9px; background: #485464; color: #cbd5e4; font-size: 11px; }
+.known-date-status { margin-top: 10px; padding: 9px 11px; border-radius: 9px; background: #485464; color: #eff0f3; font-size: 11px; }
 .known-date-list-head { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 7px; }
 .known-date-list-head span { color: var(--muted); font-size: 10px; }
 .known-date-list { display: grid; gap: 5px; }

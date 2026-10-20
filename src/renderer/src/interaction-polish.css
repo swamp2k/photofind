@@ -39,7 +39,7 @@
   border-color: #5c6b7e;
   border-radius: 999px;
   background: rgba(73, 85, 101, .78);
-  color: #b2bdcc;
+  color: #eeeff1;
   white-space: nowrap;
 }
 .quality-content-toggle:hover:not(:disabled) { transform: none; }
@@ -318,7 +318,7 @@
   white-space: nowrap;
 }
 .pf-event-picker-secondary-line {
-  color: #9aa7b9;
+  color: #edeef0;
   font-size: 10px;
 }
 .pf-event-picker-secondary-line > span {
