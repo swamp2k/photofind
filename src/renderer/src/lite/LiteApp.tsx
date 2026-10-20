@@ -21,7 +21,7 @@ import { mergeKnownDates } from './knownDates'
 import { deleteEventOverride, deleteLibrary, listLibraries, loadEventOverrides, loadGlobalKnownDates, loadMedia, loadPeople, putMediaRecords, replaceLibrary, saveEventOverride, saveEventOverrideBatch, saveKnownDateState, savePeopleState } from './libraryDb'
 import { MapResults } from './MapResults'
 import { analyzePeople } from './peopleAnalysis'
-import { clusterPeople, excludeFaceFromPerson, mergePeople as mergePeopleState, renamePerson as renamePersonState, setPersonIgnored, splitFaceIntoNewPerson } from './people'
+import { clusterPeople, confirmFaceForPerson, excludeFaceFromPerson, mergePeople as mergePeopleState, renamePerson as renamePersonState, setPersonIgnored, splitFaceIntoNewPerson } from './people'
 import { PeoplePanel } from './PeoplePanel'
 import { PhotoResults } from './PhotoResults'
 import { analyzeQuality } from './qualityAnalysis'
@@ -752,6 +752,20 @@ export function LiteApp(): JSX.Element {
     } catch (cause) { setError(`Face was not split into a new person: ${messageOf(cause)}`) }
   }
 
+  async function confirmPersonFace(faceRef: string, personId: string): Promise<void> {
+    if (!activeLibrary) return
+    const libraryId = activeLibrary.id
+    const previousPeople = people
+    const result = confirmFaceForPerson(mediaRef.current, people, faceRef, personId)
+    const previousMedia = previousMediaRecords(result.changed)
+    try {
+      await savePeopleState(libraryId, result.people, result.changed)
+      setMediaState(result.items)
+      setPeople(result.people)
+      registerUndo('Confirm person', () => savePeopleState(libraryId, previousPeople, previousMedia))
+    } catch (cause) { setError(`Face confirmation was not saved: ${messageOf(cause)}`) }
+  }
+
   async function excludePersonFace(faceRef: string, personId: string): Promise<void> {
     if (!activeLibrary) return
     const libraryId = activeLibrary.id
@@ -1228,7 +1242,7 @@ export function LiteApp(): JSX.Element {
 
               {view === 'events' && <EventsPanel items={activeImages} events={events} people={people} sessionFiles={sessionFiles} onReview={(item, state) => updateReview([item], state)} onRename={(event, title) => void renameEvent(event, title)} onAddKnown={addKnownEvent} onRemove={(event) => void removeEvent(event)} onRemovePhotos={(event, targets) => void removePhotosFromEvent(event, targets)} onMerge={mergeEvents} />}
               {view === 'map' && <MapResults items={mapItems} visibleItems={mapViewportItems} viewportReady={mapBounds !== null} selected={selectedMapItem} sessionFiles={sessionFiles} onBoundsChange={handleMapBounds} onCreateEvent={createMapEvent} onSelect={setSelectedMapId} onShowSelected={() => { setView('photos'); setVisibleCount(pageSize) }} onReview={(item, state) => updateReview([item], state)} />}
-              {view === 'people' && <PeoplePanel items={activeImages} people={people} sessionFiles={sessionFiles} progress={peopleProgress} busy={peopleBusy} reconnectRequired={reconnectRequired} onRename={(personId, name) => void renamePerson(personId, name)} onIgnore={(personId, ignored) => void ignorePerson(personId, ignored)} onMerge={(sourceId, targetId) => void mergePerson(sourceId, targetId)} onSplit={(faceRef) => void splitPersonFace(faceRef)} onExclude={(faceRef, personId) => void excludePersonFace(faceRef, personId)} onReview={(item, state) => updateReview([item], state)} />}
+              {view === 'people' && <PeoplePanel items={activeImages} people={people} sessionFiles={sessionFiles} progress={peopleProgress} busy={peopleBusy} reconnectRequired={reconnectRequired} onRename={(personId, name) => void renamePerson(personId, name)} onIgnore={(personId, ignored) => void ignorePerson(personId, ignored)} onMerge={(sourceId, targetId) => void mergePerson(sourceId, targetId)} onSplit={(faceRef) => void splitPersonFace(faceRef)} onExclude={(faceRef, personId) => void excludePersonFace(faceRef, personId)} onConfirm={(faceRef, personId) => void confirmPersonFace(faceRef, personId)} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'photos' && <PhotoResults items={filteredImages} visibleCount={visibleCount} batchSize={pageSize} flowLoading={settings.flowLoading} selectedId={selectedMapId} sessionFiles={sessionFiles} onShowMore={() => setVisibleCount((count) => count + pageSize)} onReview={(item, state) => updateReview([item], state)} />}
               {view === 'starred' && <PhotoResults items={starredFilteredImages} visibleCount={visibleCount} batchSize={pageSize} flowLoading={settings.flowLoading} selectedId={null} sessionFiles={sessionFiles} onShowMore={() => setVisibleCount((count) => count + pageSize)} onReview={(item, state) => void updateStarredReview(item, state)} />}
               {view === 'groups' && <SimilarityGroups items={contextualItems} groups={contextualGroups} reviewFilter={reviewFilter} sessionFiles={sessionFiles} progress={similarityProgress} busy={similarityBusy} reconnectRequired={reconnectRequired} onAnalyze={() => void runSimilarityAnalysis()} onAbort={stopSimilarityAnalysis} onReview={(item, state) => updateReview([item], state)} onApprove={(items) => updateReview(items, 'keep', 'Approve duplicate group')} />}
