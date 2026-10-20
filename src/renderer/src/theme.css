@@ -25,3 +25,22 @@ button:hover:not(:disabled) { transform: none; }
   .pf-layout { grid-template-columns: minmax(0, 1fr); }
   .pf-sidebar, .pf-main { min-width: 0; }
 }
+
+/* Settings drawer: centred, clearly visible close button. */
+.settings-close {
+  display: grid; place-items: center;
+  padding: 0; line-height: 1; font-size: 18px;
+  top: 14px; right: 14px; width: 32px; height: 32px;
+  border: 1px solid var(--border); background: var(--panel); color: var(--text);
+}
+.settings-close:hover { border-color: var(--accent); }
+
+/* The filter-column drag handle only belongs on views that have a filter column. */
+.pf-main:not(:has(> .filter-disclosure, > .events-section, > .quality-section)) > .view-column-resizer { display: none; }
+
+/* Review filter chips: keep them on one tidy row instead of stretching the last one. */
+.pf-main > .filter-disclosure .review-filter-tabs button { flex: 0 0 auto; }
+
+/* Quality: fit one more card per row. */
+.quality-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.quality-stats { grid-template-columns: repeat(auto-fit, minmax(88px, 1fr)); }
