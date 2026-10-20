@@ -15,7 +15,7 @@
   overflow: auto;
   padding: 28px;
   border-left: 1px solid var(--border);
-  background: #0f151e;
+  background: #444f5e;
   box-shadow: -18px 0 50px rgba(0, 0, 0, .4);
 }
 
@@ -53,7 +53,7 @@
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: #111821;
+  background: #455160;
 }
 .settings-select-row > span { display: grid; gap: 4px; }
 .settings-select-row small { color: var(--muted); line-height: 1.45; }
@@ -68,7 +68,7 @@
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: #111821;
+  background: #455160;
 }
 .settings-cache-row > div { min-width: 0; display: grid; gap: 4px; }
 .settings-cache-row strong { color: var(--text); }
@@ -90,15 +90,15 @@
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: #111821;
+  background: #455160;
   cursor: pointer;
 }
-.keymap-option.active { border-color: #668fc9; background: #17263a; }
+.keymap-option.active { border-color: #668fc9; background: #4d596a; }
 .keymap-option input { accent-color: var(--accent-strong); }
 .keymap-option > span { display: grid; gap: 2px; }
 .keymap-option small { color: var(--muted); }
 .keymap-keys { display: flex; gap: 5px; }
-kbd { min-width: 24px; padding: 3px 6px; border: 1px solid #49586d; border-bottom-width: 2px; border-radius: 5px; background: #111821; color: #e8eef8; font: 700 11px/1.2 ui-monospace, monospace; text-align: center; }
+kbd { min-width: 24px; padding: 3px 6px; border: 1px solid #64748a; border-bottom-width: 2px; border-radius: 5px; background: #455160; color: #e8eef8; font: 700 11px/1.2 ui-monospace, monospace; text-align: center; }
 .settings-footnote { margin: 12px 0 0; color: var(--muted); font-size: 11px; }
 
 .person-face-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 7px; }

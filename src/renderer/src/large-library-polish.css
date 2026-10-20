@@ -8,7 +8,7 @@
   padding: 9px 11px;
   border: 1px solid var(--border);
   border-radius: 11px;
-  background: rgba(17, 23, 34, .78);
+  background: rgba(70, 81, 96, .78);
 }
 .compact-view-toolbar .event-person-filter { min-width: 150px; }
 .compact-toolbar-note {
@@ -24,9 +24,9 @@
   gap: 8px;
   flex-wrap: wrap;
   padding: 10px 12px;
-  border: 1px dashed #374456;
+  border: 1px dashed #5a697d;
   border-radius: 11px;
-  background: rgba(17, 23, 34, .58);
+  background: rgba(70, 81, 96, .58);
 }
 .compact-empty-state span { color: var(--muted); font-size: 11px; }
 
@@ -79,7 +79,7 @@
   padding: 13px;
   border: 1px solid var(--border);
   border-radius: 11px;
-  background: rgba(11, 16, 24, .62);
+  background: rgba(66, 77, 91, .62);
 }
 .known-date-editor h4,
 .holiday-import-card h4 { margin: 0; }
@@ -92,7 +92,7 @@
 .holiday-import-card input { width: 100%; }
 .known-date-range { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .holiday-import-card p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.45; }
-.known-date-status { margin-top: 10px; padding: 9px 11px; border-radius: 9px; background: #161d29; color: #cbd5e4; font-size: 11px; }
+.known-date-status { margin-top: 10px; padding: 9px 11px; border-radius: 9px; background: #485464; color: #cbd5e4; font-size: 11px; }
 .known-date-list-head { display: flex; align-items: baseline; gap: 10px; margin: 14px 0 7px; }
 .known-date-list-head span { color: var(--muted); font-size: 10px; }
 .known-date-list { display: grid; gap: 5px; }
@@ -104,7 +104,7 @@
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 9px;
-  background: rgba(17, 23, 34, .64);
+  background: rgba(70, 81, 96, .64);
 }
 .known-date-list article > div { min-width: 0; display: grid; gap: 2px; }
 .known-date-list article strong,
