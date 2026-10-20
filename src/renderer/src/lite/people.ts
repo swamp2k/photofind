@@ -65,7 +65,7 @@ export function clusterPeople(
     let selected: WorkingCluster | undefined
     if (entry.face.personId) {
       const prior = clusters.get(entry.face.personId)
-      if (prior && !excluded.has(prior.id) && cosineSimilarity(embedding, prior.centroid) >= PRESERVE_ASSIGNMENT_THRESHOLD) selected = prior
+      if (prior && !excluded.has(prior.id) && (entry.face.confirmed || cosineSimilarity(embedding, prior.centroid) >= PRESERVE_ASSIGNMENT_THRESHOLD)) selected = prior
     }
 
     if (!selected) {
@@ -174,7 +174,7 @@ export function splitFaceIntoNewPerson(
     const faces = item.faces.map((face) => {
       if (faceReference(item.id, face.id) !== faceRef) return face
       didChange = true
-      return { ...face, personId: newId }
+      return { ...face, personId: newId, confirmed: undefined }
     })
     if (!didChange) return item
     const updated = { ...item, faces }
@@ -211,7 +211,7 @@ export function excludeFaceFromPerson(
       const excludedPersonIds = [...new Set([...(face.excludedPersonIds ?? []), personId])].sort()
       if (face.personId !== personId && sameStrings(face.excludedPersonIds ?? [], excludedPersonIds)) return face
       didChange = true
-      return { ...face, personId: face.personId === personId ? undefined : face.personId, excludedPersonIds }
+      return { ...face, personId: face.personId === personId ? undefined : face.personId, confirmed: face.personId === personId ? undefined : face.confirmed, excludedPersonIds }
     })
     if (!didChange) return item
     const updated = { ...item, faces }
@@ -220,6 +220,103 @@ export function excludeFaceFromPerson(
   })
   if (changed.length === 0) return { items, changed: [], people }
   return { items: nextItems, changed, people: rebuildPeopleFromAssignments(nextItems, people, now) }
+}
+
+export function confirmFaceForPerson(
+  items: LiteMediaRecord[],
+  people: LitePersonRecord[],
+  faceRef: string,
+  personId: string,
+  now = Date.now()
+): LitePeopleStateResult {
+  const changed: LiteMediaRecord[] = []
+  const nextItems = items.map((item) => {
+    if (!item.faces?.length) return item
+    let didChange = false
+    const faces = item.faces.map((face) => {
+      if (faceReference(item.id, face.id) !== faceRef) return face
+      if (face.personId === personId && face.confirmed) return face
+      didChange = true
+      const excludedPersonIds = (face.excludedPersonIds ?? []).filter((id) => id !== personId)
+      return { ...face, personId, confirmed: true, excludedPersonIds: excludedPersonIds.length ? excludedPersonIds : undefined }
+    })
+    if (!didChange) return item
+    const updated = { ...item, faces }
+    changed.push(updated)
+    return updated
+  })
+  if (changed.length === 0) return { items, changed: [], people }
+  return { items: nextItems, changed, people: rebuildPeopleFromAssignments(nextItems, people, now) }
+}
+
+/** Faces smaller than this (in pixels, shortest side) are too unreliable to guess. */
+export const SUGGESTION_MIN_FACE_PIXELS = 48
+/** Only look at photos taken within this window of a confirmed photo (roughly "the same swim class"). */
+export const SUGGESTION_SESSION_WINDOW_MS = 3 * 60 * 60 * 1000
+/** A confirmed photo of the same person this close in time (a burst) makes a match more likely. */
+export const SUGGESTION_BURST_WINDOW_MS = 15 * 1000
+const SUGGESTION_MIN_SCORE = 0.35
+
+export interface LiteFaceSuggestion {
+  ref: string
+  item: LiteMediaRecord
+  face: LiteFaceObservation
+  /** 0–100, how sure the app is. */
+  percent: number
+  burst: boolean
+}
+
+/**
+ * Suggests faces that may belong to a person, based only on the faces the user has confirmed.
+ * Compares against each confirmed example (not an average), because baby faces vary a lot
+ * between photos. Only looks near confirmed photos in time, skips tiny or uncertain faces,
+ * and gives a small boost to photos taken seconds after a confirmed one.
+ */
+export function suggestFacesForPerson(items: LiteMediaRecord[], personId: string, limit = 60): LiteFaceSuggestion[] {
+  const examples: { embedding: number[]; time?: number }[] = []
+  for (const item of items) {
+    for (const face of item.faces ?? []) {
+      if (face.personId !== personId || !face.confirmed) continue
+      const embedding = normalizeEmbedding(face.embedding)
+      if (embedding.length) examples.push({ embedding, time: reliableCaptureTime(item) })
+    }
+  }
+  if (examples.length === 0) return []
+  const times = examples.map((example) => example.time).filter((time): time is number => typeof time === 'number')
+
+  const suggestions: LiteFaceSuggestion[] = []
+  for (const item of items) {
+    const time = reliableCaptureTime(item)
+    if (times.length > 0 && typeof time === 'number' && !times.some((t) => Math.abs(t - time) <= SUGGESTION_SESSION_WINDOW_MS)) continue
+    for (const face of item.faces ?? []) {
+      if (face.confirmed || face.excludedPersonIds?.includes(personId) || !usableForSuggestion(item, face)) continue
+      const embedding = normalizeEmbedding(face.embedding)
+      if (!embedding.length) continue
+      let best = -1
+      for (const example of examples) {
+        if (example.embedding.length === embedding.length) best = Math.max(best, cosineSimilarity(embedding, example.embedding))
+      }
+      const burst = typeof time === 'number' && examples.some((example) => typeof example.time === 'number' && Math.abs(example.time - time) <= SUGGESTION_BURST_WINDOW_MS)
+      const score = best + (burst ? 0.08 : 0)
+      if (score < SUGGESTION_MIN_SCORE) continue
+      suggestions.push({ ref: faceReference(item.id, face.id), item, face, percent: Math.round(Math.min(1, Math.max(0, score)) * 100), burst })
+    }
+  }
+  return suggestions.sort((a, b) => b.percent - a.percent || a.ref.localeCompare(b.ref)).slice(0, limit)
+}
+
+// File dates often change when folders are copied, so only real capture dates count as "taken at".
+function reliableCaptureTime(item: LiteMediaRecord): number | undefined {
+  return item.captureTimeSource === 'file' ? undefined : item.effectiveCaptureTime
+}
+
+function usableForSuggestion(item: LiteMediaRecord, face: LiteFaceObservation): boolean {
+  if (face.confidence < 0.5) return false
+  const [, , width, height] = face.box
+  const short = Math.min(width, height)
+  // Boxes may be stored as pixels or as 0–1 fractions of the photo.
+  const pixels = short <= 1 ? short * Math.min(item.width ?? 0, item.height ?? 0) : short
+  return pixels === 0 ? true : pixels >= SUGGESTION_MIN_FACE_PIXELS
 }
 
 export function peoplePhotoCounts(items: LiteMediaRecord[]): Map<string, number> {

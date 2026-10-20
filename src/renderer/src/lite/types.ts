@@ -37,6 +37,8 @@ export interface LiteFaceObservation {
   confidence: number
   embedding: number[]
   personId?: string
+  /** Set when the user has confirmed this face belongs to personId. Confirmed faces are never moved by re-clustering. */
+  confirmed?: boolean
   excludedPersonIds?: string[]
 }
 

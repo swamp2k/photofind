@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { LocalFaceCrop } from './LocalFaceCrop'
-import { faceReference, peoplePhotoCounts, rarePersonPairs } from './people'
+import { faceReference, peoplePhotoCounts, rarePersonPairs, suggestFacesForPerson } from './people'
 import { PhotoLightbox } from './PhotoLightbox'
 import { PhotoSelectionBar, useExplorerPhotoSelection } from './PhotoSelection'
 import { SourcePath } from './SourcePathView'
@@ -18,6 +18,7 @@ interface PeoplePanelProps {
   onMerge(sourceId: string, targetId: string): void
   onSplit(faceRef: string): void
   onExclude(faceRef: string, personId: string): void
+  onConfirm(faceRef: string, personId: string): void
   onReview(item: LiteMediaRecord, state: LiteReviewState): void
 }
 
@@ -46,6 +47,8 @@ export function PeoplePanel(props: PeoplePanelProps): JSX.Element {
   const selectedPhotoItems = useMemo(() => uniquePhotos(selectedFaces), [selectedFaces])
   const selection = useExplorerPhotoSelection(selectedPhotoItems)
   const pairs = useMemo(() => rarePersonPairs(props.items).filter((pair) => pair.photoCount <= 3).slice(0, 8), [props.items])
+  const confirmedCount = selectedFaces.filter((entry) => entry.face.confirmed).length
+  const suggestions = useMemo(() => selected ? suggestFacesForPerson(props.items, selected.id) : [], [props.items, selected?.id])
   const peopleById = useMemo(() => new Map(props.people.map((person) => [person.id, person])), [props.people])
 
   useEffect(() => {
@@ -88,6 +91,14 @@ export function PeoplePanel(props: PeoplePanelProps): JSX.Element {
               <div className="person-editor"><label><span>Merge this cluster into</span><select value={mergeTarget} onChange={(event) => setMergeTarget(event.target.value)}><option value="">Choose another person…</option>{props.people.filter((person) => person.id !== selected.id && !person.ignored).map((person) => <option key={person.id} value={person.id}>{personLabel(person)} · {person.faceRefs.length} faces</option>)}</select></label><button type="button" disabled={!mergeTarget} onClick={() => { if (mergeTarget && window.confirm(`Merge “${personLabel(selected)}” into “${personLabel(peopleById.get(mergeTarget)!)}”? Every assignment remains local and can later be split again.`)) props.onMerge(selected.id, mergeTarget) }}>Merge</button></div>
               <button type="button" className={selected.ignored ? '' : 'danger-outline'} onClick={() => props.onIgnore(selected.id, !selected.ignored)}>{selected.ignored ? 'Restore person' : 'Ignore this person'}</button>
 
+              <div className="person-face-list-head"><strong>Suggested matches</strong><span>{confirmedCount === 0 ? 'Confirm 3–5 clear faces below with “Yes, this is them”. The app then suggests matches from photos taken around the same time.' : `Based on ${confirmedCount} confirmed face${confirmedCount === 1 ? '' : 's'}. Nothing is labelled until you click Yes. Tiny or blurry faces are skipped.`}</span></div>
+              {confirmedCount > 0 && (suggestions.length === 0 ? <p className="muted">No more likely matches found.</p> : <div className="person-face-list">
+                {suggestions.map((suggestion) => <article className="person-face-entry" key={suggestion.ref}>
+                  <div className="person-face-crop"><LocalFaceCrop item={suggestion.item} face={suggestion.face} sessionFile={props.sessionFiles.get(suggestion.item.id)} size={110} /></div>
+                  <div><strong>{suggestion.percent}% likely{suggestion.burst ? ' · same burst' : ''}</strong><SourcePath item={suggestion.item} compact /><div className="person-face-actions"><button type="button" onClick={() => props.onConfirm(suggestion.ref, selected.id)}>Yes, this is them</button><button type="button" className="danger-outline" onClick={() => props.onExclude(suggestion.ref, selected.id)}>No</button></div></div>
+                </article>)}
+              </div>)}
+
               <div className="person-face-list-head"><strong>Faces in this cluster</strong><span>Correct false matches directly. “Not this person” becomes a persistent negative constraint.</span></div>
               <PhotoSelectionBar items={selection.selectedItems} onReview={(targets, state) => targets.forEach((item) => props.onReview(item, state))} onClear={selection.clear} />
               <div className="person-face-list">
@@ -99,7 +110,7 @@ export function PeoplePanel(props: PeoplePanelProps): JSX.Element {
                       <LocalFaceCrop item={entry.item} face={entry.face} sessionFile={props.sessionFiles.get(entry.item.id)} size={110} />
                       {photoSelected && <span className="selection-check">✓</span>}
                     </button>
-                    <div><strong>{entry.item.name}</strong><SourcePath item={entry.item} compact /><div className="person-face-actions"><button type="button" className="quiet-button" disabled={selected.faceRefs.length <= 1} onClick={() => props.onSplit(entry.ref)}>Split into new person</button><button type="button" className="danger-outline" onClick={() => props.onExclude(entry.ref, selected.id)}>Not this person</button></div></div>
+                    <div><strong>{entry.item.name}</strong><SourcePath item={entry.item} compact /><div className="person-face-actions">{entry.face.confirmed ? <span className="muted">✓ Confirmed</span> : <button type="button" className="quiet-button" onClick={() => props.onConfirm(entry.ref, selected.id)}>Yes, this is them</button>}<button type="button" className="quiet-button" disabled={selected.faceRefs.length <= 1} onClick={() => props.onSplit(entry.ref)}>Split into new person</button><button type="button" className="danger-outline" onClick={() => props.onExclude(entry.ref, selected.id)}>Not this person</button></div></div>
                   </article>
                 })}
               </div>

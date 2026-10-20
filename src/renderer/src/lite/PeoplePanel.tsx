@@ -15,6 +15,7 @@ interface PeoplePanelProps {
   onMerge(sourceId: string, targetId: string): void
   onSplit(faceRef: string): void
   onExclude(faceRef: string, personId: string): void
+  onConfirm(faceRef: string, personId: string): void
   onReview(item: LiteMediaRecord, state: LiteReviewState): void
 }
 
