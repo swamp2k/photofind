@@ -59,3 +59,34 @@ describe('technical quality scoring', () => {
     expect(qualityTierForScore(47)).toBe('weak')
   })
 })
+
+describe('underwater photos', () => {
+  const murky: Partial<LiteQualityMeasurements> = {
+    meanLuminance: 0.36,
+    luminanceStdDev: 0.09,
+    laplacianMeanAbs: 6,
+    horizontalGradient: 6,
+    verticalGradient: 6
+  }
+
+  it('recognizes a strong blue/green cast as underwater and grades it more gently', () => {
+    const dry = scoreQuality(sample(murky))
+    const wet = scoreQuality(sample({ ...murky, waterCastFraction: 0.9, redDeficit: 0.5 }))
+    expect(dry.underwater).toBe(false)
+    expect(wet.underwater).toBe(true)
+    expect(wet.qualityScore).toBeGreaterThan(dry.qualityScore)
+    expect(wet.qualityReasons[0]).toMatch(/Underwater/)
+  })
+
+  it('does not treat a photo with only some blue sky as underwater', () => {
+    expect(scoreQuality(sample({ waterCastFraction: 0.4, redDeficit: 0.35 })).underwater).toBe(false)
+  })
+
+  it('still ranks a blurry underwater photo well below a sharp one', () => {
+    const water = { waterCastFraction: 0.9, redDeficit: 0.5 }
+    const blurry = scoreQuality(sample({ ...murky, ...water, laplacianMeanAbs: 0.4 }))
+    const sharp = scoreQuality(sample({ ...murky, ...water }))
+    expect(sharp.qualityScore - blurry.qualityScore).toBeGreaterThanOrEqual(20)
+    expect(blurry.qualityReasons).toContain('Soft / low fine detail')
+  })
+})

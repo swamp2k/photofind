@@ -43,6 +43,7 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
   const good = useMemo(() => analyzed.filter((item) => item.qualityTier === 'good').length, [analyzed])
   const okay = useMemo(() => analyzed.filter((item) => item.qualityTier === 'okay').length, [analyzed])
   const weak = useMemo(() => analyzed.filter((item) => item.qualityTier === 'weak').length, [analyzed])
+  const underwater = useMemo(() => analyzed.filter((item) => item.underwater === true).length, [analyzed])
   const average = useMemo(() => analyzed.length > 0 ? Math.round(analyzed.reduce((sum, item) => sum + (item.qualityScore ?? 0), 0) / analyzed.length) : null, [analyzed])
   const contentById = useMemo(() => {
     const map = new Map<string, ReturnType<typeof classifyLikelyNonPhoto>>()
@@ -127,16 +128,17 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
       )}
 
       <div className="quality-stats">
-        <Summary label="Analyzed" value={analyzed.length} detail={`of ${photos.length.toLocaleString()} photos`} />
-        <Summary label="Great" value={great} />
-        <Summary label="Good" value={good} />
-        <Summary label="Okay" value={okay} />
+        <Summary label="Analyzed" value={analyzed.length} detail={`of ${photos.length.toLocaleString()} photos`} filter="all" active={qualityFilter} onPick={setQualityFilter} />
+        <Summary label="Great" value={great} filter="great" active={qualityFilter} onPick={setQualityFilter} />
+        <Summary label="Good" value={good} filter="good" active={qualityFilter} onPick={setQualityFilter} />
+        <Summary label="Okay" value={okay} filter="okay" active={qualityFilter} onPick={setQualityFilter} />
         <Summary label="Average score" value={average} suffix="/100" />
-        <Summary label="Weak" value={weak} warn={weak > 0} />
-        <Summary label="Failures" value={failed} warn={failed > 0} />
+        <Summary label="Weak" value={weak} warn={weak > 0} filter="weak" active={qualityFilter} onPick={setQualityFilter} />
+        <Summary label="Underwater" value={underwater} filter="underwater" active={qualityFilter} onPick={setQualityFilter} />
+        <Summary label="Failures" value={failed} warn={failed > 0} filter="failed" active={qualityFilter} onPick={setQualityFilter} />
       </div>
 
-      {analyzed.length === 0 ? (
+      {analyzed.length === 0 && failed === 0 ? (
         <div className="quality-empty">
           <h3>Measure before ranking</h3>
           <p>Run quality analysis once. The derived scores stay in your local browser index and unchanged photos are reused later.</p>
@@ -153,6 +155,8 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
                 <option value="weak">Weak only</option>
                 <option value="good-or-better">Good or better</option>
                 <option value="okay-or-better">Okay or better</option>
+                <option value="underwater">Underwater</option>
+                <option value="failed">Failed to analyze</option>
               </select>
             </label>
             <label>Rank by
@@ -214,7 +218,7 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
                         <Metric label="Resolution" value={item.resolutionScore} />
                         <Metric label="Blur risk" value={item.motionBlurRisk} invert />
                       </div>
-                      <div className="quality-reasons">{(item.qualityReasons ?? []).slice(0, 3).map((reason) => <span key={reason}>{reason}</span>)}</div>
+                      <div className="quality-reasons">{(item.qualityReasons ?? (item.qualityError ? [item.qualityError] : [])).slice(0, 3).map((reason) => <span key={reason}>{reason}</span>)}</div>
                     </button>
                     <ReviewControls item={item} compact onReview={onReview} />
                   </article>
@@ -241,8 +245,23 @@ export function QualityPanel({ items, sessionFiles, progress, busy, reconnectReq
   )
 }
 
-function Summary({ label, value, detail, suffix = '', warn = false }: { label: string; value: number | null; detail?: string; suffix?: string; warn?: boolean }): JSX.Element {
-  return <div className={warn ? 'quality-summary warn' : 'quality-summary'}><span>{label}</span><strong>{value === null ? '–' : `${value.toLocaleString()}${suffix}`}</strong>{detail && <small>{detail}</small>}</div>
+interface SummaryProps {
+  label: string
+  value: number | null
+  detail?: string
+  suffix?: string
+  warn?: boolean
+  /** When set, clicking the card shows only the photos it counts. */
+  filter?: LiteQualityFilter
+  active?: LiteQualityFilter
+  onPick?(filter: LiteQualityFilter): void
+}
+
+function Summary({ label, value, detail, suffix = '', warn = false, filter, active, onPick }: SummaryProps): JSX.Element {
+  const classes = ['quality-summary', warn ? 'warn' : '', filter ? 'clickable' : '', filter && filter === active ? 'active' : ''].filter(Boolean).join(' ')
+  const body = <><span>{label}</span><strong>{value === null ? '–' : `${value.toLocaleString()}${suffix}`}</strong>{detail && <small>{detail}</small>}</>
+  if (!filter || !onPick) return <div className={classes}>{body}</div>
+  return <button type="button" className={classes} aria-pressed={filter === active} title={`Show ${label.toLowerCase()} photos`} onClick={() => onPick(filter)}>{body}</button>
 }
 
 function Metric({ label, value, invert = false }: { label: string; value?: number; invert?: boolean }): JSX.Element {

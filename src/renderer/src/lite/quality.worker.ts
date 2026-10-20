@@ -74,6 +74,9 @@ function measureBitmap(bitmap: ImageBitmap): LiteQualityMeasurements {
   let sumSquared = 0
   let shadowPixels = 0
   let highlightPixels = 0
+  let waterPixels = 0
+  let redSum = 0
+  let greenBlueSum = 0
 
   for (let index = 0; index < gray.length; index += 1) {
     const offset = index * 4
@@ -83,6 +86,12 @@ function measureBitmap(bitmap: ImageBitmap): LiteQualityMeasurements {
     sumSquared += luminance * luminance
     if (luminance <= 8) shadowPixels += 1
     if (luminance >= 247) highlightPixels += 1
+    const red = rgba[offset]
+    const greenBlue = Math.max(rgba[offset + 1], rgba[offset + 2])
+    redSum += red
+    greenBlueSum += greenBlue
+    // Water absorbs red light first, so underwater pixels are clearly more green/blue than red.
+    if (greenBlue > 24 && red < greenBlue * 0.65) waterPixels += 1
   }
 
   const pixelCount = gray.length
@@ -114,7 +123,9 @@ function measureBitmap(bitmap: ImageBitmap): LiteQualityMeasurements {
     highlightClipFraction: highlightPixels / pixelCount,
     laplacianMeanAbs: laplacianTotal / denominator,
     horizontalGradient: horizontalGradientTotal / denominator,
-    verticalGradient: verticalGradientTotal / denominator
+    verticalGradient: verticalGradientTotal / denominator,
+    waterCastFraction: waterPixels / pixelCount,
+    redDeficit: greenBlueSum > 0 ? Math.max(0, 1 - redSum / greenBlueSum) : 0
   }
 }
 

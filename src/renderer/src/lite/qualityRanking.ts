@@ -1,7 +1,7 @@
 import type { LiteMediaRecord, LiteQualityTier } from './types'
 
 export type LiteQualitySort = 'overall' | 'sharpness' | 'exposure' | 'resolution'
-export type LiteQualityFilter = 'all' | LiteQualityTier | 'good-or-better' | 'okay-or-better'
+export type LiteQualityFilter = 'all' | LiteQualityTier | 'good-or-better' | 'okay-or-better' | 'underwater' | 'failed'
 
 export function sortByTechnicalQuality(items: LiteMediaRecord[], sort: LiteQualitySort = 'overall'): LiteMediaRecord[] {
   return [...items].sort((left, right) => {
@@ -25,8 +25,10 @@ export function filterMinimumQuality(items: LiteMediaRecord[], minimumScore: num
 }
 
 export function filterQuality(items: LiteMediaRecord[], filter: LiteQualityFilter): LiteMediaRecord[] {
+  if (filter === 'failed') return items.filter((item) => item.kind === 'image' && item.qualityStatus === 'failed')
   const analyzed = items.filter((item) => item.qualityStatus === 'ready')
   if (filter === 'all') return analyzed
+  if (filter === 'underwater') return analyzed.filter((item) => item.underwater === true)
   if (filter === 'good-or-better') return analyzed.filter((item) => item.qualityTier === 'good' || item.qualityTier === 'great')
   if (filter === 'okay-or-better') return analyzed.filter((item) => item.qualityTier === 'okay' || item.qualityTier === 'good' || item.qualityTier === 'great')
   return analyzed.filter((item) => item.qualityTier === filter)

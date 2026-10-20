@@ -88,6 +88,7 @@ export interface LiteMediaRecord {
   laplacianMeanAbs?: number
   horizontalGradient?: number
   verticalGradient?: number
+  underwater?: boolean
   qualityReasons?: string[]
   qualityError?: string
   qualityAnalyzedAt?: number
@@ -276,6 +277,10 @@ export interface LiteQualityMeasurements {
   laplacianMeanAbs: number
   horizontalGradient: number
   verticalGradient: number
+  /** Share of pixels with the blue/green cast typical of underwater photos (0–1). Optional for older results. */
+  waterCastFraction?: number
+  /** How much weaker red is than green/blue across the frame (0–1). */
+  redDeficit?: number
 }
 
 export interface LiteReviewCounts {

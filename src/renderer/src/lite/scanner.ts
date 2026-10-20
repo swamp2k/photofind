@@ -234,6 +234,7 @@ function copyPersistentAndDerivedState(fresh: LiteMediaRecord, previous: LiteMed
     laplacianMeanAbs: previous.laplacianMeanAbs,
     horizontalGradient: previous.horizontalGradient,
     verticalGradient: previous.verticalGradient,
+    underwater: previous.underwater,
     qualityReasons: previous.qualityReasons,
     qualityError: previous.qualityError,
     qualityAnalyzedAt: previous.qualityAnalyzedAt,

@@ -7,12 +7,17 @@ export interface LiteQualityScoreResult {
   exposureScore: number
   resolutionScore: number
   motionBlurRisk: number
+  underwater: boolean
   qualityReasons: string[]
 }
 
 export function scoreQuality(measurements: LiteQualityMeasurements): LiteQualityScoreResult {
-  const sharpnessScore = roundScore(clamp(Math.log2(1 + Math.max(0, measurements.laplacianMeanAbs)) * 22, 0, 100))
-  const exposureScore = roundScore(scoreExposure(measurements))
+  const underwater = isLikelyUnderwater(measurements)
+  // Water scatters light, so even a well-focused underwater shot has less fine detail and contrast.
+  // Judge those photos against other underwater photos rather than against dry-land shots.
+  const detail = Math.max(0, measurements.laplacianMeanAbs) * (underwater ? UNDERWATER_DETAIL_BOOST : 1)
+  const sharpnessScore = roundScore(clamp(Math.log2(1 + detail) * 22, 0, 100))
+  const exposureScore = roundScore(scoreExposure(measurements, underwater))
   const resolutionScore = roundScore(scoreResolution(measurements.width, measurements.height))
   const motionBlurRisk = roundScore(scoreMotionBlurRisk(measurements, sharpnessScore))
 
@@ -30,7 +35,8 @@ export function scoreQuality(measurements: LiteQualityMeasurements): LiteQuality
     exposureScore,
     resolutionScore,
     motionBlurRisk,
-    qualityReasons: buildReasons(measurements, sharpnessScore, exposureScore, resolutionScore, motionBlurRisk)
+    underwater,
+    qualityReasons: buildReasons(measurements, underwater, sharpnessScore, exposureScore, resolutionScore, motionBlurRisk)
   }
 }
 
@@ -48,11 +54,21 @@ export function qualityTierLabel(tier: LiteQualityTier): string {
   return 'Weak'
 }
 
-function scoreExposure(measurements: LiteQualityMeasurements): number {
-  const brightnessPenalty = Math.abs(measurements.meanLuminance - 0.5) * 88
+const UNDERWATER_DETAIL_BOOST = 1.8
+
+/** Most of the frame has the strong blue/green cast that water gives (red light is absorbed first). */
+export function isLikelyUnderwater(measurements: LiteQualityMeasurements): boolean {
+  return (measurements.waterCastFraction ?? 0) >= 0.7 && (measurements.redDeficit ?? 0) >= 0.3
+}
+
+function scoreExposure(measurements: LiteQualityMeasurements, underwater = false): number {
+  // Underwater photos are naturally a bit darker and flatter; only penalize the extremes.
+  const target = underwater ? 0.42 : 0.5
+  const brightnessPenalty = Math.max(0, Math.abs(measurements.meanLuminance - target) - (underwater ? 0.08 : 0)) * 88
   const clippingPenalty = Math.min(58, (measurements.shadowClipFraction + measurements.highlightClipFraction) * 175)
-  const contrastPenalty = measurements.luminanceStdDev < 0.12
-    ? (0.12 - measurements.luminanceStdDev) * 220
+  const minimumContrast = underwater ? 0.07 : 0.12
+  const contrastPenalty = measurements.luminanceStdDev < minimumContrast
+    ? (minimumContrast - measurements.luminanceStdDev) * 220
     : 0
   return clamp(100 - brightnessPenalty - clippingPenalty - contrastPenalty, 0, 100)
 }
@@ -72,12 +88,14 @@ function scoreMotionBlurRisk(measurements: LiteQualityMeasurements, sharpnessSco
 
 function buildReasons(
   measurements: LiteQualityMeasurements,
+  underwater: boolean,
   sharpnessScore: number,
   exposureScore: number,
   resolutionScore: number,
   motionBlurRisk: number
 ): string[] {
   const reasons: string[] = []
+  if (underwater) reasons.push('Underwater — judged on a water-adjusted scale')
 
   if (sharpnessScore >= 78) reasons.push('Strong fine detail')
   else if (sharpnessScore <= 42) reasons.push('Soft / low fine detail')
