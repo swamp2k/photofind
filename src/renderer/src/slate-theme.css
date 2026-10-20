@@ -1,0 +1,29 @@
+/* Slate theme: mid-tone blue-grey, tighter spacing. Loaded last so it wins. */
+:root {
+  --bg: #4b5462;
+  --panel: #454d5a;
+  --panel-2: #59636f;
+  --panel-3: #5f6976;
+  --border: #5f6976;
+  --border-strong: #75808e;
+  --muted: #e1e7ef;
+  --text: #ffffff;
+  --accent: #86c8ff;
+  --accent-strong: #5fb2f5;
+  --accent-soft: rgba(134, 200, 255, .16);
+  --radius: 6px;
+  --radius-small: 4px;
+  --pf-topbar-height: 52px;
+}
+body { background: var(--bg); }
+button { border-radius: 4px; }
+button:hover:not(:disabled) { transform: none; }
+.pf-topbar { height: var(--pf-topbar-height); gap: 12px; padding: 0 12px; background: #424a57; backdrop-filter: none; }
+
+/* Phones: stop the nav row from stretching the page wider than the screen. */
+@media (max-width: 860px) {
+  .pf-layout { grid-template-columns: minmax(0, 1fr); }
+  .pf-sidebar, .pf-main { min-width: 0; }
+  .pf-topbar { height: auto; padding: 8px 12px; }
+}
+input::placeholder { color: #c9d2de; opacity: 1; }
