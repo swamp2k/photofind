@@ -110,9 +110,9 @@ export function ComparePanel({ items, groups, sessionFiles, onReview, onPickBest
       {candidates.length > 8 && <p className="muted">Showing the first 8 of {candidates.length} related photos in this group. The larger preview can navigate the complete group.</p>}
 
       <div className="compare-actions">
-        <button type="button" className="decision reject" disabled={!selected} onClick={() => selected && onReview(selected, 'reject')}>× Reject selected</button>
-        <button type="button" className="decision maybe" disabled={!selected} onClick={() => selected && onReview(selected, 'maybe')}>? Maybe selected</button>
         <button type="button" className="decision keep" disabled={!selected} onClick={() => selected && onReview(selected, 'keep')}>✓ Keep selected</button>
+        <button type="button" className="decision maybe" disabled={!selected} onClick={() => selected && onReview(selected, 'maybe')}>? Maybe selected</button>
+        <button type="button" className="decision reject" disabled={!selected} onClick={() => selected && onReview(selected, 'reject')}>× Reject selected</button>
         <button type="button" className="primary" disabled={!selected || candidates.length < 2} onClick={() => {
           if (selected && window.confirm(`Keep “${selected.name}” and reject the other ${candidates.length - 1} photos in this group? Review decisions remain reversible.`)) onPickBest(selected, candidates.filter((item) => item.id !== selected.id))
         }}>Keep one · reject others</button>

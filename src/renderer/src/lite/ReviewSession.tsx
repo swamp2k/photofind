@@ -98,9 +98,9 @@ export function ReviewSession({ title, items, sessionFiles, onReview, onExit }: 
           </div>
 
           <div className="review-decision-bar">
-            <button type="button" className="decision reject" onClick={() => decide('reject')}><span>×</span><strong>Reject</strong><kbd>{bindings.reject.toUpperCase()}</kbd></button>
-            <button type="button" className="decision maybe" onClick={() => decide('maybe')}><span>?</span><strong>Maybe</strong><kbd>{bindings.maybe.toUpperCase()}</kbd></button>
             <button type="button" className="decision keep" onClick={() => decide('keep')}><span>✓</span><strong>Keep</strong><kbd>{bindings.keep.toUpperCase()}</kbd></button>
+            <button type="button" className="decision maybe" onClick={() => decide('maybe')}><span>?</span><strong>Maybe</strong><kbd>{bindings.maybe.toUpperCase()}</kbd></button>
+            <button type="button" className="decision reject" onClick={() => decide('reject')}><span>×</span><strong>Reject</strong><kbd>{bindings.reject.toUpperCase()}</kbd></button>
           </div>
 
           <div className="review-nearby" aria-label="Nearby photos">
