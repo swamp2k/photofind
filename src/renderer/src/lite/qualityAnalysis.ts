@@ -2,7 +2,7 @@ import { startGlobalProcess } from './globalProcesses'
 import { scoreQuality } from './quality'
 import type { LiteMediaRecord, LiteQualityMeasurements, LiteQualityProgress } from './types'
 
-export const LITE_QUALITY_VERSION = 1
+export const LITE_QUALITY_VERSION = 2
 const PERSIST_BATCH_SIZE = 16
 
 interface WorkerResult {
@@ -110,6 +110,7 @@ function applyWorkerResult(item: LiteMediaRecord, fingerprint: string, result: W
     laplacianMeanAbs: measurements.laplacianMeanAbs,
     horizontalGradient: measurements.horizontalGradient,
     verticalGradient: measurements.verticalGradient,
+    underwater: score.underwater,
     qualityReasons: score.qualityReasons,
     qualityError: undefined,
     qualityAnalyzedAt: Date.now()
@@ -128,6 +129,7 @@ function failedRecord(item: LiteMediaRecord, fingerprint: string, error: string)
     exposureScore: undefined,
     resolutionScore: undefined,
     motionBlurRisk: undefined,
+    underwater: undefined,
     qualityReasons: undefined,
     qualityError: error,
     qualityAnalyzedAt: Date.now()
